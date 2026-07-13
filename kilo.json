@@ -1,0 +1,15 @@
+{
+  "$schema": "https://app.kilo.ai/config.json",
+  "mcp": {
+    "figma": {
+      "type": "local",
+      "command": ["npx", "-y", "@modelcontextprotocol/server-figma"],
+      "environment": {
+        "FIGMA_PERSONAL_ACCESS_TOKEN": "${FIGMA_TOKEN}"
+      },
+      "enabled": true,
+      "timeout": 30000
+    }
+  }
+}
+
