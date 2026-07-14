@@ -88,23 +88,25 @@
 - [ ] `components/seo/json-ld-product.tsx`
 
 ### F2. Components BỔ SUNG từ analysis Laurelle/Lillicoco (xem `analysis.md` §5.1)
-- [ ] `components/layout/announcement-bar.tsx` — top bar xoay vòng (sale, freeship, ...)
-- [ ] `components/home/trust-strip.tsx` — 4 trust icons (chính hãng / 10' hold / freeship / bảo mật)
-- [ ] `components/home/tier-showcase.tsx` — SSS/SS/S explainer (điểm khác biệt EV)
+- [x] `components/layout/announcement-bar.tsx` — top bar xoay vòng (sale, freeship, ...)
+- [x] `components/home/trust-strip.tsx` — 4 trust icons (chính hãng / 10' hold / freeship / bảo mật)
+- [x] `components/home/tier-showcase.tsx` — SSS/SS/S explainer (điểm khác biệt EV)
 - [ ] `components/home/latest-drops.tsx` — pattern Lillicoco (collection có launch_at)
 - [ ] `components/home/newsletter-popup.tsx` — modal sau 30s
-- [ ] `components/product/product-count.tsx` — "Hiển thị 12/45 sản phẩm"
-- [ ] `components/product/product-breadcrumb.tsx`
+- [x] `components/product/product-count.tsx` (tích hợp trong `/san-pham`)
+- [x] `components/product/product-breadcrumb.tsx` (tích hợp trong PDP + PLP)
 - [ ] `components/product/recently-viewed.tsx` — 6 sản phẩm vừa xem
 - [ ] `components/product/zoom-image.tsx` — hover zoom chi tiết
 - [ ] `components/product/product-accordion.tsx` — Shipping / Returns / Care
 - [ ] `components/ui/wishlist-button.tsx` — heart icon, localStorage
-- [ ] `components/ui/newsletter-form.tsx`
+- [x] `components/product/filter-sidebar.tsx` — sidebar với checkbox + price range (Lillicoco pattern)
+- [x] `components/product/sort-dropdown.tsx` — sort client component
+- [x] `components/product/active-filters.tsx` — chips filter active
 - [ ] `components/care/care-guide.tsx`
 - [ ] `components/care/authentication-guide.tsx`
-- [ ] Update `product-card.tsx` — thêm hover swap ảnh phụ
+- [x] Update `product-card.tsx` — hover swap ảnh phụ
 - [ ] Update `product-gallery.tsx` — thêm zoom modal
-- [ ] Update `navbar.tsx` — nav structure mới (§16.1 flows.md)
+- [x] Update `navbar.tsx` — nav structure mới (§16.1 flows.md)
 
 ### G. Hooks
 - [ ] `hooks/use-cart.ts` — Zustand store: items, expiresAt, total

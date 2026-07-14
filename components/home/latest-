@@ -1,0 +1,131 @@
+import Link from 'next/link';
+import { formatVND } from '@/lib/utils';
+
+/* — Product card matching Figma design (image on top, info below, badges on image) — */
+interface FigmaProduct {
+  title: string;
+  price: number;
+  image: string;
+  tier?: 'SSS' | 'SS' | 'S';
+  isNew?: boolean;
+  isSoldOut?: boolean;
+}
+
+const PRODUCTS: FigmaProduct[] = [
+  {
+    title: 'Brooch Kim Cương Art Deco',
+    price: 45_000_000,
+    image: '/images/home/product-1-4a0be7.png',
+    tier: 'SSS',
+    isNew: true,
+  },
+  {
+    title: 'Nhẫn Ruby Vintage 18K',
+    price: 28_500_000,
+    image: '/images/home/product-2-4a0be7.png',
+    isSoldOut: true,
+  },
+  {
+    title: 'Bông Tai Pearl Filigree',
+    price: 12_200_000,
+    image: '/images/home/product-3-4a0be7.png',
+    tier: 'SS',
+  },
+  {
+    title: 'Dây Chuyền Sapphire Mảnh',
+    price: 8_500_000,
+    image: '/images/home/product-4-4a0be7.png',
+    tier: 'S',
+  },
+];
+
+export function LatestArrivals() {
+  return (
+    <section className="bg-surface-emerald/30 py-20">
+      <div className="px-8">
+        {/* Header row */}
+        <div className="mx-auto mb-12 flex max-w-5xl items-end justify-between">
+          <div className="flex flex-col gap-2">
+            <h2 className="font-heading text-3xl font-semibold text-text-base">
+              Si Mới Cập Bến
+            </h2>
+            <p className="font-heading text-base text-text-muted opacity-70">
+              Những hiện vật vừa được mở khóa từ kho lưu trữ
+            </p>
+          </div>
+          <Link
+            href="/san-pham?sort=newest"
+            className="border-b border-gold/40 pb-1 font-heading text-xs font-bold uppercase tracking-[0.15em] text-gold transition-colors hover:border-gold hover:text-gold-champagne"
+          >
+            Xem tất cả
+          </Link>
+        </div>
+
+        {/* Product grid — 4 columns */}
+        <div className="mx-auto flex max-w-5xl gap-6">
+          {PRODUCTS.map((product) => (
+            <ProductCard key={product.title} product={product} />
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* — Individual product card per Figma — */
+function ProductCard({ product }: { product: FigmaProduct }) {
+  return (
+    <Link
+      href="/san-pham"
+      className={`group flex w-full flex-col ${product.isSoldOut ? 'opacity-60' : ''}`}
+    >
+      {/* Info: title + price (below image per Figma) */}
+      <div className="mb-1">
+        <h3 className="font-heading text-lg font-normal leading-tight text-text-base">
+          {product.title}
+        </h3>
+      </div>
+      <div className="mb-4 flex items-baseline gap-1">
+        <span className="font-sans text-base font-normal text-gold">
+          {formatVND(product.price).replace('₫', '')}
+        </span>
+        <span className="font-sans text-xs font-normal text-gold opacity-70">VND</span>
+      </div>
+
+      {/* Image container */}
+      <div className="relative aspect-square overflow-hidden rounded bg-surface shadow-card transition-shadow group-hover:shadow-card-hover">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={product.image}
+          alt={product.title}
+          className="h-full w-full object-cover"
+        />
+
+        {/* Sold out overlay */}
+        {product.isSoldOut && (
+          <div className="absolute inset-0 flex items-center justify-center bg-background/85">
+            <span className="border-2 border-gold-champagne px-4 py-1 font-heading text-2xl font-semibold tracking-[0.2em] text-gold-champagne">
+              ĐÃ ĐƯỢC SƯU TẦM
+            </span>
+          </div>
+        )}
+
+        {/* Badges — top left */}
+        {!product.isSoldOut && (
+          <div className="absolute left-3 top-3 flex flex-col gap-2">
+            {product.tier && (
+              <span className="rounded-md border border-gold bg-background/80 px-3 py-1 font-heading text-[10px] font-normal text-gold">
+                TIER {product.tier}
+              </span>
+            )}
+            {product.isNew && (
+              <span className="rounded-md bg-gold px-3 py-1 font-heading text-[10px] font-normal text-background">
+                MỚI VỀ
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+    </Link>
+  );
+}

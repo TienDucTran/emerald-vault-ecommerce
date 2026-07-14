@@ -293,7 +293,7 @@ app/
 │   ├── page.tsx                  # TẤT CẢ COLLECTIONS
 │   └── [slug]/page.tsx           # CHI TIẾT COLLECTION
 ├── gio-hang/page.tsx             # GIỎ HÀNG (countdown lock)
-├── thu-tuc-dat-hang/page.tsx    # CHECKOUT (form tên, SĐT, địa chỉ, chọn MoMo)
+├── thanh-toan/page.tsx           # CHECKOUT (form tên, SĐT, địa chỉ, chọn MoMo)
 ├── momo/
 │   └── return/page.tsx           # RETURN URL từ MoMo (loading + redirect)
 ├── don-hang/
@@ -497,7 +497,7 @@ lib/
         │     toast: "Món đồ đã được nhả lại kho cho nhà sưu tầm khác"
         │
         └─► User click "Tiến hành đặt hàng"
-              → redirect /thu-tuc-dat-hang
+              → redirect /thanh-toan
 ```
 
 **Edge case xử lý**:
@@ -514,7 +514,7 @@ lib/
 [User ở /gio-hang → click "Đặt hàng"]
         │
         ▼
-[/thu-tuc-dat-hang/page.tsx — Client Component]
+[/thanh-toan/page.tsx — Client Component]
    <CustomerForm/> (tên, SĐT, email, tỉnh/quận, địa chỉ, ghi chú)
    <PaymentMethodSelector/> (radio: MoMo / COD)
    <OrderSummary/> (subtotal, ship, total)
@@ -683,7 +683,7 @@ export function verifyIpnSignature(body: MoMoIpnBody, secretKey: string) {
 | `add_to_cart` | User click "Giữ hàng" (legacy) | `id, name, price, quantity: 1` |
 | `lock_item_success` | Lock API 200 | `productId, price` (custom event) |
 | `lock_item_timeout` | Countdown = 0 | `productId, lockDuration` (custom event) |
-| `begin_checkout` | User vào /thu-tuc-dat-hang | `value, items[]` |
+| `begin_checkout` | User vào /thanh-toan | `value, items[]` |
 | `add_payment_info` | Chọn phương thức | `method: 'MOMO'\|'COD'` |
 | `purchase` | Order PAID (COD tạo xong / MoMo IPN resultCode=0) | `transaction_id, value, currency, items[], shipping` |
 | `view_collection` | Mount /bo-suu-tap/[slug] | `collection_id, collection_name` |
@@ -1378,4 +1378,433 @@ Row ngang dưới hero, 4 cột:
 ### 16.8. Kết quả: ưu tiên bổ sung vào todo.md
 
 Đã update sang `todo.md` phần 🟡 P1 — section F (UI/UX) bổ sung các task mới.
+
+---
+
+## 17. LUỒNG 9 — AUTO PRODUCT PIPELINE (ẢNH → AI → EXCEL → ADMIN)
+
+### 17.1. Mục tiêu
+Tự động hoá quy trình đăng sản phẩm hàng loạt cho đồ **si Nhật vintage** (mỗi món độc bản, số lượng 1):
+1. Chụp/quét ảnh sản phẩm thật
+2. AI vision (Gemini/OpenAI) tự sinh miêu tả, tên, tags, chất liệu, SEO
+3. Xuất ra **Excel** theo bộ sưu tập / theo ngày khuy kiện
+4. Import vào admin (hoặc auto-push nếu backend có sẵn)
+5. Publish lên website
+
+**Lưu ý quan trọng**: KHÔNG tự động hoá qua giao diện web ChatGPT/Gemini (dễ vỡ, vi phạm ToS, dính captcha). Gọi thẳng **API** của họ — ổn định, rẻ, không vi phạm.
+
+### 17.2. Kiến trúc tổng thể
+```
+[Smartphone / Scanner]
+   │ upload ảnh (jpg/webp, 1200x1200+)
+   ▼
+[Google Drive / Local folder]
+   │ folder structure:
+   │   /2026-07-14-khuy-kien/IMG_0001.jpg
+   │   /2026-07-14-khuy-kien/IMG_0002.jpg
+   │   /2026-07-21-vintage-summer/...
+   ▼
+[Script Node.js: scripts/ai-product-generator.ts]
+   │
+   ├── 1. Scan folder → list ảnh + collection name (từ tên folder)
+   ├── 2. Upload ảnh lên Supabase Storage trước → lấy publicUrl[]
+   │      (để script ghi URL vào Excel, không mang ảnh nhúng)
+   ├── 3. Với mỗi ảnh, gọi Vision API (Gemini 2.5 Flash / GPT-4o-mini)
+   │      prompt: structured output JSON với schema chuẩn
+   ├── 4. Validate JSON (zod schema) → retry 1 lần nếu fail
+   ├── 5. Append row vào Excel (ExcelJS), 1 file / collection
+   │      file: products-{collection-slug}-{YYYY-MM-DD}.xlsx
+   │
+   ▼
+[Excel file — người duyệt/sửa tay ~5 phút]
+   │
+   ├── Option A: Upload file vào admin form → bulk import
+   └── Option B: (sau này) Script gọi thẳng API /api/admin/products/bulk
+   ▼
+[Backend: POST /api/admin/products/bulk]
+   │
+   ├── 1. Validate toàn bộ payload (zod)
+   │      - SKU trùng → reject dòng đó
+   │      - Thiếu price / collection_id → reject
+   │      - collection không tồn tại → reject
+   ├── 2. Insert từng dòng, KHÔNG fail cả batch
+   │      trả về { inserted: [...], errors: [{row, reason}, ...] }
+   ├── 3. Hỗ trợ flag draft: true (tạo nháp, chờ admin publish)
+   │
+   ▼
+[Admin Products list] — review drafts → bấm Publish
+   ▼
+[Supabase products table] — status=AVAILABLE
+   ▼
+[Website tự động hiển thị qua ISR / revalidate]
+```
+
+### 17.3. Stack quyết định
+| Layer | Công nghệ | Lý do |
+|---|---|---|
+| Script | **Node.js + TypeScript** | Cùng stack với Next.js, dùng lại types/zod |
+| AI Vision | **Gemini 2.5 Flash** (default, FREE tier) | 15 RPM, 500 RPD free, đủ tốt cho tiếng Việt |
+| Fallback AI | OpenAI `gpt-4o-mini` hoặc Groq `llama-3.2-90b-vision` | Khi Gemini hết quota |
+| Excel | **ExcelJS** (Node) | Hỗ trợ style, formula, multi-sheet |
+| Image upload | Supabase Storage (`admin-uploads` bucket) | Tận dụng infra hiện có |
+| Trigger | Manual CLI (MVP) → sau này: watch folder / cron / webhook Drive | Linh hoạt theo nhu cầu |
+
+### 17.4. Cấu trúc folder ảnh
+```
+/inbox/
+├── 2026-07-14-khuy-kien/
+│   ├── IMG_0001.jpg           # ảnh 1
+│   ├── IMG_0002.jpg           # ảnh 2
+│   └── notes.md               # optional: ghi chú tay (giá gốc, nguồn)
+├── 2026-07-21-vintage-summer/
+│   └── ...
+└── _archive/                  # đã xử lý xong
+```
+
+**Quy ước đặt tên folder**:
+- Format: `YYYY-MM-DD-{collection-slug}/`
+- Collection slug khớp với bảng `collections` trong DB (tạo sẵn hoặc auto-create)
+
+### 17.5. Script AI Generator (`scripts/ai-product-generator.ts`)
+
+```ts
+// Pseudocode
+import { GoogleGenerativeAI } from '@ai-sdk/google';
+import { generateObject } from 'ai';
+import { z } from 'zod';
+import ExcelJS from 'exceljs';
+import { createClient } from '@supabase/supabase-js';
+import { readdir, readFile } from 'fs/promises';
+import path from 'path';
+
+const ProductSchema = z.object({
+  title: z.string().max(255),                    // "Nhẫn bạc 925 cổ Nhật 1960s"
+  slug: z.string().max(255),                    // "nhan-bac-925-co-nhat-1960s-001"
+  description_short: z.string().max(160),       // SEO meta description
+  description_long: z.string(),                 // 200-400 từ, có cảm xúc retro
+  material: z.enum(['BAC_925','MA_VANG_18K','MA_VANG_24K','VANG_18K','KIM_CUONG']),
+  category: z.enum(['NHAN','DAY_CHUYEN','BONG_TAI','VONG_TAY','MAT_DAY']),
+  quality_tier: z.enum(['SSS','SS','S']),
+  era_year: z.string().optional(),              // "1960s", "Showa 35"
+  tags: z.array(z.string()).max(10),            // ["vintage", "showa", "minimalist"]
+  suggested_price_vnd: z.number().int().positive(),
+  seo_title: z.string().max(60),
+  seo_keywords: z.array(z.string()).max(8),
+});
+
+const SYSTEM_PROMPT = `
+Bạn là chuyên gia trang sức si Nhật vintage tại Emerald Vault.
+Phân tích ảnh và trả về JSON mô tả sản phẩm theo schema.
+- title: Tiếng Việt, tối đa 60 ký tự, có cảm xúc retro
+- description_long: 200-400 từ, kể chuyện về nguồn gốc/era/cảm hứng
+- material: CHỈ chọn 1 trong enum. Nếu không chắc → 'BAC_925' (mặc định an toàn)
+- suggested_price_vnd: Ước lượng theo thị trường VN hiện tại
+  - SSS (mới nguyên seal): 3.000.000 - 15.000.000
+  - SS (95% nguyên bản): 1.500.000 - 5.000.000
+  - S (trên 90% chất lượng): 500.000 - 2.000.000
+- tags: dùng cho filter, viết thường, không dấu
+- KHÔNG bịa thông tin không thấy trong ảnh
+`;
+
+async function processImage(imagePath: string, collectionSlug: string) {
+  // 1. Upload ảnh lên Supabase
+  const supabase = createClient(URL, KEY);
+  const fileName = `${collectionSlug}/${uuid()}.webp`;
+  const { data: upload } = await supabase.storage
+    .from('admin-uploads')
+    .upload(fileName, await readFile(imagePath), { contentType: 'image/webp' });
+  const imageUrl = supabase.storage.from('admin-uploads').getPublicUrl(fileName).data.publicUrl;
+
+  // 2. Gọi AI vision
+  const imageBuffer = await readFile(imagePath);
+  const { object } = await generateObject({
+    model: google('gemini-2.5-flash'),
+    schema: ProductSchema,
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'text', text: SYSTEM_PROMPT },
+        { type: 'image', image: imageBuffer },
+      ],
+    }],
+  });
+
+  return { ...object, image_url: imageUrl, source_image: path.basename(imagePath) };
+}
+
+async function main() {
+  const inboxDir = './inbox';
+  const folders = await readdir(inboxDir);
+  
+  for (const folder of folders) {
+    if (folder.startsWith('_')) continue;
+    const [date, ...slugParts] = folder.split('-').slice(0, 4); // "2026-07-14-khuy-kien"
+    const collectionSlug = slugParts.join('-');
+    const images = (await readdir(`${inboxDir}/${folder}`)).filter(f => /\.(jpe?g|png|webp)$/i.test(f));
+    
+    // Tạo Excel
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Products');
+    sheet.columns = [
+      { header: 'Title', key: 'title', width: 50 },
+      { header: 'Slug', key: 'slug', width: 40 },
+      { header: 'Material', key: 'material', width: 15 },
+      { header: 'Category', key: 'category', width: 15 },
+      { header: 'Quality Tier', key: 'quality_tier', width: 12 },
+      { header: 'Price (VND)', key: 'price', width: 15 },
+      { header: 'Description Short', key: 'description_short', width: 50 },
+      { header: 'Description Long', key: 'description_long', width: 80 },
+      { header: 'Image URL', key: 'image_url', width: 60 },
+      { header: 'Tags', key: 'tags', width: 30 },
+      { header: 'SEO Title', key: 'seo_title', width: 40 },
+      { header: 'SEO Keywords', key: 'seo_keywords', width: 30 },
+      { header: 'Source Image', key: 'source_image', width: 20 },
+    ];
+    
+    for (const img of images) {
+      try {
+        const product = await processImage(`${inboxDir}/${folder}/${img}`, collectionSlug);
+        sheet.addRow({
+          ...product,
+          price: product.suggested_price_vnd,
+          tags: product.tags.join(', '),
+          seo_keywords: product.seo_keywords.join(', '),
+        });
+        console.log(`✓ ${img} → ${product.title}`);
+      } catch (err) {
+        sheet.addRow({ title: `[ERROR] ${img}`, description_long: err.message });
+        console.error(`✗ ${img}: ${err.message}`);
+      }
+    }
+    
+    const outFile = `./outbox/products-${collectionSlug}-${date}.xlsx`;
+    await workbook.xlsx.writeFile(outFile);
+    console.log(`📄 ${outFile}`);
+  }
+}
+```
+
+### 17.6. Backend API: `POST /api/admin/products/bulk`
+
+**Request**:
+```json
+{
+  "collection_id": "uuid",
+  "default_values": {
+    "status": "AVAILABLE",
+    "is_featured": false
+  },
+  "products": [
+    {
+      "title": "Nhẫn bạc 925 cổ Nhật 1960s",
+      "slug": "nhan-bac-925-co-nhat-1960s-001",
+      "description_short": "...",
+      "description_long": "...",
+      "material": "BAC_925",
+      "category": "NHAN",
+      "quality_tier": "SSS",
+      "price": 3500000,
+      "image_url": "https://...",
+      "tags": ["vintage", "showa"],
+      "season_tags": ["VINTAGE_AUTUMN"],
+      "gallery": [],
+      "draft": true
+    }
+  ]
+}
+```
+
+**Response**:
+```json
+{
+  "inserted": [
+    { "row": 1, "id": "uuid", "slug": "..." }
+  ],
+  "errors": [
+    { "row": 3, "slug": "...", "reason": "Slug already exists" }
+  ],
+  "summary": {
+    "total": 10,
+    "inserted": 8,
+    "failed": 2
+  }
+}
+```
+
+**Validation rules** (zod schema):
+- `slug` unique (check DB trước khi insert)
+- `price` > 0
+- `material`, `category`, `quality_tier` trong enum
+- `image_url` accessible (HEAD request check 200)
+- `collection_id` tồn tại
+- Nếu `draft: true` → set `status = 'DRAFT'` (cần thêm enum)
+
+**Thêm enum**:
+```sql
+-- Trong migration 0006
+ALTER TYPE product_status_enum ADD VALUE 'DRAFT';
+```
+
+### 17.7. Admin UI: Form Import Excel
+
+**Route**: `/(admin)/dashboard/products/import`
+
+**Flow**:
+1. Upload file .xlsx (drag-drop)
+2. Parse bằng `xlsx` (SheetJS) ngay trên client
+3. Hiển thị preview table với:
+   - Dòng OK: nền xanh nhạt
+   - Dòng lỗi: nền đỏ nhạt + tooltip lý do (validate client-side trước)
+4. Dropdown chọn `collection_id` (bắt buộc)
+5. Toggle: `Save as draft` | `Publish immediately`
+6. Click "Import X products"
+7. Loading state, gọi API, hiển thị kết quả
+8. Nút "View in Products list" → chuyển trang
+
+**Component**:
+```
+components/admin/
+├── excel-uploader.tsx          # Drag-drop + parse
+├── import-preview-table.tsx    # Bảng với dòng lỗi highlight
+├── import-result-modal.tsx     # Kết quả sau khi submit
+└── bulk-import-form.tsx        # Wrapper + collection selector
+```
+
+### 17.8. Excel Template (cột chuẩn)
+
+Template file cố định, người dùng tải về từ admin → điền tay HOẶC script AI tự xuất ra:
+
+| Cột | Bắt buộc | Mô tả | Enum / Format |
+|---|---|---|---|
+| Title | ✓ | Tên sản phẩm | max 255 ký tự |
+| Slug | ✓ | URL-friendly | kebab-case, unique |
+| Material | ✓ | Chất liệu | BAC_925 \| MA_VANG_18K \| MA_VANG_24K \| VANG_18K \| KIM_CUONG |
+| Category | ✓ | Loại | NHAN \| DAY_CHUYEN \| BONG_TAI \| VONG_TAY \| MAT_DAY |
+| Quality Tier | ✓ | Phân hạng | SSS \| SS \| S |
+| Price (VND) | ✓ | Giá bán | số nguyên > 0 |
+| Description Short | | Meta description | max 160 ký tự |
+| Description Long | | Mô tả chi tiết | markdown/text |
+| Image URL | ✓ | URL public | https://... |
+| Gallery URLs | | Ảnh phụ, cách nhau dấu `;` | |
+| Tags | | Filter tags, cách nhau dấu `,` | |
+| Season Tags | | VD: SUMMER_2026, cách nhau dấu `,` | |
+| Is Featured | | Nổi bật | true \| false |
+| Era Year | | VD: 1960s, Showa 35 | optional |
+| SEO Title | | max 60 ký tự | |
+| SEO Keywords | | cách nhau dấu `,` | |
+
+### 17.9. Workflow thực tế (end-to-end)
+
+**Hàng ngày (15 phút)**:
+1. Chụp/quét ảnh sản phẩm mới (~10-20 món/ngày)
+2. Thả vào folder `/inbox/2026-07-14-khuy-kien/`
+3. Chạy CLI: `npm run ai:generate -- --collection=khuy-kien`
+4. AI xử lý xong → Excel xuất hiện ở `/outbox/`
+5. Mở Excel, duyệt/sửa giá (5-10 phút) — đây là bước QC duy nhất
+6. Vào admin → Products → Import Excel → upload → Preview → Import as draft
+7. Vào Products list, bấm "Publish All Drafts" cho collection đó
+8. Website tự động hiển thị (ISR revalidate hoặc webhook trigger)
+
+**Lưu ý quan trọng**: Bước **duyệt tay ở giữa** (Excel preview) nên giữ lại — AI viết tốt ~90% nhưng giá/tên SKU/phân loại cần mắt người xác nhận trước khi lên website.
+
+### 17.10. Lộ trình triển khai (4-5 ngày công)
+
+**Phase 1 — Backend foundation (1-2 ngày)**
+- [ ] Migration `0006_add_draft_status.sql` (thêm enum value)
+- [ ] `POST /api/admin/products/bulk` với zod validation
+- [ ] Trả về per-row result (inserted + errors)
+- [ ] Test bằng Postman/curl với payload JSON
+
+**Phase 2 — Script AI generator (1 ngày)**
+- [ ] `scripts/ai-product-generator.ts` với ExcelJS
+- [ ] Prompt template + structured output (zod schema)
+- [ ] Upload ảnh lên Supabase Storage trước
+- [ ] CLI: `npm run ai:generate`
+- [ ] Test với 5-10 ảnh thật, check output quality
+
+**Phase 3 — Admin UI (1-2 ngày)**
+- [ ] Form upload Excel + parse client-side
+- [ ] Preview table với row-level error highlight
+- [ ] Dropdown collection + toggle draft/publish
+- [ ] Submit gọi API + hiển thị kết quả
+- [ ] Nút "Download template" trong admin
+
+**Phase 4 — Polish (optional)**
+- [ ] Auto-publish flow (bỏ qua Excel, gọi API trực tiếp)
+- [ ] Watch folder (chokidar) thay vì manual CLI
+- [ ] Google Drive API integration (auto-pull ảnh mới)
+- [ ] Webhook revalidate sau khi bulk import xong
+
+### 17.11. Dependencies cần cài
+```bash
+# AI providers (chọn 1 hoặc cài hết để fallback)
+npm i @ai-sdk/google                    # Gemini - FREE tier (khuyến nghị)
+npm i @ai-sdk/openai                    # OpenAI - trả phí
+npm i ai                                # Core AI SDK
+
+# Excel
+npm i exceljs                           # Server-side (Node script)
+npm i xlsx                              # Client-side (admin parse)
+
+# Image processing (optional - resize trước khi upload)
+npm i sharp                             # Compress + convert to webp
+```
+
+### 17.12. Env vars thêm
+```bash
+# AI provider (đã có sẵn trong §15.15)
+GOOGLE_AI_API_KEY=
+AI_PRIMARY=gemini
+
+# Storage bucket mới
+ADMIN_UPLOADS_BUCKET=admin-uploads
+```
+
+### 17.13. Cost estimate
+
+**Gemini 2.5 Flash (free tier)**:
+- 15 RPM, 1M TPM, 500 RPD
+- 1 ảnh ~1-2K tokens input (image) + ~500 tokens output (JSON)
+- → **~300-400 ảnh/ngày miễn phí** (giới hạn 500 RPD)
+- Đủ dùng cho batch 10-20 sản phẩm/ngày
+
+**Nếu vượt free tier** (trả phí):
+- $0.075/1M input tokens, $0.30/1M output tokens
+- 100 ảnh/ngày × 2K tokens = 200K input + 50K output
+- → ~$0.015 input + $0.015 output = **~$0.03/ngày = $1/tháng**
+
+**Rẻ hơn cà phê** — không phải lo về cost.
+
+### 17.14. Edge cases & lưu ý
+
+- **AI trả về JSON không hợp lệ**: retry 1 lần với prompt "Please return valid JSON only". Nếu vẫn fail → ghi row `[ERROR]` vào Excel để xử lý tay.
+- **Slug trùng**: tự động append `-001`, `-002` nếu detect trùng.
+- **Ảnh mờ/chất lượng kém**: AI có thể từ chối hoặc trả quality_tier thấp → admin review trong Excel.
+- **Rate limit**: script delay 1s giữa các request để tránh hit 15 RPM của Gemini free.
+- **Collection chưa tồn tại**: form admin KHÔNG cho phép tạo collection mới kèm import. Phải tạo collection trước → mới import được.
+- **Bản quyền ảnh**: nếu dùng ảnh từ nguồn khác (không tự chụp) → cần document nguồn trong cột `source_image` hoặc field riêng.
+
+### 17.15. Security & permissions
+- API `/api/admin/products/bulk` yêu cầu `role: 'admin'` (middleware check như các API admin khác)
+- Rate-limit: 10 requests / phút / IP (Upstash Redis)
+- Validate `image_url` phải từ Supabase Storage domain (chống inject URL độc hại)
+- Log mọi bulk operation với admin user_id, timestamp, số lượng insert
+- Không cho phép xoá products qua bulk API (chỉ insert)
+
+### 17.16. Files cần tạo
+```
+supabase/migrations/0006_add_draft_status.sql
+scripts/ai-product-generator.ts
+scripts/lib/ai-vision.ts               # Wrapper gọi Gemini/OpenAI
+scripts/lib/excel-exporter.ts          # ExcelJS logic
+scripts/lib/supabase-upload.ts         # Upload ảnh lên storage
+app/api/admin/products/bulk/route.ts
+components/admin/excel-uploader.tsx
+components/admin/import-preview-table.tsx
+components/admin/import-result-modal.tsx
+components/admin/bulk-import-form.tsx
+app/(admin)/dashboard/products/import/page.tsx
+templates/product-import-template.xlsx  # File template download
+docs/auto-product-pipeline.md           # Hướng dẫn sử dụng
+```
 ```

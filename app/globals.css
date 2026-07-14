@@ -1,0 +1,121 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --color-background: 13 17 23;     /* #0D1117 */
+    --color-surface: 22 27 34;        /* #161B22 */
+    --color-gold: 212 175 55;         /* #D4AF37 */
+    --color-text: 230 237 240;        /* #E6EDF0 */
+  }
+
+  * {
+    @apply border-surface-emerald;
+  }
+
+  html {
+    @apply bg-background text-text-base antialiased;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply min-h-screen bg-background;
+    background-image:
+      radial-gradient(ellipse at top, rgba(212, 175, 55, 0.04) 0%, transparent 50%),
+      linear-gradient(180deg, #0D1117 0%, #051C12 100%);
+    background-attachment: fixed;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-heading text-text-base;
+  }
+
+  ::selection {
+    @apply bg-gold/30 text-text-base;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-background;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-surface-emerald rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-gold/30;
+  }
+}
+
+@layer components {
+  /* Gold gradient text */
+  .text-gradient-gold {
+    @apply bg-gradient-gold bg-clip-text text-transparent;
+  }
+
+  /* Gold border (shimmering) */
+  .border-gold-soft {
+    @apply border border-gold/30;
+  }
+  .border-gold-medium {
+    @apply border border-gold/60;
+  }
+
+  /* Card surface */
+  .card-surface {
+    @apply bg-surface border border-surface-emerald rounded-lg shadow-card transition-all duration-300;
+  }
+  .card-surface:hover {
+    @apply border-gold/30 shadow-card-hover;
+  }
+
+  /* Gold shine effect for cards (on hover) */
+  .shine-on-hover {
+    position: relative;
+    overflow: hidden;
+  }
+  .shine-on-hover::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+      120deg,
+      transparent 30%,
+      rgba(212, 175, 55, 0.15) 50%,
+      transparent 70%
+    );
+    transition: left 0.7s ease-in-out;
+    pointer-events: none;
+    z-index: 1;
+  }
+  .shine-on-hover:hover::before {
+    left: 100%;
+  }
+
+  /* Tier badges */
+  .tier-sss {
+    @apply bg-gradient-to-r from-gold to-gold-champagne text-background font-semibold;
+  }
+  .tier-ss {
+    @apply bg-gold/20 text-gold border border-gold/40;
+  }
+  .tier-s {
+    @apply bg-surface text-gold/80 border border-gold/20;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  .text-pretty {
+    text-wrap: pretty;
+  }
+}

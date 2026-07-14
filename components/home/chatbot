@@ -1,0 +1,54 @@
+'use client';
+
+import { useState } from 'react';
+
+export function ChatbotBubble() {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="fixed right-6 bottom-6 z-50 flex flex-col items-end gap-4">
+      {/* Chat panel — appears when open */}
+      {open && (
+        <div className="flex w-64 flex-col gap-2 rounded-lg border border-gold/20 bg-surface-emerald p-4 shadow-[0_25px_50px_-12px_rgba(0,0,0,0.25)] backdrop-blur-md">
+          {/* Greeting */}
+          <p className="font-heading text-base text-gold">
+            &ldquo;Kính chào Nhà sưu tầm... Bà Chủ Tiệm có thể giúp gì cho Quý khách?&rdquo;
+          </p>
+          <p className="font-heading text-[10px] tracking-[0.1em] text-gold">
+            — BÀ CHỦ TIỆM
+          </p>
+
+          {/* Quick reply buttons */}
+          <div className="mt-2 flex flex-col gap-2">
+            <button className="rounded border border-gold/20 bg-background/40 px-3 py-1.5 text-left font-heading text-xs text-gold transition-colors hover:bg-gold/10">
+              Món đồ Tier SSS mới nhất?
+            </button>
+            <button className="rounded border border-gold/20 bg-background/40 px-3 py-1.5 text-left font-heading text-xs text-gold transition-colors hover:bg-gold/10">
+              Làm sao để giữ hàng?
+            </button>
+            <button className="rounded border border-gold/20 bg-background/40 px-3 py-1.5 text-left font-heading text-xs text-gold transition-colors hover:bg-gold/10">
+              Liên hệ trực tiếp
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Chatbot button — circular gold with icon */}
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="relative grid h-16 w-16 place-items-center rounded-xl bg-gold shadow-[0_0_20px_0_rgba(242,202,80,0.4)] transition-transform hover:scale-105"
+        aria-label="Chat với Bà Chủ Tiệm"
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/images/home/chatbot-icon-4a0be7.png"
+          alt="Bà Chủ Tiệm"
+          className="h-full w-full rounded-xl object-cover"
+        />
+        {/* Online indicator */}
+        <span className="absolute right-0 top-0 h-4 w-4 rounded-full border-2 border-background bg-success" />
+      </button>
+    </div>
+  );
+}
