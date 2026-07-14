@@ -20,7 +20,7 @@ export default async function CollectionDetailPage({ params }: Props) {
   if (!row) {
     const listRes = await safeList(() => getPublishedCollections());
     collectionError = collectionError ?? listRes.error;
-    row = listRes.data.find((c) => c.slug === params.slug) ?? null;
+    row = (listRes.data.find((c) => c.slug === params.slug) ?? null) as any;
   }
 
   if (!row) notFound();

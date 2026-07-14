@@ -61,10 +61,11 @@ export async function POST(req: Request) {
   }
 
   const supabase = createAdminClient();
+  const db = supabase.from('payment_transactions') as any;
+  const ordersDb = supabase.from('orders') as any;
 
   // 2. Idempotency: check payment_transactions theo momo_request_id
-  const { data: existing } = await supabase
-    .from('payment_transactions')
+  const { data: existing } = await db
     .select('id, status')
     .eq('momo_request_id', body.requestId)
     .maybeSingle();
@@ -74,8 +75,7 @@ export async function POST(req: Request) {
   }
 
   // 3. Tìm order theo code (= momo_order_id)
-  const { data: order } = await supabase
-    .from('orders')
+  const { data: order } = await ordersDb
     .select('id, code, payment_status')
     .eq('code', body.orderId)
     .maybeSingle();
@@ -90,8 +90,7 @@ export async function POST(req: Request) {
 
   // 4. Update payment_transactions
   if (existing) {
-    await supabase
-      .from('payment_transactions')
+    await db
       .update({
         status: success ? 'SUCCESS' : 'FAILED',
         result_code: Number(body.resultCode),
@@ -103,7 +102,7 @@ export async function POST(req: Request) {
   }
   // (Nếu chưa có row: tạo — có thể do create endpoint bị miss. Insert best-effort.)
   else {
-    await supabase.from('payment_transactions').insert({
+    await db.insert({
       order_id: order.id,
       momo_request_id: body.requestId,
       momo_order_id: body.orderId,
@@ -120,7 +119,7 @@ export async function POST(req: Request) {
 
   // 5. Nếu success → gọi RPC confirm_payment (atomic)
   if (success) {
-    const { error: rpcErr } = await supabase.rpc('confirm_payment', {
+    const { error: rpcErr } = await (supabase.rpc as any)('confirm_payment', {
       p_order_id: order.id,
       p_momo_trans_id: Number(body.transId),
     });
@@ -129,8 +128,7 @@ export async function POST(req: Request) {
     }
   } else {
     // Failure: chỉ update order.payment_status
-    await supabase
-      .from('orders')
+    await ordersDb
       .update({ payment_status: 'FAILED', updated_at: ipnAt })
       .eq('id', order.id);
   }

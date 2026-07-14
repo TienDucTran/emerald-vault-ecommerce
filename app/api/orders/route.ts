@@ -65,11 +65,15 @@ export async function POST(req: Request) {
   const { items, customer, payment, clientId } = parsed.data;
 
   const supabase = createAdminClient();
+  const db = supabase as any;
+  const prodDb = db.from('products');
+  const ordersDb = db.from('orders');
+  const itemsDb = db.from('order_items');
+  const locksDb = db.from('inventory_locks');
 
   // 1. Verify products còn AVAILABLE
-  const productIds = items.map((i) => i.productId);
-  const { data: products, error: prodError } = await supabase
-    .from('products')
+  const productIds = items.map((i: any) => i.productId);
+  const { data: products, error: prodError } = await prodDb
     .select('id, status, title, image_url, price, material, slug')
     .in('id', productIds);
   if (prodError) {
@@ -78,7 +82,7 @@ export async function POST(req: Request) {
   if (!products || products.length !== productIds.length) {
     return NextResponse.json({ ok: false, error: 'PRODUCT_NOT_FOUND' }, { status: 404 });
   }
-  const soldOut = products.find((p) => p.status === 'SOLD_OUT');
+  const soldOut = products.find((p: any) => p.status === 'SOLD_OUT');
   if (soldOut) {
     return NextResponse.json(
       { ok: false, error: 'PRODUCT_SOLD_OUT', productId: soldOut.id },
@@ -90,15 +94,14 @@ export async function POST(req: Request) {
   const locks: { productId: string; lockId: string }[] = [];
   if (payment === 'MOMO' && clientId) {
     for (const it of items) {
-      const { data: lock, error: lockErr } = await supabase.rpc('lock_item', {
+      const { data: lock, error: lockErr } = await db.rpc('lock_item', {
         p_product_id: it.productId,
         p_client_id: clientId,
       });
       if (lockErr) {
         // Rollback locks đã tạo
         for (const l of locks) {
-          await supabase
-            .from('inventory_locks')
+          await locksDb
             .update({ status: 'RELEASED', released_at: new Date().toISOString() })
             .eq('id', l.lockId);
         }
@@ -114,9 +117,8 @@ export async function POST(req: Request) {
 
   // 3. Tạo order
   const code = await generateOrderCode();
-  const totalAmount = items.reduce((s, i) => s + i.price, 0);
-  const { data: order, error: orderErr } = await supabase
-    .from('orders')
+  const totalAmount = items.reduce((s: number, i: any) => s + i.price, 0);
+  const { data: order, error: orderErr } = await ordersDb
     .insert({
       code,
       customer_name: customer.name,
@@ -142,8 +144,8 @@ export async function POST(req: Request) {
   }
 
   // 4. Tạo order_items
-  const { error: itemsErr } = await supabase.from('order_items').insert(
-    items.map((it) => ({
+  const { error: itemsErr } = await itemsDb.insert(
+    items.map((it: any) => ({
       order_id: order.id,
       product_id: it.productId,
       price: it.price,
@@ -158,8 +160,7 @@ export async function POST(req: Request) {
 
   // 5. (MOMO) Gắn locks.order_id = order.id (sẽ set CONVERTED khi IPN OK)
   if (payment === 'MOMO' && locks.length > 0) {
-    await supabase
-      .from('inventory_locks')
+    await locksDb
       .update({ order_id: order.id })
       .in('id', locks.map((l) => l.lockId));
   }
@@ -167,13 +168,11 @@ export async function POST(req: Request) {
   // 6. (COD) Convert locks + set SOLD_OUT ngay
   if (payment === 'COD') {
     if (locks.length > 0) {
-      await supabase
-        .from('inventory_locks')
+      await locksDb
         .update({ status: 'CONVERTED', order_id: order.id })
         .in('id', locks.map((l) => l.lockId));
     }
-    await supabase
-      .from('products')
+    await prodDb
       .update({ status: 'SOLD_OUT' })
       .in('id', productIds);
   }

@@ -42,9 +42,10 @@ export async function POST(req: Request) {
   const supabase = createAdminClient();
   const now = new Date().toISOString();
 
+  const locksDb = (supabase.from('inventory_locks') as any);
+
   // Tìm lock ACTIVE theo lockId (ưu tiên) hoặc productId
-  let q = supabase
-    .from('inventory_locks')
+  let q = locksDb
     .update({ status: 'RELEASED', released_at: now })
     .eq('status', 'ACTIVE');
 

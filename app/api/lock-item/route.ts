@@ -33,7 +33,7 @@ export async function POST(req: Request) {
   const { productId, clientId } = parsed.data;
   const supabase = createAdminClient();
 
-  const { data, error } = await supabase.rpc('lock_item', {
+  const { data, error } = await (supabase.rpc as any)('lock_item', {
     p_product_id: productId,
     p_client_id: clientId,
   });

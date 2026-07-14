@@ -16,12 +16,10 @@ export async function GET(
   }
   const code = decodeURIComponent(params.code);
   const supabase = createAdminClient();
+  const db = supabase.from('orders') as any;
 
-  const { data: order, error } = await supabase
-    .from('orders')
-    .select(
-      `*, order_items(*, product:products(id, slug, title, image_url))`
-    )
+  const { data: order, error } = await db
+    .select(`*, order_items(*, product:products(id, slug, title, image_url))`)
     .eq('code', code)
     .maybeSingle();
 

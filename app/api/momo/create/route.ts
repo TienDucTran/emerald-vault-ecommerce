@@ -76,7 +76,7 @@ export async function POST(req: Request) {
   }
 
   // Lưu payment_transactions (idempotent theo momo_request_id)
-  const { error: txErr } = await supabase.from('payment_transactions').insert({
+  const { error: txErr } = await (supabase.from('payment_transactions') as any).insert({
     order_id: order.id,
     momo_request_id: requestId,
     momo_order_id: order.code,
