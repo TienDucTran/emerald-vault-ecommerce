@@ -1,27 +1,40 @@
 import { ShieldCheck, Clock, Truck, Lock } from 'lucide-react';
 import { CheckoutClient } from '@/components/checkout/checkout-client';
-import { MOCK_PRODUCTS } from '@/lib/mock-data';
+import { getNewestProducts } from '@/lib/supabase/queries/products';
+import { toProduct } from '@/lib/adapters/supabase-to-app';
+import { safeList } from '@/lib/data/safe-fetch';
+import { DataWarning } from '@/components/layout/data-warning';
 
 export const metadata = {
   title: 'Thanh Toán',
   description: 'Hoàn tất đơn hàng của bạn tại Emerald Vault.',
 };
 
-// FIX: C5 — lấy data thật từ mock thay vì hard-code
-const checkoutProduct =
-  MOCK_PRODUCTS.find((p) => p.id === 'p11') ?? MOCK_PRODUCTS[0];
+export default async function CheckoutPage() {
+  const res = await safeList(() => getNewestProducts(1));
+  const products = res.data.map(toProduct);
+  const checkoutProduct = products[0];
 
-const CHECKOUT_ITEM = {
-  id: checkoutProduct.id,
-  title: checkoutProduct.title,
-  // FIX: C5 — code là optional, fallback undefined nếu product không có
-  code: checkoutProduct.code,
-  tier: checkoutProduct.quality_tier,
-  price: checkoutProduct.price,
-  image: checkoutProduct.image_url,
-};
+  if (!checkoutProduct) {
+    return (
+      <div className="container mx-auto px-4 py-20">
+        <DataWarning message={res.error} />
+        <p className="text-center font-heading text-2xl text-gold">
+          Chưa có sản phẩm khả dụng để thanh toán.
+        </p>
+      </div>
+    );
+  }
 
-export default function CheckoutPage() {
+  const CHECKOUT_ITEM = {
+    id: checkoutProduct.id,
+    title: checkoutProduct.title,
+    code: checkoutProduct.code,
+    tier: checkoutProduct.quality_tier,
+    price: checkoutProduct.price,
+    image: checkoutProduct.image_url,
+  };
+
   return (
     <div className="relative min-h-screen">
       {/* Page heading */}
@@ -38,7 +51,6 @@ export default function CheckoutPage() {
       {/* Two-column layout */}
       <div className="container mx-auto px-4 pb-24">
         <div className="grid grid-cols-1 gap-10 lg:grid-cols-[1fr_480px]">
-          {/* FIX: B-3.6 — dùng CheckoutClient wrapper để Form + Summary share state */}
           <CheckoutClient item={CHECKOUT_ITEM} />
         </div>
       </div>
@@ -49,10 +61,8 @@ export default function CheckoutPage() {
   );
 }
 
-/* — Trust strip (inline, styled per Figma) — */
 const TRUST_ITEMS = [
   { icon: ShieldCheck, label: 'AUTHENTIC PIECES' },
-  // FIX: L2 — đánh dấu mock mode cho user biết
   { icon: Clock, label: '10-MIN HOLD PRIVILEGE — DEMO MODE' },
   { icon: Truck, label: 'INSURED GLOBAL SHIPPING' },
   { icon: Lock, label: 'SECURE VAULT STORAGE' },

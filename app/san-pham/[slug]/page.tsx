@@ -1,27 +1,46 @@
 import { notFound } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
-import { ShieldCheck, Clock, Truck, ArrowRight, ChevronRight } from 'lucide-react';
+import { ShieldCheck, Clock, Truck, ChevronRight } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { getProductBySlug, MOCK_PRODUCTS } from '@/lib/mock-data';
 import { formatVND, MATERIAL_LABELS, TIER_DESCRIPTIONS, CATEGORY_LABELS } from '@/lib/utils';
 import { ProductGrid } from '@/components/product/product-grid';
+import { HoldButton } from '@/components/product/hold-button';
+import { getProductBySlug, getRelatedProducts } from '@/lib/supabase/queries/products';
+import { toProduct } from '@/lib/adapters/supabase-to-app';
+import { safeList, safeOne } from '@/lib/data/safe-fetch';
+import { DataWarning } from '@/components/layout/data-warning';
 
 interface Props {
   params: { slug: string };
 }
 
-export default function ProductDetailPage({ params }: Props) {
-  const product = getProductBySlug(params.slug);
-  if (!product) notFound();
+export default async function ProductDetailPage({ params }: Props) {
+  const productRes = await safeOne(() => getProductBySlug(params.slug));
 
-  const related = MOCK_PRODUCTS
-    .filter((p) => p.id !== product.id && p.status === 'AVAILABLE' && p.category === product.category)
-    .slice(0, 4);
+  if (productRes.error) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <DataWarning message={productRes.error} />
+        <div className="py-20 text-center">
+          <p className="font-heading text-2xl text-gold">Không thể tải sản phẩm.</p>
+          <p className="mt-2 text-sm text-text-muted">Vui lòng thử lại sau.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!productRes.data) notFound();
+
+  const product = toProduct(productRes.data);
+  const relatedRes = await safeList(() => getRelatedProducts(product.id, 4));
+  const related = relatedRes.data.map(toProduct);
+  const errorMsg = relatedRes.error;
 
   return (
     <div className="container mx-auto px-4 py-8">
+      <DataWarning message={errorMsg} />
       {/* Breadcrumb */}
       <nav className="mb-6 flex items-center gap-1.5 text-xs text-text-muted">
         <Link href="/" className="hover:text-gold">Trang chủ</Link>
@@ -113,10 +132,7 @@ export default function ProductDetailPage({ params }: Props) {
 
           {/* CTA */}
           {product.status === 'AVAILABLE' ? (
-            <Button size="lg" className="w-full text-base" variant="primary">
-              <Clock className="h-4 w-4" />
-              Giữ hàng 10 phút
-            </Button>
+            <HoldButton product={product} size="lg" className="w-full text-base" />
           ) : (
             <Button size="lg" className="w-full" variant="dark" disabled>
               Đã được sưu tầm

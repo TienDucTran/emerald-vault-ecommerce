@@ -6,15 +6,19 @@ import { FilterSidebar } from '@/components/product/filter-sidebar';
 import { SortDropdown } from '@/components/product/sort-dropdown';
 import { ActiveFilters } from '@/components/product/active-filters';
 import { MobileProductsView } from '@/components/product/mobile/mobile-products-view';
-import { MOCK_PRODUCTS, MOCK_COLLECTIONS } from '@/lib/mock-data';
 import { CATEGORY_LABELS, MATERIAL_LABELS } from '@/lib/utils';
-import type { Product } from '@/lib/types';
+import { searchProducts } from '@/lib/supabase/queries/products';
+import { getPublishedCollections } from '@/lib/supabase/queries/collections';
+import { toCollection, toProduct } from '@/lib/adapters/supabase-to-app';
+import { safeList, safeSearch } from '@/lib/data/safe-fetch';
+import { DataWarning } from '@/components/layout/data-warning';
+import type { ProductCategory, Material, QualityTier } from '@/lib/types';
 
-// FIX: Whitelists for enum validation (Bug 1)
 const VALID_CATEGORIES = ['NHAN', 'DAY_CHUYEN', 'BONG_TAI', 'VONG_TAY', 'MAT_DAY'] as const;
 const VALID_MATERIALS = ['BAC_925', 'MA_VANG_18K', 'MA_VANG_24K', 'VANG_18K', 'KIM_CUONG'] as const;
 const VALID_TIERS = ['SSS', 'SS', 'S'] as const;
 const VALID_SORTS = ['newest', 'price-asc', 'price-desc', 'featured'] as const;
+type ValidSort = 'newest' | 'price-asc' | 'price-desc' | 'featured';
 
 interface Props {
   searchParams: {
@@ -29,7 +33,6 @@ interface Props {
 
 function getPageTitle(searchParams: Props['searchParams']): { eyebrow: string; title: string } {
   const { category, material, tier } = searchParams;
-  // FIX: Validate enum (Bug 1) + narrow tier type (Bug 5)
   const validCategory = VALID_CATEGORIES.includes(category as any) ? (category as typeof VALID_CATEGORIES[number]) : undefined;
   const validMaterial = VALID_MATERIALS.includes(material as any) ? (material as typeof VALID_MATERIALS[number]) : undefined;
   const validTier = VALID_TIERS.includes(tier as any) ? (tier as typeof VALID_TIERS[number]) : undefined;
@@ -64,7 +67,6 @@ function getPageTitle(searchParams: Props['searchParams']): { eyebrow: string; t
 
 function getHeroStory(searchParams: Props['searchParams']) {
   const { category, material, tier } = searchParams;
-  // FIX: Use validated enums (Bug 1, Bug 5)
   const validCategory = VALID_CATEGORIES.includes(category as any) ? (category as typeof VALID_CATEGORIES[number]) : undefined;
   const validMaterial = VALID_MATERIALS.includes(material as any) ? (material as typeof VALID_MATERIALS[number]) : undefined;
   const validTier = VALID_TIERS.includes(tier as any) ? (tier as typeof VALID_TIERS[number]) : undefined;
@@ -86,57 +88,63 @@ function getHeroStory(searchParams: Props['searchParams']) {
   return 'Tuyển chọn thủ công, mỗi món là một bản duy nhất, không bao giờ quay lại.';
 }
 
-function sortProducts(products: Product[], sort: string | undefined): Product[] {
-  // FIX: Validate sort enum (Bug 1)
-  const validSort = VALID_SORTS.includes(sort as any) ? (sort as typeof VALID_SORTS[number]) : 'newest';
-  const arr = [...products];
-  switch (validSort) {
-    case 'price-asc':
-      return arr.sort((a, b) => a.price - b.price);
-    case 'price-desc':
-      return arr.sort((a, b) => b.price - a.price);
-    case 'featured':
-      return arr.sort((a, b) => (b.is_featured ? 1 : 0) - (a.is_featured ? 1 : 0));
-    case 'newest':
-    default:
-      return arr.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
-  }
+function mapSort(sort: string | undefined): 'newest' | 'price_asc' | 'price_desc' | 'featured' {
+  const v = VALID_SORTS.includes(sort as any) ? (sort as ValidSort) : 'newest';
+  if (v === 'price-asc') return 'price_asc';
+  if (v === 'price-desc') return 'price_desc';
+  if (v === 'featured') return 'featured';
+  return 'newest';
 }
 
-export default function ProductsPage({ searchParams }: Props) {
-  let products = MOCK_PRODUCTS.filter((p) => p.status === 'AVAILABLE');
-  const allAvailable = MOCK_PRODUCTS.filter((p) => p.status === 'AVAILABLE');
-
-  // FIX: Validate enum inputs (Bug 1)
+export default async function ProductsPage({ searchParams }: Props) {
   const category = VALID_CATEGORIES.includes(searchParams.category as any)
-    ? (searchParams.category as typeof VALID_CATEGORIES[number])
+    ? (searchParams.category as ProductCategory)
     : undefined;
   const material = VALID_MATERIALS.includes(searchParams.material as any)
-    ? (searchParams.material as typeof VALID_MATERIALS[number])
+    ? (searchParams.material as Material)
     : undefined;
   const tier = VALID_TIERS.includes(searchParams.tier as any)
-    ? (searchParams.tier as typeof VALID_TIERS[number])
+    ? (searchParams.tier as QualityTier)
     : undefined;
 
-  // FIX: Safe number parsing for min/max (Bug 2)
   const minPrice = searchParams.min ? Number(searchParams.min) : undefined;
   const maxPrice = searchParams.max ? Number(searchParams.max) : undefined;
 
-  // Filter
-  if (category) products = products.filter((p) => p.category === category);
-  if (material) products = products.filter((p) => p.material === material);
-  if (tier) products = products.filter((p) => p.quality_tier === tier);
-  if (minPrice !== undefined && Number.isFinite(minPrice) && minPrice >= 0) {
-    products = products.filter((p) => p.price >= minPrice);
-  }
-  if (maxPrice !== undefined && Number.isFinite(maxPrice) && maxPrice >= 0) {
-    products = products.filter((p) => p.price <= maxPrice);
-  }
+  const sort = mapSort(searchParams.sort);
 
-  // Sort
-  products = sortProducts(products, searchParams.sort);
+  // Lấy products theo filter hiện tại + tổng available (không filter) để tính count
+  const [filteredRes, allRes, collectionsRes] = await Promise.all([
+    safeSearch(() => searchProducts({
+      category,
+      material,
+      tier,
+      minPrice: Number.isFinite(minPrice) && (minPrice as number) >= 0 ? minPrice : undefined,
+      maxPrice: Number.isFinite(maxPrice) && (maxPrice as number) >= 0 ? maxPrice : undefined,
+      sort,
+      page: 1,
+      pageSize: 100,
+    })),
+    safeSearch(() => searchProducts({ onlyAvailable: true, sort: 'newest', page: 1, pageSize: 100 })),
+    safeList(() => getPublishedCollections()),
+  ]);
 
-  // FIX: Active filter count — exclude "0" values (Bug 4)
+  const products = filteredRes.data.data.map(toProduct);
+  const allProducts = allRes.data.data.map(toProduct);
+  const filteredTotal = filteredRes.data.total;
+  const availableTotal = allRes.data.total;
+
+  // Featured collections để quick-jump khi không filter
+  const publishedCollections = collectionsRes.data.map(toCollection);
+  const featuredCollections = publishedCollections.slice(0, 3);
+  const errorMsg = filteredRes.error ?? allRes.error ?? collectionsRes.error;
+
+  // Price range (toàn bộ available, để filter sidebar có min/max chuẩn)
+  const prices = allProducts.map((p) => p.price);
+  const priceRange = {
+    min: prices.length ? Math.min(...prices) : 0,
+    max: prices.length ? Math.max(...prices) : 0,
+  };
+
   const activeCount = [
     category,
     material,
@@ -147,16 +155,10 @@ export default function ProductsPage({ searchParams }: Props) {
 
   const pageMeta = getPageTitle(searchParams);
   const heroStory = getHeroStory(searchParams);
-  const priceRange = {
-    min: Math.min(...allAvailable.map((p) => p.price)),
-    max: Math.max(...allAvailable.map((p) => p.price)),
-  };
-
-  // Featured collections to surface when no filter active
-  const featuredCollections = MOCK_COLLECTIONS.filter((c) => c.is_published).slice(0, 3);
 
   return (
     <>
+      <DataWarning message={errorMsg} />
       {/* ───────── Desktop (lg+) ───────── */}
       <div className="hidden lg:block">
         {/* Hero / Page header */}
@@ -205,7 +207,7 @@ export default function ProductsPage({ searchParams }: Props) {
                 <p className="text-sm text-text-muted">
                   Hiển thị{' '}
                   <strong className="text-text-base">
-                    {products.length}/{allAvailable.length}
+                    {filteredTotal}/{availableTotal}
                   </strong>{' '}
                   sản phẩm
                 </p>
@@ -249,7 +251,7 @@ export default function ProductsPage({ searchParams }: Props) {
       {/* ───────── Mobile (<lg) ───────── */}
       <MobileProductsView
         products={products}
-        totalAvailable={allAvailable.length}
+        totalAvailable={availableTotal}
         priceRange={priceRange}
         pageTitle={pageMeta.title}
         pageEyebrow={pageMeta.eyebrow}

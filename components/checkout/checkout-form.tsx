@@ -1,6 +1,10 @@
 'use client';
 
 import { useState, type FormEvent } from 'react';
+import { useRouter } from 'next/navigation';
+import { Loader2 } from 'lucide-react';
+import { useCartStore } from '@/lib/store/cart';
+import { useAnonymousId } from '@/hooks/use-anonymous-id';
 
 export type PaymentOption = 'MOMO' | 'COD' | 'BANK_TRANSFER';
 
@@ -57,7 +61,27 @@ function FieldWrapper({ children }: { children: React.ReactNode }) {
 const inputClass =
   'w-full bg-transparent px-3 py-2.5 text-base text-text-base placeholder:text-[#D0C5AF]/30 focus:outline-none focus:text-text-base transition-colors';
 
+const ORDER_ERROR_MAP: Record<string, string> = {
+  PRODUCT_SOLD_OUT: 'Món này vừa được sưu tầm rồi.',
+  PRODUCT_NOT_FOUND: 'Sản phẩm không tồn tại.',
+  PRODUCT_LOCKED_BY_OTHER: 'Có người khác đang giữ món này. Thử lại sau vài phút nhé.',
+  MOMO_NOT_CONFIGURED: 'Hệ thống MoMo chưa được cấu hình. Vui lòng chọn COD.',
+  MOMO_FAILED: 'Không thể tạo thanh toán MoMo. Vui lòng thử lại hoặc chọn COD.',
+  ORDER_FAILED: 'Đặt hàng thất bại. Vui lòng thử lại.',
+  NETWORK_ERROR: 'Mất kết nối mạng. Vui lòng thử lại.',
+};
+
+function translateOrderError(code: string): string {
+  return ORDER_ERROR_MAP[code] ?? `Đặt hàng thất bại (${code}).`;
+}
+
 export function CheckoutForm({ payment, onPaymentChange }: CheckoutFormProps) {
+  const router = useRouter();
+  const clientId = useAnonymousId();
+  const activeItem = useCartStore((s) =>
+    s.items.find((i) => Date.now() < i.expiresAt)
+  );
+
   // FIX: B-3.4, C2 — controlled form state
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -66,27 +90,86 @@ export function CheckoutForm({ payment, onPaymentChange }: CheckoutFormProps) {
   const [province, setProvince] = useState('');
   const [district, setDistrict] = useState('');
   const [notes, setNotes] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (submitting) return;
 
-    // FIX: basic validation
     if (!name.trim()) {
-      alert('Vui lòng nhập họ và tên.');
+      setError('Vui lòng nhập họ và tên.');
       return;
     }
     if (!phone.trim()) {
-      alert('Vui lòng nhập số điện thoại.');
+      setError('Vui lòng nhập số điện thoại.');
+      return;
+    }
+    if (!address.trim()) {
+      setError('Vui lòng nhập địa chỉ giao hàng.');
+      return;
+    }
+    if (!activeItem) {
+      setError('Giỏ hàng trống hoặc đã hết thời gian giữ hàng. Vui lòng chọn lại sản phẩm.');
       return;
     }
 
-    // FIX: mock feedback — API integration sẽ do agent khác xử lý
-    alert(
-      'Đặt hàng thành công! (Mock - sẽ tích hợp API sau)\n' +
-        `Khách hàng: ${name}\n` +
-        `SĐT: ${phone}\n` +
-        `Thanh toán: ${payment}`,
-    );
+    setError(null);
+    setSubmitting(true);
+    try {
+      const product = activeItem.product;
+      // 1. Tạo order
+      const orderRes = await fetch('/api/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          items: [
+            {
+              productId: product.id,
+              price: product.price,
+              title: product.title,
+              image: product.image_url,
+              material: product.material,
+            },
+          ],
+          customer: { name, phone, email, address, province, district, notes },
+          payment,
+          clientId: clientId ?? undefined,
+        }),
+      });
+      const orderJson = await orderRes.json();
+      if (!orderRes.ok || !orderJson.ok) {
+        const msg = orderJson.error || 'ORDER_FAILED';
+        setError(translateOrderError(msg));
+        return;
+      }
+      const { code, paymentMethod } = orderJson.order;
+
+      // 2. Phân luồng
+      if (paymentMethod === 'MOMO') {
+        const momoRes = await fetch('/api/momo/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ orderCode: code }),
+        });
+        const momoJson = await momoRes.json();
+        if (!momoRes.ok || !momoJson.ok || !momoJson.payUrl) {
+          setError(momoJson.error || 'MOMO_FAILED');
+          return;
+        }
+        // Redirect sang MoMo
+        window.location.href = momoJson.payUrl;
+        return;
+      }
+      // COD / Bank transfer: sang trang đơn hàng
+      // Clear cart local
+      useCartStore.getState().clear();
+      router.push(`/don-hang/${code}?phone=${encodeURIComponent(phone)}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'NETWORK_ERROR');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -291,10 +374,24 @@ export function CheckoutForm({ payment, onPaymentChange }: CheckoutFormProps) {
       {/* — Submit button — */}
       <button
         type="submit"
-        className="flex w-full items-center justify-center bg-gold py-4 font-heading text-xs font-bold uppercase tracking-[0.1em] text-background transition-all hover:bg-gold-champagne hover:shadow-gold-glow"
+        disabled={submitting}
+        className="flex w-full items-center justify-center gap-2 bg-gold py-4 font-heading text-xs font-bold uppercase tracking-[0.1em] text-background transition-all hover:bg-gold-champagne hover:shadow-gold-glow disabled:cursor-not-allowed disabled:opacity-60"
       >
-        XÁC NHẬN ĐẶT HÀNG
+        {submitting ? (
+          <>
+            <Loader2 className="h-4 w-4 animate-spin" />
+            ĐANG XỬ LÝ...
+          </>
+        ) : (
+          'XÁC NHẬN ĐẶT HÀNG'
+        )}
       </button>
+
+      {error && (
+        <p className="-mt-6 rounded border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-400" role="alert">
+          {error}
+        </p>
+      )}
     </form>
   );
 }

@@ -1,23 +1,20 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ShoppingBag, ArrowRight, Trash2, Clock } from 'lucide-react';
 import { useCartStore } from '@/lib/store/cart';
+import { formatCountdown } from '@/hooks/use-countdown';
 import { formatVND } from '@/lib/utils';
-
-function formatCountdown(ms: number) {
-  const total = Math.max(0, Math.floor(ms / 1000));
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
 
 export default function CartPage() {
   const items = useCartStore((s) => s.items);
   const removeItem = useCartStore((s) => s.removeItem);
   const [tick, setTick] = useState(0);
   const [mounted, setMounted] = useState(false);
+
+  // Track items đã expire để gọi unlock-item 1 lần
+  const expiredNotifiedRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     setMounted(true);
@@ -28,6 +25,25 @@ export default function CartPage() {
     const t = setInterval(() => setTick((v) => v + 1), 1000);
     return () => clearInterval(t);
   }, [mounted]);
+
+  // Khi item vừa hết hạn → gọi API release lock (server-side cleanup)
+  useEffect(() => {
+    if (!mounted) return;
+    const now = Date.now();
+    for (const item of items) {
+      if (now >= item.expiresAt && !expiredNotifiedRef.current.has(item.product.id)) {
+        expiredNotifiedRef.current.add(item.product.id);
+        if (item.lockId) {
+          fetch('/api/unlock-item', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ lockId: item.lockId, productId: item.product.id }),
+            keepalive: true,
+          }).catch(() => {});
+        }
+      }
+    }
+  }, [tick, items, mounted]);
 
   if (!mounted) {
     return (

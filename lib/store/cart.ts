@@ -6,14 +6,25 @@ import type { Product } from '@/lib/types';
 
 export type CartItem = {
   product: Product;
+  /** Server lock id (UUID) — null nếu chưa lock thật (mock/fallback) */
+  lockId: string | null;
   lockedAt: number;
   expiresAt: number;
 };
 
 type CartState = {
   items: CartItem[];
-  addItem: (product: Product) => void;
-  removeItem: (productId: string) => void;
+
+  /** Thêm vào cart (client-only, không gọi server) — dùng cho optimistic UI */
+  addItemLocal: (product: Product, opts?: { lockId?: string | null; expiresAt?: number }) => void;
+
+  /** Gọi API /api/lock-item, set state với lockId + expiresAt từ server */
+  lockItemAsync: (
+    product: Product,
+    clientId: string
+  ) => Promise<{ ok: true; expiresAt: number } | { ok: false; error: string }>;
+
+  removeItem: (productId: string) => Promise<void>;
   clear: () => void;
   getItem: (productId: string) => CartItem | undefined;
   isExpired: (productId: string) => boolean;
@@ -27,12 +38,15 @@ export const useCartStore = create<CartState>()(
   persist(
     (set, get) => ({
       items: [],
-      addItem: (product) => {
+
+      addItemLocal: (product, opts) => {
         const now = Date.now();
+        const expiresAt = opts?.expiresAt ?? now + LOCK_DURATION_MS;
         const newItem: CartItem = {
           product,
+          lockId: opts?.lockId ?? null,
           lockedAt: now,
-          expiresAt: now + LOCK_DURATION_MS,
+          expiresAt,
         };
         set((state) => {
           const existing = state.items.find((i) => i.product.id === product.id);
@@ -46,12 +60,50 @@ export const useCartStore = create<CartState>()(
           return { items: [...state.items, newItem] };
         });
       },
-      removeItem: (productId) => {
+
+      lockItemAsync: async (product, clientId) => {
+        try {
+          const res = await fetch('/api/lock-item', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ productId: product.id, clientId }),
+          });
+          const json = await res.json();
+          if (!res.ok || !json.ok) {
+            return { ok: false, error: json.error || 'LOCK_FAILED' };
+          }
+          const expiresAt = new Date(json.expiresAt).getTime();
+          get().addItemLocal(product, { lockId: json.lockId, expiresAt });
+          return { ok: true, expiresAt };
+        } catch (e) {
+          // Fallback local-only (Supabase down) — vẫn cho user giữ trong 10'
+          const expiresAt = Date.now() + LOCK_DURATION_MS;
+          get().addItemLocal(product, { lockId: null, expiresAt });
+          return { ok: false, error: e instanceof Error ? e.message : 'NETWORK_ERROR' };
+        }
+      },
+
+      removeItem: async (productId) => {
+        const item = get().items.find((i) => i.product.id === productId);
         set((state) => ({
           items: state.items.filter((i) => i.product.id !== productId),
         }));
+        // Best-effort: gọi API release lock (idempotent)
+        if (item?.lockId) {
+          try {
+            await fetch('/api/unlock-item', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ lockId: item.lockId, productId: product.id }),
+            });
+          } catch {
+            /* ignore */
+          }
+        }
       },
+
       clear: () => set({ items: [] }),
+
       getItem: (productId) =>
         get().items.find((i) => i.product.id === productId),
       isExpired: (productId) => {
@@ -72,6 +124,8 @@ export const useCartStore = create<CartState>()(
     {
       name: 'ev-cart',
       storage: createJSONStorage(() => localStorage),
+      // Chỉ persist items, không persist functions
+      partialize: (state) => ({ items: state.items }),
     }
   )
 );

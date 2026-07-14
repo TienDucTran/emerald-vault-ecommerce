@@ -1,22 +1,38 @@
 import { notFound } from 'next/navigation';
 import Image from 'next/image';
-import { MOCK_COLLECTIONS, MOCK_PRODUCTS } from '@/lib/mock-data';
+import { getCollectionBySlug, getPublishedCollections } from '@/lib/supabase/queries/collections';
+import { getProductsByCollection } from '@/lib/supabase/queries/products';
+import { toCollection, toProduct } from '@/lib/adapters/supabase-to-app';
+import { safeList, safeOne } from '@/lib/data/safe-fetch';
+import { DataWarning } from '@/components/layout/data-warning';
 import { ProductGrid } from '@/components/product/product-grid';
 
 interface Props {
   params: { slug: string };
 }
 
-export default function CollectionDetailPage({ params }: Props) {
-  const collection = MOCK_COLLECTIONS.find((c) => c.slug === params.slug);
-  if (!collection) notFound();
+export default async function CollectionDetailPage({ params }: Props) {
+  // Ưu tiên lấy full row từ DB; nếu null thì fallback sang published list
+  const rowRes = await safeOne(() => getCollectionBySlug(params.slug));
+  let row = rowRes.data;
+  let collectionError = rowRes.error;
 
-  const products = MOCK_PRODUCTS.filter(
-    (p) => p.collection_id === collection.id && p.status === 'AVAILABLE'
-  );
+  if (!row) {
+    const listRes = await safeList(() => getPublishedCollections());
+    collectionError = collectionError ?? listRes.error;
+    row = listRes.data.find((c) => c.slug === params.slug) ?? null;
+  }
+
+  if (!row) notFound();
+
+  const collection = toCollection(row);
+  const productsRes = await safeList(() => getProductsByCollection(collection.id));
+  const products = productsRes.data.map(toProduct);
+  const errorMsg = collectionError ?? productsRes.error;
 
   return (
     <div className="container mx-auto px-4 py-8">
+      <DataWarning message={errorMsg} />
       {/* Hero */}
       <section className="relative mb-12 grid grid-cols-1 items-center gap-8 overflow-hidden rounded-lg border border-gold/20 bg-surface p-8 lg:grid-cols-2 lg:p-12">
         <div>
