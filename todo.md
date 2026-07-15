@@ -15,6 +15,8 @@
 - [x] **Figma MCP**: file `kilo.json` dùng env var `${FIGMA_TOKEN}`, `.env.local` template đã có, `.gitignore` đã bảo vệ secret. User paste token vào `.env.local` rồi restart Kilo.
 - [x] **Figma setup checklist**: file `figma-setup-checklist.md` hướng dẫn 6 bước tạo file mẫu (3 phút), `figma-design-tokens.json` chứa design tokens EV + observations từ 2 site.
 - [x] **Google Stitch (stitch.withgoogle.com)**: tool AI generate UI từ prompt. Vai trò: tạo nhanh mockup dark theme để paste vào Figma làm inspiration. Không dùng để generate code sản xuất (vì output generic).
+- [x] **Storage upload pipeline**: client-side resize → webp + Supabase Storage bucket + admin upload API. Chi tiết xem flows.md §2.2 + mục X. bên dưới.
+- [x] **Media Library Phase 1 (read-only)**: list + search + sort + detail drawer. Phase 2/3/4 đang pending. Xem mục X. bên dưới.
 
 ---
 
@@ -139,6 +141,46 @@
 - [ ] Rate-limit `/api/momo/*` (theo orderId)
 - [ ] Validate zod cho mọi Route Handler input
 - [ ] Không log token/JWT/secret
+
+---
+
+## 🟡 P1 — MEDIA LIBRARY & STORAGE (mới)
+
+### X1. Storage Infrastructure (DONE ✅)
+- [x] `lib/supabase/storage.ts` — `uploadImage()` + `deleteImage()` dùng service-role client
+- [x] `lib/image/client-resize.ts` — `resizeImage()` + `formatBytes()` + `getImageDimensions()` (Canvas API, zero dep, webp 1600px q=0.85)
+- [x] `app/api/admin/uploads/route.ts` — POST multipart, `requireAdmin()`, whitelist folder, 10MB cap
+- [x] `supabase/migrations/0010_storage_jewelry_images.sql` — bucket `jewelry-images` public + 10MB + 2 policies (public read, admin write)
+- [x] Update `components/admin/product-form.tsx` — wired: image chính + gallery dùng resize→upload flow, spinner, toast báo % giảm
+
+### X2. Media Library Phase 1 — Read-only (DONE ✅)
+- [x] `docs/media-library-spec.md` — 1087 dòng spec cho Google Stitch (18 sections, ASCII art)
+- [x] `components/admin/media/types.ts` — `MediaItem` + `MediaSort` interfaces
+- [x] `components/admin/media/media-card.tsx` — card 1 ảnh với hover overlay, usage badge, error fallback
+- [x] `components/admin/media/media-grid.tsx` — grid responsive 2→6 cols + skeleton + empty state
+- [x] `components/admin/media/media-toolbar.tsx` — search + sort + stats (glass style)
+- [x] `components/admin/media/media-detail-drawer.tsx` — drawer chi tiết: preview, metadata, usedIn list, copy URL, ESC close
+- [x] `app/api/admin/media/route.ts` — GET list + usage count (PostgREST 1 query cho products)
+- [x] `app/(admin)/admin/media/page.tsx` — tổng hợp, debounce search 300ms, prev/next pagination
+
+### X3. Media Library Phase 2 — Delete + Sidebar (~3h)
+- [ ] `app/api/admin/media/route.ts` — thêm `DELETE` body `{ paths: [] }` với check usage trước
+- [ ] `app/api/admin/media/usage/route.ts` — GET `?path=` trả `{ usageCount, usedIn }` (refactor từ inline trong GET list)
+- [ ] Nút "Xoá" trong `media-detail-drawer.tsx` (disabled nếu usageCount > 0, confirm modal nếu = 0)
+- [ ] Select mode trong `media-grid.tsx` (checkbox overlay, bulk delete orphan)
+- [ ] Thêm "Media" vào `navItems` trong `components/layout/admin-sidebar.tsx` (giữa Products và Collections)
+
+### X4. Media Library Phase 3 — Picker Modal từ product-form (~4h)
+- [ ] `components/admin/media/media-picker-modal.tsx` — modal list ảnh, single/multi select, dùng lại `MediaGrid`
+- [ ] Nút "Chọn từ thư viện" cạnh nút "Upload" trong `product-form.tsx` (image chính: single, gallery: multi)
+- [ ] Callback `onSelect(urls: string[])` → set field
+- [ ] Empty state trong modal: "Chưa có ảnh nào, upload mới từ form?"
+- [ ] Refactor: share `MediaItem` type giữa API route + components (fix duplicate type)
+
+### X5. Media Library Phase 4 — Upload dropzone trong page (~2h)
+- [ ] `components/admin/media/upload-dropzone.tsx` — drag-drop lớn ở đầu page, multiple file, progress bar từng file
+- [ ] Tích hợp `POST /api/admin/media` (cần tạo route mới trước: `app/api/admin/media/route.ts` — thêm POST handler)
+- [ ] Sau upload: refresh grid + toast "Đã upload N ảnh"
 
 ---
 
@@ -285,3 +327,8 @@
 - [ ] **Embed model**: dùng **Gemini gemini-embedding-001** (FREE 1500 req/ngày) hay OpenAI `text-embedding-3-small` (trả phí)? — gợi ý: **Gemini embedding**
 - [ ] **Phạm vi tư vấn**: chỉ catalog sản phẩm, hay còn mở rộng (cách đeo, bảo quản, phong thủy, v.v.)? — gợi ý: cả catalog + kiến thức cơ bản (đã có guardrail trong system prompt)
 - [ ] **Có lưu lịch sử chat để training** sau này không? — gợi ý: CÓ, lưu `chat_sessions` + `chat_messages` (đã thiết kế)
+
+### Câu hỏi về Media Library & Storage
+- [ ] **Ảnh orphan cleanup**: có auto-xoá ảnh không dùng sau N ngày không? (gợi ý: KHÔNG, cứ để admin xoá tay ở Phase 2)
+- [ ] **Bucket tổ chức**: chỉ dùng 1 folder `products/` hay tách thêm `categories/`, `banners/`, `collections/`? (API đã whitelist 4 folder sẵn)
+- [ ] **CDN transform**: có dùng Supabase Image Transform (`?width=200&height=200`) cho thumbnail không? (gợi ý: chưa, vì Next/Image đã optimize; sẽ bật khi có nhiều ảnh)

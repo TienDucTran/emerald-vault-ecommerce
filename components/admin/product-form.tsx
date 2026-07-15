@@ -60,6 +60,7 @@ import {
   type CreateProductInput,
 } from '@/lib/admin/products-schema';
 import { toast } from '@/lib/toast/toast-store';
+import { resizeImage, formatBytes } from '@/lib/image/client-resize';
 import type {
   ProductRow,
   ProductCategory,
@@ -230,6 +231,8 @@ export function ProductForm({
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
   const [slugExistsWarning, setSlugExistsWarning] = useState(false);
   const [localImagePreview, setLocalImagePreview] = useState<string | null>(null);
+  const [isUploadingMain, setIsUploadingMain] = useState(false);
+  const [uploadingGalleryIndex, setUploadingGalleryIndex] = useState<number | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -398,16 +401,83 @@ export function ProductForm({
     }
   }, [setField]);
 
-  const onPickLocalImage = (e: ChangeEvent<HTMLInputElement>) => {
+  // Resize → upload → set public URL cho ảnh chính.
+  const onUploadImage = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    e.target.value = '';
+    e.target.value = ''; // reset để chọn lại cùng file được
     if (!file) return;
     if (!file.type.startsWith('image/')) {
       toast.error('File không phải ảnh.');
       return;
     }
-    if (localImagePreview) URL.revokeObjectURL(localImagePreview);
-    setLocalImagePreview(URL.createObjectURL(file));
+
+    setIsUploadingMain(true);
+    try {
+      const originalSize = file.size;
+      const blob = await resizeImage(file);
+      const newSize = blob.size;
+      const saved = originalSize - newSize;
+
+      const fd = new FormData();
+      fd.append('file', blob, 'image.webp');
+      fd.append('folder', 'products');
+      const res = await fetch('/api/admin/uploads', { method: 'POST', body: fd });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.message || json?.error || `HTTP ${res.status}`);
+      }
+
+      setField('image_url', json.publicUrl);
+      if (localImagePreview) URL.revokeObjectURL(localImagePreview);
+      setLocalImagePreview(null);
+      const pct = originalSize > 0 ? Math.round((saved / originalSize) * 100) : 0;
+      toast.success(
+        `Upload OK — ${formatBytes(originalSize)} → ${formatBytes(newSize)} (giảm ${pct}%)`
+      );
+    } catch (err) {
+      toast.error(`Upload thất bại: ${err instanceof Error ? err.message : 'lỗi không xác định'}`);
+    } finally {
+      setIsUploadingMain(false);
+    }
+  };
+
+  // Resize → upload → set public URL cho 1 item gallery tại index.
+  const uploadToGallery = async (index: number, file: File) => {
+    if (!file.type.startsWith('image/')) {
+      toast.error('File không phải ảnh.');
+      return;
+    }
+    setUploadingGalleryIndex(index);
+    try {
+      const originalSize = file.size;
+      const blob = await resizeImage(file);
+      const newSize = blob.size;
+
+      const fd = new FormData();
+      fd.append('file', blob, 'image.webp');
+      fd.append('folder', 'products');
+      const res = await fetch('/api/admin/uploads', { method: 'POST', body: fd });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.message || json?.error || `HTTP ${res.status}`);
+      }
+
+      const next = [...formData.gallery];
+      next[index] = json.publicUrl;
+      setField('gallery', next);
+      const pct = originalSize > 0 ? Math.round(((originalSize - newSize) / originalSize) * 100) : 0;
+      toast.success(`Upload OK — ${formatBytes(originalSize)} → ${formatBytes(newSize)} (giảm ${pct}%)`);
+    } catch (err) {
+      toast.error(`Upload thất bại: ${err instanceof Error ? err.message : 'lỗi không xác định'}`);
+    } finally {
+      setUploadingGalleryIndex(null);
+    }
+  };
+
+  const onPickGalleryFile = (index: number) => (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (file) void uploadToGallery(index, file);
   };
 
   const clearLocalImage = () => {
@@ -1100,7 +1170,7 @@ export function ProductForm({
         {/* image_url with local preview */}
         <div>
           <label htmlFor="f-image" className={labelCls}>
-            Ảnh chính (URL) <span className="text-error">*</span>
+            Ảnh chính <span className="text-error">*</span>
           </label>
           <div className="flex items-center gap-3">
             <input
@@ -1119,25 +1189,28 @@ export function ProductForm({
             />
             <label
               htmlFor="f-image-file"
-              className={cn(outlineBtn, 'cursor-pointer')}
+              className={cn(
+                outlineBtn,
+                'cursor-pointer',
+                isUploadingMain && 'opacity-50 pointer-events-none'
+              )}
             >
-              <Upload className="w-3.5 h-3.5" />
-              Upload
+              {isUploadingMain ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Upload className="w-3.5 h-3.5" />
+              )}
+              {isUploadingMain ? 'Đang upload…' : 'Upload'}
             </label>
             <input
               id="f-image-file"
               type="file"
               accept="image/*"
               className="hidden"
-              onChange={onPickLocalImage}
+              onChange={onUploadImage}
+              disabled={isUploadingMain}
             />
           </div>
-          {localImagePreview && !formData.image_url && (
-            <p className="text-xs mt-2 px-3 py-2 rounded-sm border border-gold/30 bg-gold/5 text-gold flex items-start gap-2">
-              <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-              Bạn đã chọn file local — chỉ dùng để xem trước. Paste URL ảnh thật hoặc upload lên storage trước khi lưu.
-            </p>
-          )}
           <ErrorLine k="image_url" />
         </div>
 
@@ -1197,6 +1270,29 @@ export function ProductForm({
                     <ImageIcon className="w-4 h-4" />
                   </div>
                 )}
+                <label
+                  htmlFor={`gallery-file-${i}`}
+                  className={cn(
+                    outlineBtn,
+                    'cursor-pointer !px-2 !py-1.5',
+                    uploadingGalleryIndex === i && 'opacity-50 pointer-events-none'
+                  )}
+                  aria-label={`Upload ảnh cho hàng gallery ${i + 1}`}
+                >
+                  {uploadingGalleryIndex === i ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Upload className="w-3.5 h-3.5" />
+                  )}
+                </label>
+                <input
+                  id={`gallery-file-${i}`}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={onPickGalleryFile(i)}
+                  disabled={uploadingGalleryIndex === i}
+                />
                 <button
                   type="button"
                   onClick={() => removeGalleryRow(i)}
