@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { StatCard } from '@/components/admin/stat-card';
 import { RevenueChart } from '@/components/admin/revenue-chart';
 import { SalesByTier } from '@/components/admin/sales-by-tier';
@@ -7,6 +8,17 @@ import { RecentOrdersTable } from '@/components/admin/recent-orders-table';
 import { LowStockAlerts } from '@/components/admin/low-stock-alerts';
 
 export default function DashboardPage() {
+  // Render giờ phía client để tránh hydration mismatch (server và client có thể
+  // lệch vài giây khi dùng new Date() trong JSX).
+  const [now, setNow] = useState<string | null>(null);
+  useEffect(() => {
+    setNow(new Date().toLocaleTimeString('vi-VN'));
+    const t = setInterval(() => {
+      setNow(new Date().toLocaleTimeString('vi-VN'));
+    }, 1000);
+    return () => clearInterval(t);
+  }, []);
+
   return (
     <div className="space-y-8 animate-fade-in">
       {/* Header Section — matches Figma node 31:4 */}
@@ -163,8 +175,8 @@ export default function DashboardPage() {
           </div>
         </div>
         <div className="text-right">
-          <p className="text-[10px] text-[#D0C5AF]/30">
-            Last updated: {new Date().toLocaleTimeString('vi-VN')}
+          <p className="text-[10px] text-[#D0C5AF]/30" suppressHydrationWarning>
+            Last updated: {now ?? '--:--:--'}
           </p>
         </div>
       </div>

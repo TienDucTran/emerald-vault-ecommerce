@@ -5,7 +5,7 @@ import { Navbar } from '@/components/layout/navbar';
 import { Footer } from '@/components/layout/footer';
 import { MobileBottomNav } from '@/components/home/mobile/mobile-bottom-nav';
 import { MobileChatbotBubble } from '@/components/home/mobile/mobile-chatbot-bubble';
-import './globals.css';
+import '../globals.css';
 
 // Cinzel chỉ hỗ trợ latin + latin-ext (không có vietnamese)
 const cinzel = Cinzel({
@@ -43,7 +43,13 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+/**
+ * Store root layout — áp dụng cho mọi customer-facing route trong nhóm (store).
+ * URL không đổi vì (store) là route group.
+ *
+ * Cấu trúc: AnnouncementBar + Navbar (desktop/mobile) + main + Footer + MobileBottomNav + ChatbotBubble.
+ */
+export default function StoreLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="vi" className={`${cinzel.variable} ${inter.variable}`}>
       <body className="font-sans">
