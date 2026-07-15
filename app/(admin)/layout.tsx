@@ -1,7 +1,6 @@
 import type { Metadata } from 'next';
 import { Cinzel, Inter } from 'next/font/google';
-import { AdminSidebar } from '@/components/layout/admin-sidebar';
-import { AdminHeader } from '@/components/layout/admin-header';
+import { AdminShell } from '@/components/layout/admin-shell';
 import '../globals.css';
 
 // Cinzel chỉ hỗ trợ latin + latin-ext (không có vietnamese)
@@ -32,21 +31,15 @@ export const metadata: Metadata = {
  * URL không đổi vì (admin) là route group.
  *
  * KHÔNG có store chrome (Navbar/Footer/AnnouncementBar) — fix triệt để flicker khi navigate.
+ *
+ * Logic ẩn/hiện AdminSidebar + AdminHeader theo pathname được tách sang `AdminShell`
+ * (client component) để giữ `export const metadata` hoạt động ở server component này.
  */
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="vi" className={`${cinzel.variable} ${inter.variable}`}>
       <body className="font-sans bg-[#0D1117]">
-        <div className="min-h-screen">
-          <AdminSidebar />
-          <AdminHeader />
-          <main
-            className="min-h-screen"
-            style={{ marginLeft: '256px', paddingTop: '64px' }}
-          >
-            <div className="p-8">{children}</div>
-          </main>
-        </div>
+        <AdminShell>{children}</AdminShell>
       </body>
     </html>
   );

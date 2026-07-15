@@ -126,7 +126,7 @@ export default function OrdersPage() {
                   className="border-b border-[#4D4635]/10 hover:bg-[rgba(56,52,43,0.1)] transition-colors cursor-pointer"
                 >
                   <td className="px-6 py-4">
-                    <Link href={`/dashboard/orders/${order.code.replace('#', '')}`} className="text-xs text-gold font-heading hover:text-gold/80">
+                    <Link href={`/admin/orders/${order.code.replace('#', '')}`} className="text-xs text-gold font-heading hover:text-gold/80">
                       {order.code}
                     </Link>
                   </td>

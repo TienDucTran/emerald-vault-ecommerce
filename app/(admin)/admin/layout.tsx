@@ -1,9 +1,9 @@
 /**
- * Inner dashboard layout — chỉ wrap children.
+ * Inner admin layout — chỉ wrap children.
  * Sidebar + Header đã được mount ở `app/(admin)/layout.tsx` (root của nhóm admin).
  * Tại đây có thể thêm: auth gate server-side, breadcrumbs, page title resolver, ...
  */
-export default function DashboardLayout({
+export default function AdminLayout({
   children,
 }: {
   children: React.ReactNode;

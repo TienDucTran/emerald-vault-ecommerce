@@ -5,15 +5,15 @@ import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 
 const navItems = [
-  { label: 'Overview', href: '/dashboard', icon: '◈' },
-  { label: 'Products', href: '/dashboard/products', icon: '◇' },
-  { label: 'Collections', href: '/dashboard/collections', icon: '◆' },
-  { label: 'Inventory', href: '/dashboard/inventory', icon: '📋' },
-  { label: 'Orders', href: '/dashboard/orders', icon: '📦' },
-  { label: 'Payments', href: '/dashboard/payments', icon: '💳' },
-  { label: 'Newsletter', href: '/dashboard/newsletter', icon: '✉' },
-  { label: 'Analytics', href: '/dashboard/analytics', icon: '📊' },
-  { label: 'Settings', href: '/dashboard/settings', icon: '⚙' },
+  { label: 'Overview', href: '/admin', icon: '◈' },
+  { label: 'Products', href: '/admin/products', icon: '◇' },
+  { label: 'Collections', href: '/admin/collections', icon: '◆' },
+  { label: 'Inventory', href: '/admin/inventory', icon: '📋' },
+  { label: 'Orders', href: '/admin/orders', icon: '📦' },
+  { label: 'Payments', href: '/admin/payments', icon: '💳' },
+  { label: 'Newsletter', href: '/admin/newsletter', icon: '✉' },
+  { label: 'Analytics', href: '/admin/analytics', icon: '📊' },
+  { label: 'Settings', href: '/admin/settings', icon: '⚙' },
 ];
 
 const bottomLinks = [
@@ -29,7 +29,7 @@ export function AdminSidebar() {
       {/* Logo + Brand */}
       <div className="px-6 pt-8 pb-10">
         <div className="flex flex-col gap-1">
-          <Link href="/dashboard" className="font-heading text-lg font-bold text-gold tracking-wider">
+          <Link href="/admin" className="font-heading text-lg font-bold text-gold tracking-wider">
             EMERALD
           </Link>
           <span className="text-xs text-[#D0C5AF]/70 tracking-[0.1em] uppercase font-heading">
@@ -41,7 +41,13 @@ export function AdminSidebar() {
       {/* Navigation */}
       <nav className="flex-1 px-4 space-y-1">
         {navItems.map((item) => {
-          const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
+          // Overview chỉ active khi pathname === '/admin' chính xác.
+          // Các mục khác active khi pathname khớp chính xác HOẶC nằm trong sub-path
+          // (vd /admin/products/new vẫn highlight 'Products').
+          const isActive =
+            item.href === '/admin'
+              ? pathname === '/admin'
+              : pathname === item.href || pathname.startsWith(item.href + '/');
           return (
             <Link
               key={item.href}
@@ -64,7 +70,7 @@ export function AdminSidebar() {
       <div className="px-4 pb-6 pt-6 border-t border-[#4D4635] mt-6">
         {/* New Product Button */}
         <Link
-          href="/dashboard/products/new"
+          href="/admin/products/new"
           className="flex items-center justify-center w-full py-3 bg-gold text-[#3C2F00] rounded-sm font-heading text-xs tracking-[0.15em] uppercase font-bold shadow-[0_4px_6px_-4px_rgba(242,202,80,0.1),0_10px_15px_-3px_rgba(242,202,80,0.1)] hover:bg-gold/90 transition-colors"
         >
           + New Product

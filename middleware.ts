@@ -2,7 +2,7 @@
  * Middleware — Auth & Role Gate (flows.md §10, §18.10)
  *
  * Bảo vệ 4 nhóm route:
- *   - /dashboard/*     → admin pages
+ *   - /admin/*        → admin pages
  *   - /api/admin/*     → admin-only API routes
  *   - /tai-khoan/*     → customer account pages (có whitelist auth sub-paths)
  *   - /api/account/*   → customer-only API routes
@@ -38,8 +38,8 @@ const CUSTOMER_LOGIN = '/tai-khoan/dang-nhap';
 
 const isApiAdminRoute = (pathname: string) => pathname.startsWith('/api/admin/');
 const isApiAccountRoute = (pathname: string) => pathname.startsWith('/api/account/');
-const isDashboardRoute = (pathname: string) =>
-  pathname === '/dashboard' || pathname.startsWith('/dashboard/');
+const isAdminRoute = (pathname: string) =>
+  pathname === '/admin' || pathname.startsWith('/admin/');
 const isTaiKhoanRoute = (pathname: string) =>
   pathname === '/tai-khoan' || pathname.startsWith('/tai-khoan/');
 
@@ -51,6 +51,10 @@ const PUBLIC_AUTH_SUBPATHS = [
 ];
 const isPublicAuthPath = (pathname: string) =>
   PUBLIC_AUTH_SUBPATHS.some((p) => pathname === p || pathname.startsWith(p + '/'));
+
+const ADMIN_PUBLIC_PATHS = ['/admin/login'];
+const isAdminPublicPath = (pathname: string) =>
+  ADMIN_PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + '/'));
 
 function jsonError(status: number, code: string, message: string) {
   return NextResponse.json({ error: code, message }, { status });
@@ -126,11 +130,16 @@ async function getUserRole(
 }
 
 /**
- * Admin check: áp dụng cho /dashboard/* và /api/admin/*.
+ * Admin check: áp dụng cho /admin/* và /api/admin/*.
  * Trả về NextResponse để short-circuit, hoặc null để cho qua.
  */
 async function checkAdmin(ctx: MiddlewareContext): Promise<NextResponse | null> {
   const { request, pathname, search, supabase } = ctx;
+
+  if (isAdminPublicPath(pathname)) {
+    return null;
+  }
+
   const user = await getAuthenticatedUser(supabase);
   if (!user) {
     if (isApiAdminRoute(pathname)) {
@@ -198,7 +207,7 @@ export async function middleware(request: NextRequest) {
   const ctx = createSupabaseContext(request);
   const { pathname, response } = ctx;
 
-  if (isDashboardRoute(pathname) || isApiAdminRoute(pathname)) {
+  if (isAdminRoute(pathname) || isApiAdminRoute(pathname)) {
     const blocked = await checkAdmin(ctx);
     if (blocked) return blocked;
     return response;
@@ -215,7 +224,7 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/dashboard/:path*',
+    '/admin/:path*',
     '/api/admin/:path*',
     '/tai-khoan/:path*',
     '/api/account/:path*',

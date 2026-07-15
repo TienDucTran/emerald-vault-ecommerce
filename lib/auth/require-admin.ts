@@ -20,6 +20,7 @@
  *
  * Lưu ý: chỉ dùng trong server context. TUYỆT ĐỐI KHÔNG import trong Client Component.
  */
+import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import type { SupabaseClient, User } from '@supabase/supabase-js';
@@ -77,4 +78,29 @@ export async function requireAdmin(): Promise<RequireAdminResult> {
     supabase,
     adminClient: createAdminClient(),
   };
+}
+
+/**
+ * Helper cho route handler: bắt error trong try/catch và map sang NextResponse.
+ * - AuthError → trả status + code/message của error.
+ * - Lỗi khác → log + trả 500.
+ */
+export function authErrorResponse(
+  err: unknown,
+  context?: string
+): NextResponse {
+  if (err instanceof AuthError) {
+    return NextResponse.json(
+      { error: err.code, message: err.message },
+      { status: err.status }
+    );
+  }
+  console.error(
+    `[${context ?? 'admin/api'}] unexpected error:`,
+    err
+  );
+  return NextResponse.json(
+    { error: 'INTERNAL_ERROR', message: 'Lỗi máy chủ' },
+    { status: 500 }
+  );
 }

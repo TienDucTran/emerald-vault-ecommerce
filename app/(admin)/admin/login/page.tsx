@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import type { ProfileRow } from '@/lib/supabase/types';
 
-const DEFAULT_NEXT = '/dashboard';
+const DEFAULT_NEXT = '/admin';
 
 export default function AdminLoginPage() {
   const router = useRouter();
@@ -19,7 +19,7 @@ export default function AdminLoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [checkingSession, setCheckingSession] = useState(true);
 
-  // Nếu user đã đăng nhập VÀ là admin thì đẩy thẳng vào /dashboard (hoặc next).
+  // Nếu user đã đăng nhập VÀ là admin thì đẩy thẳng vào /admin (hoặc next).
   // Tránh flash màn login khi admin refresh trang khi đang trong session.
   useEffect(() => {
     let cancelled = false;

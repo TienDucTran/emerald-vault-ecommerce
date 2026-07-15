@@ -4,7 +4,32 @@
 
 ---
 
+## 0. TRẠNG THÁI TỔNG THỂ (auto-generated, cập nhật 2026-07-16)
+
+> Báo cáo tổng hợp từ audit codebase. Tổng ~150 mục trong 18 sections của file này.
+> Chi tiết đầy đủ + danh sách job pending theo priority xem **[§19. STATUS — JOB PENDING](#19-status--job-pending)** ở cuối file.
+
+| Trạng thái | Số lượng | % |
+|---|---|---|
+| ✅ DONE | ~58 | 39% |
+| 🟡 PARTIAL | ~32 | 21% |
+| ❌ NOT STARTED | ~60 | 40% |
+
+**Customer flow** (mua hàng, thanh toán, tài khoản): gần như end-to-end, chạy được.
+**Admin products CRUD + bulk import**: xong thật (real data, session này).
+**Admin orders/collections/dashboard/inventory/payments/settings/newsletter**: còn mock data.
+**3 gap lớn nhất**:
+1. ❌ **AI Chatbot §15** — 0% dòng code
+2. ❌ **GA4 events firing** — `<GoogleAnalytics/>` chưa mount, `useJewelryAnalytics` chưa có
+3. ❌ **MoMo env chưa populate** — `/api/momo/create` đang trả 503
+
+**Top 3 quick-win (< 2h)**: populate MoMo env → mount GA4 + hook → migration pg_cron `release_expired_locks`.
+
+---
+
 ## 1. KIẾN TRÚC TỔNG THỂ
+
+> **Status**: ✅ done — stack, layout, fonts, env. 🟡 thiếu Sentry, env validation, structured logging.
 
 ```
 [Client Browser]
@@ -57,6 +82,8 @@ MOMO_IPN_URL=https://emerald-vault.vn/api/momo/ipn
 ---
 
 ## 2. DATABASE SCHEMA (chuẩn hóa)
+
+> **Status**: ✅ 8 bảng core + 5 RPC + RLS. ❌ pg_cron `release_expired_locks`, ❌ pgvector/chatbot schema, ❌ `DRAFT` enum, ❌ `newsletter_subscribers` table.
 
 ### 2.1. Bảng `collections`
 ```sql
@@ -282,6 +309,8 @@ $$;
 ## 3. SƠ ĐỒ TRANG (SITEMAP / PAGES)
 
 ### 3.1. Customer-facing routes (App Router)
+
+> **Status**: ✅ done — 16 page + sitemap.ts + robots.ts + not-found.
 ```
 app/
 ├── layout.tsx                    # RootLayout: <GoogleAnalytics/>, fonts, theme
@@ -310,6 +339,8 @@ app/
 ```
 
 ### 3.2. Admin routes
+
+> **Status**: 🟡 shell + auth done, products CRUD real data (session này). ❌ orders detail, ❌ collections edit, ❌ chat, ❌ xac-nhan-email. 7 page còn mock.
 ```
 app/
 └── (admin)/
@@ -331,6 +362,8 @@ app/
 ```
 
 ### 3.3. API routes
+
+> **Status**: 🟡 10/12 customer API done. /api/admin/collections thiếu POST/PATCH/DELETE. Path `/api/admin/bulk-import` đã đổi thành `/api/admin/products/bulk`. ❌ /api/chat.
 ```
 app/api/
 ├── lock-item/route.ts            # POST — gọi RPC lock_item
@@ -349,6 +382,8 @@ app/api/
 ---
 
 ## 4. CẤU TRÚC COMPONENT (Atomic Design)
+
+> **Status**: 🟡 ~60% done. UI primitives còn thiếu: input, dialog, skeleton, count-down, shine-image. cart/collection components còn inline. chatbot có 1 stub file.
 
 ```
 components/
@@ -437,6 +472,8 @@ lib/
 
 ## 5. LUỒNG 1 — KHÁCH XEM SẢN PHẨM
 
+> **Status**: 🟡 Server fetch + JSON-LD + metadata done. ❌ GA4 `view_item` chưa fire.
+
 ```
 [User click card trên grid / URL chia sẻ]
         │
@@ -458,6 +495,8 @@ lib/
 ---
 
 ## 6. LUỒNG 2 — LOCK SẢN PHẨM ĐỘC BẢN (10 PHÚT)
+
+> **Status**: 🟡 RPC + API + Zustand + countdown + unlock done. ❌ pg_cron `release_expired_locks`, ❌ GA4 lock events.
 
 ```
 [User click "Giữ hàng 10 phút" trên ProductCard / ProductDetail]
@@ -508,6 +547,8 @@ lib/
 ---
 
 ## 7. LUỒNG 3 — CHECKOUT + THANH TOÁN MOMO
+
+> **Status**: 🟡 Create + IPN + signature verify done. ❌ MoMo env chưa populate (503). ❌ GA4 begin_checkout/purchase chưa fire. ❌ cron cancel PENDING > 30min.
 
 ### 7.1. Checkout form
 ```
@@ -647,6 +688,8 @@ export function verifyIpnSignature(body: MoMoIpnBody, secretKey: string) {
 
 ## 8. LUỒNG 4 — TRA CỨU ĐƠN HÀNG (GUEST)
 
+> **Status**: ✅ done — path đổi từ `POST /lookup` thành `GET /api/orders/[code]?phone=`.
+
 ```
 [User vào /don-hang/[code]]
         │
@@ -676,6 +719,8 @@ export function verifyIpnSignature(body: MoMoIpnBody, secretKey: string) {
 ---
 
 ## 9. LUỒNG 5 — GA4 EVENTS
+
+> **Status**: 🟡 Consent default-deny + banner done. ❌ `<GoogleAnalytics/>` chưa mount. ❌ 8 events chưa fire. ❌ `useJewelryAnalytics` hook chưa có.
 
 | Event | Trigger | Params quan trọng |
 |---|---|---|
@@ -715,6 +760,8 @@ const send = (name: string, params: Record<string, unknown>) => {
 
 ## 10. LUỒNG 6 — AUTH & PHÂN QUYỀN
 
+> **Status**: ✅ done — middleware + /admin/login + /403. require-user đổi tên thành require-customer.
+
 ```
 [Request tới /dashboard/* hoặc /api/admin/*]
         │
@@ -734,6 +781,8 @@ const send = (name: string, params: Record<string, unknown>) => {
 ---
 
 ## 11. LUỒNG 7 — ADMIN BULK UPLOAD
+
+> **Status**: 🟡 Page + API real (session này). ❌ xlsx parse, ❌ publish-drafts flow (DRAFT enum missing).
 
 ```
 [Admin /dashboard/products/bulk-upload]
@@ -770,6 +819,8 @@ const send = (name: string, params: Record<string, unknown>) => {
 
 ## 12. SEO & PERFORMANCE
 
+> **Status**: ✅ done — metadata + JSON-LD + sitemap + robots + next.config. ❌ CWV monitoring, ❌ hero preload.
+
 - **Metadata**: mỗi page có `generateMetadata` với title/desc/OG image.
 - **JSON-LD**: `Product` (chi tiết), `BreadcrumbList` (collection), `Organization` (footer).
 - **Sitemap** (`app/sitemap.ts`): list products + collections, revalidate mỗi giờ.
@@ -781,6 +832,8 @@ const send = (name: string, params: Record<string, unknown>) => {
 ---
 
 ## 13. BẢO MẬT & VẬN HÀNH
+
+> **Status**: 🟡 RLS + MoMo signature + idempotency done. ❌ rate-limit, ❌ Sentry, ❌ env validation, ❌ structured logging.
 
 - **Rate-limit** `/api/lock-item`, `/api/orders`, `/api/momo/*` (Upstash Redis @vercel/edge): 10 req / phút / IP.
 - **RLS (Row Level Security)**:
@@ -799,6 +852,8 @@ const send = (name: string, params: Record<string, unknown>) => {
 ---
 
 ## 14. ENV & CONFIG
+
+> **Status**: 🟡 next.config done. .env thiếu ~12 var quan trọng: GA, MoMo (5), AI (4), Redis (2), Sentry, S3 bucket, SITE_URL.
 
 ```bash
 # .env.local
@@ -839,6 +894,8 @@ module.exports = {
 ---
 
 ## 15. LUỒNG 8 — AI CHATBOT TƯ VẤN SẢN PHẨM
+
+> **Status**: ❌ NOT STARTED (0%). pgvector + chat tables + match_products + embed trigger + /api/chat + 7 components + use-chat-session.
 
 ### 15.1. Mục tiêu & Use case
 - Khách hỏi tự nhiên: *"Có nhẫn bạc 925 nào dưới 2 triệu không?"*, *"Mùa hè này có bộ sưu tập gì?"*, *"Nhẫn mệnh kim thì chọn chất liệu gì?"*
@@ -1202,6 +1259,8 @@ hooks/use-chat-session.ts                       # tạo/lấy sessionId từ coo
 
 ## 16. UI/UX PATTERNS TỪ LAURELLE & LILLICOCO (bổ sung vào plan)
 
+> **Status**: 🟡 Navbar + announcement + tier-showcase + trust-strip + accordions done. ❌ zoom-image, latest-drops, newsletter-popup, comparison-table, mobile-menu.
+
 > Chi tiết phân tích đầy đủ: xem `analysis.md`. Đây là phần tóm tắt các pattern cần thêm vào `components/` và `pages/`.
 
 ### 16.1. Navigation Structure (Final)
@@ -1382,6 +1441,8 @@ Row ngang dưới hero, 4 cột:
 ---
 
 ## 17. LUỒNG 9 — AUTO PRODUCT PIPELINE (ẢNH → AI → EXCEL → ADMIN)
+
+> **Status**: 🟡 Backend bulk API + admin page done. ❌ AI Vision generator script, ❌ Excel template, ❌ DRAFT enum.
 
 ### 17.1. Mục tiêu
 Tự động hoá quy trình đăng sản phẩm hàng loạt cho đồ **si Nhật vintage** (mỗi món độc bản, số lượng 1):
@@ -1811,6 +1872,8 @@ docs/auto-product-pipeline.md           # Hướng dẫn sử dụng
 ---
 
 ## 18. LUỒNG 10 — TRANG TÀI KHOẢN KHÁCH HÀNG (`/tai-khoan`)
+
+> **Status**: ✅ 6 tab + 4 auth page + addresses/wishlist/reviews APIs done. ❌ xac-nhan-email, ❌ account/don-hang/[code]. ❌ auto-link guest orders on signup. ❌ reviews chưa hiển thị trên PDP.
 
 > Quyết định ngày 2026-07-15: BỔ SUNG flow tài khoản khách hàng (end-user) — vẫn giữ **guest checkout** cho khách không đăng ký, NHƯNG cho phép khách **tự nguyện đăng ký** để có: tra cứu đơn nhanh, wishlist sync, đánh giá, sổ địa chỉ, theo dõi đơn realtime. Không bắt buộc — tôn trọng UX đơn giản của flow cũ.
 >
@@ -2255,3 +2318,124 @@ Logic: với matcher mới, **chỉ cần user tồn tại** (không check role)
 - Tailwind tokens dùng lại `tailwind.config.ts` (đã có `gold`, `surface`, `text-*`, `font-heading`, `font-sans`).
 
 ```
+
+---
+
+## 19. STATUS — JOB PENDING
+
+> Section này được sinh từ audit codebase ngày 2026-07-16. Mỗi mục có: ID (anchor trong spec), tiêu đề, file/route cần tạo/sửa, mô tả ngắn, và effort ước lượng.
+> Cập nhật: tick ✅ khi xong, đổi status ở §0 cho khớp.
+
+### 19.1. Executive summary
+
+| Trạng thái | Số lượng | % |
+|---|---|---|
+| ✅ DONE | ~58 | 39% |
+| 🟡 PARTIAL | ~32 | 21% |
+| ❌ NOT STARTED | ~60 | 40% |
+
+**Customer-facing**: gần như hoàn chỉnh (16 page, 5 API, 5 RPC, RLS, full MoMo create+IPN, lock flow, 6 tab account).
+**Admin**: shell + auth + sidebar/header + 4 page real-data (products list/new/edit/bulk-upload, session này); 7 page còn mock (orders/collections/dashboard/inventory/payments/settings/newsletter).
+**Gap lớn nhất**: AI Chatbot §15 (0%), GA4 events (0% fired), MoMo env (0% populated), rate-limit (0%), Sentry (0%), pg_cron (chỉ có comment, chưa có SQL).
+
+### 19.2. Critical (chặn production)
+
+| # | § | Job | File/route | Effort | Mô tả |
+|---|---|---|---|---|---|
+| C1 | §15 | **AI Chatbot — full stack** | `app/api/chat/route.ts`, `lib/chatbot/*`, `components/chatbot/*`, migrations `0004_chatbot_schema.sql` + `0005_embed_trigger.sql`, `scripts/embed-all-products.ts` | 2–3 ngày | pgvector + chat_sessions + chat_messages + match_products RPC + embed trigger + Vercel AI SDK + 7 component + use-chat-session. Feature signature. |
+| C2 | §9 | **GA4 analytics — fire real events** | `lib/analytics/events.ts`, `hooks/use-jewelry-analytics.ts`, mount `<GoogleAnalytics/>` trong `app/(store)/layout.tsx`, set `NEXT_PUBLIC_GA_ID` | 2–3h | Mount GA, tạo hook, fire 8 event: view_item, add_to_cart, lock_item_success, lock_item_timeout, begin_checkout, add_payment_info, purchase, view_collection. |
+| C3 | §7 / §14 | **Populate MoMo env + sandbox test** | `.env` / `.env.local` | 1h | 5 env var: MOMO_PARTNER_CODE/ACCESS_KEY/SECRET_KEY/REDIRECT_URL/IPN_URL. Test create + IPN end-to-end trên sandbox. |
+| C4 | §6 / §2 | **pg_cron `release_expired_locks`** | new `supabase/migrations/00XX_pg_cron_release_locks.sql` | 30m | `SELECT cron.schedule('release-expired-locks', '* * * * *', $$ ... $$)`. Hiện chỉ có comment "bật thủ công" trong `0001`. |
+| C5 | §13 | **Rate-limit `/api/lock-item`, `/api/orders`, `/api/momo/*`, `/api/chat`** | new `lib/middleware/rate-limit.ts` (Upstash Redis) | 2h | 10 req/min/IP. Lock flow đang wide open, dễ abuse. |
+| C6 | §3.2 | **Admin Orders page real data** | `app/(admin)/dashboard/orders/page.tsx` + `app/api/admin/orders/route.ts` + `app/(admin)/dashboard/orders/[id]/page.tsx` | 3h | Page hiện tại hardcode 10 đơn mock. Cần query `orders` join `order_items`, filter status/date/payment, status update action, CSV export, detail page. |
+
+### 19.3. Important (admin operate được)
+
+| # | § | Job | File/route | Effort | Mô tả |
+|---|---|---|---|---|---|
+| I1 | §3.3 | **`/api/admin/collections` POST/PATCH/DELETE** | extend `app/api/admin/collections/route.ts` + new `app/api/admin/collections/[id]/route.ts` | 1.5h | Hiện GET-only. |
+| I2 | §3.2 | **Admin Collections page real data** | `app/(admin)/dashboard/collections/page.tsx` | 2h | Wire to `api/admin/collections`. |
+| I3 | §3.2 | **Admin Collection edit** | `app/(admin)/dashboard/collections/[id]/page.tsx` | 2h | Form: name, slug, cover, hero_gallery, story_text, launch_at, meta_*, display_order, is_published. |
+| I4 | §3.2 | **Admin Dashboard real data** | `app/(admin)/dashboard/page.tsx` + `app/api/admin/stats/route.ts` | 2h | 4 StatCard + RevenueChart + SalesByTier + RecentOrdersTable + LowStockAlerts — tất cả đang hardcode. |
+| I5 | §3.2 | **Admin Inventory page real data** | `app/(admin)/dashboard/inventory/page.tsx` + query | 1.5h | Real products + active lock count. |
+| I6 | §3.2 | **Admin Payments page real data** | `app/(admin)/dashboard/payments/page.tsx` + `app/api/admin/payments/route.ts` | 1.5h | Real `payment_transactions` + retry IPN button. |
+| I7 | §3.2 | **Admin Settings persistence** | `app/(admin)/dashboard/settings/page.tsx` + `app/api/admin/settings/route.ts` + new `site_settings` table | 2h | KV-style: shipping_fee, contact info, social URLs. Form hiện không save. |
+| I8 | §16.4 | **`newsletter_subscribers` table + public subscribe API + admin page wire** | migration + `app/api/newsletter/subscribe/route.ts` + wire `app/(admin)/dashboard/newsletter/page.tsx` | 1.5h | Capture email pre-launch. |
+| I9 | §18.3 | **Auto-link guest orders on signup** | `app/api/auth/*` signup handler | 30m | Sau `signUp`, gọi `link_guest_orders_to_user(user.id, phone)`. |
+| I10 | §18.4 | **`/tai-khoan/xac-nhan-email` page** | `app/(store)/tai-khoan/xac-nhan-email/page.tsx` | 30m | Post-signup confirmation. |
+| I11 | §18.4 | **`/tai-khoan/don-hang/[code]`** | `app/(store)/tai-khoan/don-hang/[code]/page.tsx` | 2h | Account-side order detail (per spec §18.6). |
+| I12 | §13 | **Env validation (zod) at startup** | `lib/env.ts` + import trong `app/layout.tsx` | 1h | Validate toàn bộ env, crash early nếu misconfig. |
+| I13 | §11/§17 | **`DRAFT` enum value + draft→publish flow** | new migration + bulk-upload toggle + products list "Publish All Drafts" | 2h | Required cho draft workflow §17.6. |
+| I14 | §18.6 | **Display approved reviews on PDPs** | `components/product/product-reviews.tsx` + `app/api/products/[slug]/reviews/route.ts` | 2h | Table + API có sẵn (0009), chỉ thiếu UI. |
+
+### 19.4. Nice-to-have (UX polish)
+
+| # | § | Job | File/route | Effort |
+|---|---|---|---|---|
+| N1 | §4 | **UI primitives còn thiếu** | `components/ui/{input,dialog,skeleton,count-down,shine-image}.tsx` | 2–3h |
+| N2 | §4 | **Cart components split out** | `components/cart/{cart-item,cart-summary,empty-cart}.tsx` | 1.5h |
+| N3 | §4 | **Collection components** | `components/collection/{collection-card,collection-hero,collection-filter}.tsx` | 1.5h |
+| N4 | §16.2 | **product-count + product-breadcrumb** | `components/product/{product-count,product-breadcrumb}.tsx` | 1h |
+| N5 | §16.2 | **zoom-image hover effect** | `components/product/zoom-image.tsx` | 1h |
+| N6 | §16.2 | **latest-drops section** | `components/home/latest-drops.tsx` | 1h |
+| N7 | §16.2 | **newsletter-popup (modal 30s)** | `components/home/newsletter-popup.tsx` | 1h |
+| N8 | §16.2 | **newsletter-form (footer)** | `components/ui/newsletter-form.tsx` | 30m |
+| N9 | §16.2 | **comparison-table (P2)** | `components/ui/comparison-table.tsx` | 3h |
+| N10 | §16.2 | **care-guide + authentication-guide** | `components/care/{care-guide,authentication-guide}.tsx` | 2h |
+| N11 | §16.2 | **mobile-menu (slide-out)** | `components/layout/mobile-menu.tsx` | 1.5h |
+| N12 | §6 | **`use-gsap-sparkle` hook** | `hooks/use-gsap-sparkle.ts` | 1h |
+| N13 | §7 | **Cron: cancel PENDING orders > 30 min** | new migration với pg_cron | 1h |
+| N14 | §9 / §18 | **GA4 account events** | `lib/analytics/events.ts` extensions | 1h |
+| N15 | §18.7 | **account-mobile-tabs** | `components/account/account-mobile-tabs.tsx` | 30m |
+| N16 | §3.3 | **account order list filter UI** | `components/account/order-list-filters.tsx` | 1h |
+| N17 | §12 | **Hero image preload** | `app/(store)/layout.tsx` | 30m |
+| N18 | §13 | **Structured logging với redaction** | `lib/log.ts` | 2h |
+
+### 19.5. Infrastructure
+
+| # | § | Job | Effort |
+|---|---|---|---|
+| F1 | §13 | **Sentry** — install `@sentry/nextjs`, `sentry.{client,server}.config.ts`, env `SENTRY_DSN` | 2h |
+| F2 | §13 | **Upstash Redis** — install `@upstash/ratelimit` + `@upstash/redis` | 30m |
+| F3 | §13 | **PITR** — enable trong Supabase Dashboard (Pro plan) | 5m |
+| F4 | §14 | **Production env switch** — MoMo test → production endpoint | 30m |
+| F5 | §13 | **Admin write RLS** — explicit policies cho `products`/`collections` | 1h |
+| F6 | §15 | **Chatbot infra: pgvector + tables** — gộp với C1 | (xem C1) |
+| F7 | §15 | **match_products RPC + embed trigger** — gộp với C1 | (xem C1) |
+| F8 | §17 | **Admin bulk-import form factor split** — refactor page hiện tại thành 4 component | 2h |
+| F9 | §17 | **Excel template download** — `templates/product-import-template.xlsx` + download endpoint | 1h |
+| F10 | §17 | **AI Vision generator script** — `scripts/ai-product-generator.ts` + `scripts/lib/{ai-vision,excel-exporter,supabase-upload}.ts` | 1 ngày |
+
+### 19.6. Quick-win đề xuất (xếp theo impact)
+
+| # | Job | Impact | Effort |
+|---|---|---|---|
+| 1 | Populate `MOMO_*` env + sandbox test | Unblocks payment | 1h |
+| 2 | Mount `<GoogleAnalytics/>` + set `NEXT_PUBLIC_GA_ID` | Bắt đầu tracking data | 30m |
+| 3 | `useJewelryAnalytics` hook + call ở PDP/hold/return | Funnel visibility | 1–2h |
+| 4 | Migration `00XX_pg_cron_release_locks.sql` | Lock tự expire | 30m |
+| 5 | Wire admin Orders page real data | Admin operate được | 2h |
+| 6 | Wire admin Order detail `[id]` | Hoàn thiện admin loop | 1–2h |
+| 7 | Add `POST/PATCH/DELETE /api/admin/collections` + wire page | Quản lý collection | 2h |
+| 8 | `newsletter_subscribers` table + public subscribe API + footer form | Capture email pre-launch | 1h |
+| 9 | `/xac-nhan-email` page + auto-link guest orders on signup | Account flow polish | 30m |
+| 10 | 5 UI primitives còn thiếu | Unblock nhiều job khác | 2–3h |
+
+**Top 3 ưu tiên cao nhất** cho launch: #1 (payment), #2+#3 (analytics), #4 (lock expiry). Xong 3 cái này → launch v1.
+
+### 19.7. Discrepancies vs spec (cần chốt)
+
+1. `/api/admin/bulk-import` → đã build thành `/api/admin/products/bulk` (REST đẹp hơn). Cần update spec để khớp.
+2. `/api/orders/[code]/lookup` (POST) → gộp vào `/api/orders/[code]?phone=` (GET). `don-hang/[code]/page.tsx` đang dùng GET.
+3. `lib/auth/require-user.ts` → đã build thành `lib/auth/require-customer.ts`. Có thể đổi tên hoặc update spec.
+4. `DRAFT` enum value (spec §17.6) chưa migrate. Cần migration `ALTER TYPE product_status_enum ADD VALUE 'DRAFT'`.
+5. Một số component bị rename/inline: `product-meta` → `product-info-panel`, `product-accordion` → `details-accordion`, `components/chatbot/*` → `components/home/chatbot/ChatbotBubble` (1 stub file, không tách 7 file).
+6. Env trong `.env` thiếu: `NEXT_PUBLIC_GA_ID`, `MOMO_*` (5), `GOOGLE_AI_API_KEY`, `GROQ_API_KEY`, `OPENAI_API_KEY`, `AI_PRIMARY`, `EMBED_PRIMARY`, `UPSTASH_REDIS_*`, `SENTRY_DSN`, `ADMIN_UPLOADS_BUCKET`, `NEXT_PUBLIC_SITE_URL`.
+
+### 19.8. Quy tắc cập nhật
+
+- Mỗi lần xong một job, **tick ✅ vào cột "Trạng thái" ở §0 + §19.x** tương ứng.
+- Cộng số DONE, trừ số NOT STARTED ở §0 cho khớp.
+- Thêm job mới (ngoài spec) vào §19.3 hoặc §19.4 tuỳ priority.
+- Nếu 1 job được split thành nhiều, thêm từng sub-item.
+- Format: giữ đúng bảng markdown + emoji ✅🟡❌❌. Không sửa text trong các section §1–§18 (chỉ §0 + §19 là metadata).
