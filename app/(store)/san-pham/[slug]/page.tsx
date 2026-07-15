@@ -1,19 +1,62 @@
 import { notFound } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
+import type { Metadata } from 'next';
 import { ShieldCheck, Clock, Truck, ChevronRight } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { formatVND, MATERIAL_LABELS, TIER_DESCRIPTIONS, CATEGORY_LABELS } from '@/lib/utils';
 import { ProductGrid } from '@/components/product/product-grid';
 import { HoldButton } from '@/components/product/hold-button';
+import { RecentlyViewedTracker } from '@/components/product/recently-viewed-tracker';
+import { RecentlyViewedLocal } from '@/components/product/recently-viewed-local';
+import { JsonLdProduct } from '@/components/seo/json-ld-product';
+import { JsonLdBreadcrumb } from '@/components/seo/json-ld-breadcrumb';
 import { getProductBySlug, getRelatedProducts } from '@/lib/supabase/queries/products';
 import { toProduct } from '@/lib/adapters/supabase-to-app';
 import { safeList, safeOne } from '@/lib/data/safe-fetch';
 import { DataWarning } from '@/components/layout/data-warning';
 
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+
 interface Props {
   params: { slug: string };
+}
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const result = await safeOne(() => getProductBySlug(params.slug));
+  const product = result.data;
+  if (!product) {
+    return {
+      title: 'Sản phẩm không tồn tại',
+      description: 'Sản phẩm này đã được sưu tầm hoặc không tồn tại.',
+    };
+  }
+  const title = product.meta_title || `${product.title} — ${MATERIAL_LABELS[product.material] ?? product.material}`;
+  const description =
+    product.meta_description || product.description || `${product.title} — trang sức si Nhật vintage tại Emerald Vault.`;
+  const image = product.image_url?.startsWith('http')
+    ? product.image_url
+    : `${SITE_URL}${product.image_url}`;
+  return {
+    title,
+    description,
+    openGraph: {
+      title,
+      description,
+      url: `${SITE_URL}/san-pham/${product.slug}`,
+      siteName: 'Emerald Vault',
+      locale: 'vi_VN',
+      type: 'website',
+      images: [{ url: image, alt: product.title }],
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title,
+      description,
+      images: [image],
+    },
+  };
 }
 
 export default async function ProductDetailPage({ params }: Props) {
@@ -41,6 +84,25 @@ export default async function ProductDetailPage({ params }: Props) {
   return (
     <div className="container mx-auto px-4 py-8">
       <DataWarning message={errorMsg} />
+      <RecentlyViewedTracker
+        product={{
+          id: product.id,
+          slug: product.slug,
+          title: product.title,
+          image_url: product.image_url,
+          price: product.price,
+          material: product.material,
+          quality_tier: product.quality_tier,
+        }}
+      />
+      <JsonLdProduct product={product} />
+      <JsonLdBreadcrumb
+        items={[
+          { name: 'Trang chủ', href: '/' },
+          { name: 'Sản phẩm', href: '/san-pham' },
+          { name: product.title, href: `/san-pham/${product.slug}` },
+        ]}
+      />
       {/* Breadcrumb */}
       <nav className="mb-6 flex items-center gap-1.5 text-xs text-text-muted">
         <Link href="/" className="hover:text-gold">Trang chủ</Link>
@@ -167,6 +229,9 @@ export default async function ProductDetailPage({ params }: Props) {
           <ProductGrid products={related} columns={4} />
         </section>
       )}
+
+      {/* Recently viewed (localStorage) */}
+      <RecentlyViewedLocal excludeId={product.id} />
     </div>
   );
 }

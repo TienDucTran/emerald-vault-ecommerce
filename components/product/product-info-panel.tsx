@@ -1,7 +1,7 @@
 import { Clock, Heart, ShieldCheck, Truck } from 'lucide-react';
 import { formatVND, MATERIAL_LABELS } from '@/lib/utils';
 import type { Product } from '@/lib/types';
-import { LockButton } from './lock-button';
+import { HoldButton } from './hold-button';
 
 interface ProductInfoPanelProps {
   product: Product;
@@ -51,7 +51,7 @@ export function ProductInfoPanel({ product }: ProductInfoPanelProps) {
       {/* CTA buttons */}
       <div className="flex flex-col gap-4">
         {isAvailable ? (
-          <LockButton product={product} />
+          <HoldButton product={product} />
         ) : (
           <button
             type="button"

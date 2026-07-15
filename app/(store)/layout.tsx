@@ -1,11 +1,16 @@
 import type { Metadata } from 'next';
+import Script from 'next/script';
 import { Cinzel, Inter } from 'next/font/google';
 import { AnnouncementBar } from '@/components/layout/announcement-bar';
 import { Navbar } from '@/components/layout/navbar';
 import { Footer } from '@/components/layout/footer';
 import { MobileBottomNav } from '@/components/home/mobile/mobile-bottom-nav';
 import { MobileChatbotBubble } from '@/components/home/mobile/mobile-chatbot-bubble';
+import { ConsentBanner } from '@/components/analytics/consent-banner';
+import { OrganizationJsonLd } from '@/components/seo/json-ld-organization';
 import '../globals.css';
+
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
 
 // Cinzel chỉ hỗ trợ latin + latin-ext (không có vietnamese)
 const cinzel = Cinzel({
@@ -23,6 +28,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
   title: {
     default: 'Emerald Vault — Trang sức si Nhật vintage',
     template: '%s | Emerald Vault',
@@ -52,8 +58,17 @@ export const metadata: Metadata = {
 export default function StoreLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="vi" className={`${cinzel.variable} ${inter.variable}`}>
+      <head>
+        <Script id="ga-consent-default" strategy="beforeInteractive">
+          {`window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('consent', 'default', { ad_storage: 'denied', analytics_storage: 'denied', wait_for_update: 500 });`}
+        </Script>
+      </head>
       <body className="font-sans">
-        {/* Desktop header */}
+        <OrganizationJsonLd />
+        {/* Desktop header: AnnouncementBar (sticky top-0) + Navbar (sticky top-9).
+            Cả 2 dính đỉnh viewport. Khi scroll, cả 2 đều hiện, không bị ẩn. */}
         <div className="hidden lg:block">
           <AnnouncementBar />
           <Navbar />
@@ -70,6 +85,7 @@ export default function StoreLayout({ children }: { children: React.ReactNode })
         {/* Mobile bottom nav + chatbot */}
         <MobileBottomNav />
         <MobileChatbotBubble />
+        <ConsentBanner />
       </body>
     </html>
   );

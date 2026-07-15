@@ -1,19 +1,32 @@
 'use client';
 
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { Search, Menu, X, ShoppingBag } from 'lucide-react';
 import { useState } from 'react';
 import { CartBadge } from './cart-badge';
+import { cn } from '@/lib/utils';
 
 const NAV_ITEMS = [
-  { label: 'Sưu Tập', href: '/bo-suu-tap', active: true },
+  { label: 'Sưu Tập', href: '/bo-suu-tap' },
   { label: 'Trang Sức', href: '/san-pham' },
   { label: 'Về Chúng Tôi', href: '/cau-chuyen' },
   { label: 'Liên Hệ', href: '/lien-he' },
 ];
 
+/**
+ * Đánh dấu item active dựa trên URL hiện tại.
+ * - Active nếu pathname khớp href (vd /san-pham)
+ * - Hoặc pathname bắt đầu bằng href + '/' (vd /san-pham/nhan-abc)
+ */
+function isActive(href: string, pathname: string): boolean {
+  if (href === '/') return pathname === '/';
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
 export function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const pathname = usePathname() || '/';
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-gold/10 bg-background/90 backdrop-blur-2xl">
@@ -28,19 +41,24 @@ export function Navbar() {
 
         {/* Desktop nav */}
         <nav className="hidden items-center gap-8 lg:flex">
-          {NAV_ITEMS.map((item) => (
-            <Link
-              key={item.label}
-              href={item.href}
-              className={`font-heading text-xs font-bold uppercase tracking-[0.15em] transition-colors hover:text-gold ${
-                item.active
-                  ? 'border-b border-gold text-gold pb-1'
-                  : 'text-text-muted'
-              }`}
-            >
-              {item.label}
-            </Link>
-          ))}
+          {NAV_ITEMS.map((item) => {
+            const active = isActive(item.href, pathname);
+            return (
+              <Link
+                key={item.label}
+                href={item.href}
+                aria-current={active ? 'page' : undefined}
+                className={cn(
+                  'font-heading text-xs font-bold uppercase tracking-[0.15em] transition-colors hover:text-gold',
+                  active
+                    ? 'border-b border-gold pb-1 text-gold'
+                    : 'text-text-muted'
+                )}
+              >
+                {item.label}
+              </Link>
+            );
+          })}
         </nav>
 
         {/* Right actions */}
@@ -81,16 +99,23 @@ export function Navbar() {
       {mobileOpen && (
         <div className="border-t border-gold/10 bg-background lg:hidden">
           <nav className="flex flex-col px-8 py-4">
-            {NAV_ITEMS.map((item) => (
-              <Link
-                key={item.label}
-                href={item.href}
-                onClick={() => setMobileOpen(false)}
-                className="border-b border-surface-emerald/50 py-3 font-heading text-sm font-semibold uppercase tracking-wider text-text-base hover:text-gold"
-              >
-                {item.label}
-              </Link>
-            ))}
+            {NAV_ITEMS.map((item) => {
+              const active = isActive(item.href, pathname);
+              return (
+                <Link
+                  key={item.label}
+                  href={item.href}
+                  onClick={() => setMobileOpen(false)}
+                  aria-current={active ? 'page' : undefined}
+                  className={cn(
+                    'border-b border-surface-emerald/50 py-3 font-heading text-sm font-semibold uppercase tracking-wider hover:text-gold',
+                    active ? 'text-gold' : 'text-text-base'
+                  )}
+                >
+                  {item.label}
+                </Link>
+              );
+            })}
           </nav>
         </div>
       )}

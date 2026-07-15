@@ -50,7 +50,7 @@ export function toCollection(c: CollectionBasic | CollectionRow): Collection {
     cover_image_url: c.cover_image_url ?? undefined,
     is_published: c.is_published,
     display_order: c.display_order,
-    created_at: c.created_at,
+    created_at: 'created_at' in c ? c.created_at : undefined,
     launch_at: c.launch_at ?? undefined,
     story_text: 'story_text' in c ? (c.story_text ?? undefined) : undefined,
     hero_gallery: 'hero_gallery' in c ? (c.hero_gallery ?? undefined) : undefined,

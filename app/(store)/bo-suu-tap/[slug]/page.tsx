@@ -1,14 +1,56 @@
 import { notFound } from 'next/navigation';
 import Image from 'next/image';
+import type { Metadata } from 'next';
 import { getCollectionBySlug, getPublishedCollections } from '@/lib/supabase/queries/collections';
 import { getProductsByCollection } from '@/lib/supabase/queries/products';
 import { toCollection, toProduct } from '@/lib/adapters/supabase-to-app';
 import { safeList, safeOne } from '@/lib/data/safe-fetch';
 import { DataWarning } from '@/components/layout/data-warning';
 import { ProductGrid } from '@/components/product/product-grid';
+import { JsonLdBreadcrumb } from '@/components/seo/json-ld-breadcrumb';
+
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
 
 interface Props {
   params: { slug: string };
+}
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const result = await safeOne(() => getCollectionBySlug(params.slug));
+  const collection = result.data;
+  if (!collection) {
+    return {
+      title: 'Bộ sưu tập không tồn tại',
+      description: 'Bộ sưu tập này không tồn tại hoặc đã được gỡ.',
+    };
+  }
+  const title = collection.meta_title || collection.name;
+  const description =
+    collection.meta_description || collection.description || `Bộ sưu tập ${collection.name} tại Emerald Vault.`;
+  const image = collection.cover_image_url
+    ? collection.cover_image_url.startsWith('http')
+      ? collection.cover_image_url
+      : `${SITE_URL}${collection.cover_image_url}`
+    : undefined;
+  return {
+    title,
+    description,
+    openGraph: {
+      title,
+      description,
+      url: `${SITE_URL}/bo-suu-tap/${collection.slug}`,
+      siteName: 'Emerald Vault',
+      locale: 'vi_VN',
+      type: 'website',
+      ...(image ? { images: [{ url: image, alt: collection.name }] } : {}),
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title,
+      description,
+      ...(image ? { images: [image] } : {}),
+    },
+  };
 }
 
 export default async function CollectionDetailPage({ params }: Props) {
@@ -33,6 +75,13 @@ export default async function CollectionDetailPage({ params }: Props) {
   return (
     <div className="container mx-auto px-4 py-8">
       <DataWarning message={errorMsg} />
+      <JsonLdBreadcrumb
+        items={[
+          { name: 'Trang chủ', href: '/' },
+          { name: 'Bộ sưu tập', href: '/bo-suu-tap' },
+          { name: collection.name, href: `/bo-suu-tap/${collection.slug}` },
+        ]}
+      />
       {/* Hero */}
       <section className="relative mb-12 grid grid-cols-1 items-center gap-8 overflow-hidden rounded-lg border border-gold/20 bg-surface p-8 lg:grid-cols-2 lg:p-12">
         <div>

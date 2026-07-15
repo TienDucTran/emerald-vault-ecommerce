@@ -2,8 +2,8 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { Heart } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { WishlistButton } from '@/components/ui/wishlist-button';
 import { formatVND, MATERIAL_LABELS } from '@/lib/utils';
 import type { Product } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -74,22 +74,10 @@ export function ProductCard({ product, priority = false, className }: ProductCar
         </div>
 
         {/* Wishlist button */}
-        <button
-          type="button"
-          onClick={(e) => {
-            e.preventDefault();
-            // TODO: implement wishlist
-          }}
-          className={cn(
-            'absolute top-3 right-3 grid h-9 w-9 place-items-center rounded-full',
-            'bg-background/70 text-gold/70 backdrop-blur-sm',
-            'transition-all duration-200 hover:bg-gold hover:text-background',
-            'opacity-0 group-hover:opacity-100'
-          )}
-          aria-label="Yêu thích"
-        >
-          <Heart className="h-4 w-4" />
-        </button>
+        <WishlistButton
+          product={product}
+          className="absolute top-3 right-3 opacity-0 group-hover:opacity-100"
+        />
       </div>
 
       {/* Info */}

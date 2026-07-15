@@ -2,9 +2,27 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { LogOut } from 'lucide-react';
+import { createClient } from '@/lib/supabase/client';
 
 export function AdminHeader() {
+  const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
+  const [signingOut, setSigningOut] = useState(false);
+
+  async function handleSignOut() {
+    if (signingOut) return;
+    setSigningOut(true);
+    try {
+      const supabase = createClient();
+      await supabase.auth.signOut();
+    } catch {
+      // ignore — server-side logout endpoint vẫn sẽ clear cookies khi navigate.
+    }
+    router.push('/admin/login');
+    router.refresh();
+  }
 
   return (
     <header className="fixed top-0 right-0 z-30 h-16 flex items-center justify-between px-6 bg-[rgba(13,17,23,0.8)] backdrop-blur-[6px] border-b border-[#4D4635]"
@@ -60,6 +78,20 @@ export function AdminHeader() {
             <span className="text-xs font-bold text-gold">A</span>
           </div>
         </div>
+
+        {/* Logout */}
+        <button
+          type="button"
+          onClick={handleSignOut}
+          disabled={signingOut}
+          className="flex items-center gap-2 pl-4 border-l border-[#4D4635] text-[#D0C5AF]/60 hover:text-gold transition-colors disabled:opacity-50"
+          title="Đăng xuất"
+        >
+          <LogOut className="w-4 h-4" />
+          <span className="text-[10px] font-heading tracking-[0.1em] uppercase">
+            {signingOut ? 'Đang thoát...' : 'Đăng xuất'}
+          </span>
+        </button>
       </div>
     </header>
   );
