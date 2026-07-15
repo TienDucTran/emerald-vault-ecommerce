@@ -28,10 +28,11 @@ export function TrustStrip() {
     <section className="hidden md:block border-y border-gold/10 bg-surface-emerald py-12">
       <div className="container mx-auto px-8">
         <div className="flex flex-wrap justify-center gap-6 md:gap-12">
-          {TRUST_ITEMS.map((item) => (
+          {TRUST_ITEMS.map((item, i) => (
             <div
               key={item.title}
-              className="flex w-full max-w-[250px] flex-col items-center gap-4 text-center md:w-auto"
+              className="flex w-full max-w-[250px] flex-col items-center gap-4 text-center md:w-auto motion-safe:animate-slideInLeft"
+              style={{ animationDelay: `${i * 100}ms`, animationFillMode: 'backwards' }}
             >
               {/* Icon */}
               <div className="grid h-12 w-12 place-items-center text-gold">

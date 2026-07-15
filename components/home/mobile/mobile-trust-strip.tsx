@@ -29,7 +29,11 @@ export function MobileTrustStrip() {
     >
       <div className="grid grid-cols-2 gap-y-8 px-6">
         {TRUST_ITEMS.map((item, idx) => (
-          <div key={idx} className="flex flex-col items-center gap-3">
+          <div
+            key={idx}
+            className="flex flex-col items-center gap-3 motion-safe:animate-fadeInUp"
+            style={{ animationDelay: `${idx * 100}ms`, animationFillMode: 'backwards' }}
+          >
             {/* Icon */}
             <div className="pb-3">{item.icon}</div>
             {/* Text */}

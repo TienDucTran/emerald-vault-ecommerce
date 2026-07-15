@@ -30,7 +30,10 @@ export function MobileProductsView({
   return (
     <div className="lg:hidden">
       {/* Section Header — theo Figma */}
-      <section className="px-4 pt-6 pb-2">
+      <section
+        className="px-4 pt-6 pb-2 motion-safe:animate-fadeInUp"
+        style={{ animationDelay: '0ms', animationFillMode: 'backwards' }}
+      >
         <p className="mb-1 text-xs font-medium uppercase tracking-[0.3em] text-gold">
           {pageEyebrow}
         </p>

@@ -45,7 +45,10 @@ export function TierShowcase() {
     <section className="hidden md:block bg-background py-20 md:px-32 px-8">
       <div className="mx-auto max-w-7xl">
         {/* Header */}
-        <div className="mb-16 flex flex-col items-center gap-4 text-center">
+        <div
+          className="mb-16 flex flex-col items-center gap-4 text-center motion-safe:animate-fadeInUp"
+          style={{ animationDelay: '0ms', animationFillMode: 'backwards' }}
+        >
           <p className="font-heading text-xs uppercase tracking-[0.3em] text-gold">
             AUTHENTICATION STANDARDS
           </p>
@@ -60,11 +63,12 @@ export function TierShowcase() {
 
         {/* Tier cards — 3 columns */}
         <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-          {TIERS.map((tier) => (
+          {TIERS.map((tier, i) => (
             <Link
               key={tier.code}
               href={`/san-pham?tier=${tier.code}`}
-              className={`group flex flex-col items-center gap-6 rounded-lg ${tier.bg} ${tier.border} px-8 pt-10 pb-12 text-center transition-all hover:scale-[1.02]`}
+              className={`group flex flex-col items-center gap-6 rounded-lg ${tier.bg} ${tier.border} px-8 pt-10 pb-12 text-center transition-all duration-300 hover:-translate-y-1 hover:shadow-lg hover:scale-[1.02] motion-safe:animate-fadeInUp`}
+              style={{ animationDelay: `${i * 100}ms`, animationFillMode: 'backwards' }}
             >
               {/* Tier code — large */}
               <span

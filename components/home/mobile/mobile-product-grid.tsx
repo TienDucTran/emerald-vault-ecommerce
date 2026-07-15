@@ -19,8 +19,14 @@ export function MobileProductGrid({ products }: MobileProductGridProps) {
     <section className="px-2 py-4">
       {/* 2-column grid */}
       <div className="grid grid-cols-2 gap-2">
-        {products.map((product) => (
-          <ProductCardMobile key={product.id} product={product} />
+        {products.map((product, i) => (
+          <div
+            key={product.id}
+            className="motion-safe:animate-fadeInUp"
+            style={{ animationDelay: `${i * 80}ms`, animationFillMode: 'backwards' }}
+          >
+            <ProductCardMobile product={product} />
+          </div>
         ))}
       </div>
 

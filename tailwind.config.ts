@@ -83,11 +83,37 @@ const config: Config = {
           '0%, 100%': { boxShadow: '0 0 0 0 rgba(212, 175, 55, 0.4)' },
           '50%': { boxShadow: '0 0 0 12px rgba(212, 175, 55, 0)' },
         },
+        'pop': {
+          '0%': { transform: 'scale(0)' },
+          '70%': { transform: 'scale(1.2)' },
+          '100%': { transform: 'scale(1)' },
+        },
+        'slideInLeft': {
+          '0%': { opacity: '0', transform: 'translateX(-12px)' },
+          '100%': { opacity: '1', transform: 'translateX(0)' },
+        },
+        'slideDown': {
+          '0%': { opacity: '0', transform: 'translateY(-8px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+        'fadeInUp': {
+          '0%': { opacity: '0', transform: 'translateY(20px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+        'scaleIn': {
+          '0%': { opacity: '0', transform: 'scale(0.95)' },
+          '100%': { opacity: '1', transform: 'scale(1)' },
+        },
       },
       animation: {
         'fade-in': 'fade-in 0.6s ease-out forwards',
         'shimmer': 'shimmer 2s linear infinite',
         'pulse-gold': 'pulse-gold 2s ease-in-out infinite',
+        'pop': 'pop 300ms ease-out',
+        'slideInLeft': 'slideInLeft 300ms ease-out forwards',
+        'slideDown': 'slideDown 250ms ease-out forwards',
+        'fadeInUp': 'fadeInUp 500ms ease-out forwards',
+        'scaleIn': 'scaleIn 400ms ease-out forwards',
       },
       backgroundImage: {
         'gradient-radial': 'radial-gradient(ellipse at center, var(--tw-gradient-stops))',

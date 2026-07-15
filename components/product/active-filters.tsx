@@ -85,10 +85,11 @@ export function ActiveFilters() {
           key={f.key}
           type="button"
           onClick={() => remove(f.paramKey)}
-          className="group inline-flex items-center gap-1.5 rounded-md border border-gold/30 bg-surface-emerald px-2.5 py-1 text-xs text-gold transition-colors hover:border-error/50 hover:bg-error/10 hover:text-error"
+          className="group motion-safe:animate-scaleIn inline-flex items-center gap-1.5 rounded-md border border-gold/30 bg-surface-emerald px-2.5 py-1 text-xs text-gold transition-colors duration-200 hover:border-error/50 hover:bg-error/10 hover:text-error"
+          style={{ animationDelay: '0ms', animationFillMode: 'backwards' }}
         >
           {f.label}
-          <X className="h-3 w-3 opacity-60 group-hover:opacity-100" />
+          <X className="h-3 w-3 opacity-60 transition-all duration-200 group-hover:scale-110 group-hover:opacity-100 active:scale-90" />
         </button>
       ))}
     </div>

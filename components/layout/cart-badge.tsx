@@ -17,7 +17,10 @@ export function CartBadge() {
   if (activeCount === 0) return null;
 
   return (
-    <span className="absolute -top-1 -right-1 grid h-4 w-4 place-items-center rounded-full bg-gold text-[10px] font-bold text-background">
+    <span
+      key={activeCount}
+      className="absolute -top-1 -right-1 grid h-4 w-4 place-items-center rounded-full bg-gold text-[10px] font-bold text-background motion-safe:animate-pop"
+    >
       {activeCount}
     </span>
   );

@@ -11,7 +11,10 @@ export function LatestArrivals({ products }: LatestArrivalsProps) {
   return (
     <section className="py-20">
       <div className="container mx-auto px-4">
-        <div className="mb-10 flex flex-col items-start justify-between gap-3 md:flex-row md:items-end">
+        <div
+          className="mb-10 flex flex-col items-start justify-between gap-3 motion-safe:animate-fadeInUp md:flex-row md:items-end"
+          style={{ animationDelay: '0ms', animationFillMode: 'backwards' }}
+        >
           <div>
             <p className="mb-2 text-xs font-medium uppercase tracking-[0.3em] text-gold">
               ✦ SI MỚI VỀ
@@ -26,7 +29,8 @@ export function LatestArrivals({ products }: LatestArrivalsProps) {
           </div>
           <Link
             href="/san-pham?sort=newest"
-            className="group inline-flex items-center gap-1.5 text-sm font-medium text-gold transition-colors hover:text-gold-champagne"
+            className="group inline-flex items-center gap-1.5 text-sm font-medium text-gold transition-colors hover:text-gold-champagne motion-safe:animate-fadeInUp"
+            style={{ animationDelay: '150ms', animationFillMode: 'backwards' }}
           >
             Xem tất cả
             <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />

@@ -169,6 +169,65 @@
 
 ---
 
+## 🟣 P1 — END-USER ACCOUNT (mới — xem chi tiết `flows.md` §18, `docs/account-page-spec.md`)
+
+> Thêm flow tài khoản khách hàng (opt-in, không bắt buộc). Không thay thế guest checkout.
+
+### S. Database
+- [ ] Migration `0009_user_account.sql` — tạo `addresses`, `wishlist_items`, `product_reviews`
+- [ ] Bổ sung `profiles`: `avatar_url`, `date_of_birth`, `gender`, `marketing_opt_in`, `updated_at`
+- [ ] RPC `link_guest_orders_to_user(p_user_id, p_phone)` — auto-link đơn cũ khi đăng ký
+- [ ] RPC `is_verified_purchase(p_user_id, p_product_id)` — cho review badge
+- [ ] RLS policies cho `addresses`, `wishlist_items`, `product_reviews`
+- [ ] Index: `idx_addresses_user`, `idx_wishlist_user`, `idx_reviews_product_approved`, `idx_reviews_user`
+
+### T. Auth Pages (end-user)
+- [ ] `app/(store)/dang-nhap/page.tsx` — Email + Magic Link tabs
+- [ ] `app/(store)/dang-ky/page.tsx` — full_name + email + phone + password
+- [ ] `app/(store)/quen-mat-khau/page.tsx` — reset password qua email
+- [ ] `app/(store)/xac-nhan-email/page.tsx` — thông báo verify
+- [ ] `lib/auth/require-user.ts` — auth helper (tương tự require-admin)
+- [ ] Update `middleware.ts` — thêm matcher `/tai-khoan/:path*` + `/api/account/:path*`
+- [ ] Update `navbar.tsx` — User icon link dynamic, avatar mini khi logged in
+
+### U. API Routes
+- [ ] `app/api/auth/magic-link/route.ts`
+- [ ] `app/api/auth/reset-password/route.ts`
+- [ ] `app/api/account/profile/route.ts` — GET / PATCH
+- [ ] `app/api/account/addresses/route.ts` + `[id]/route.ts` + `[id]/default/route.ts`
+- [ ] `app/api/account/wishlist/route.ts` + `[productId]/route.ts`
+- [ ] `app/api/account/orders/route.ts` — list theo phone
+- [ ] `app/api/account/reviews/route.ts` + `[id]/route.ts`
+- [ ] `lib/validations/account.ts` — Zod schemas
+- [ ] Rate-limit `/api/account/*` 30 req / phút / user
+- [ ] Rate-limit review POST 5 / ngày / user
+
+### V. Account Page Components
+- [ ] `app/(store)/tai-khoan/layout.tsx` — auth gate + sidebar layout
+- [ ] `app/(store)/tai-khoan/page.tsx` — redirect `/tai-khoan/ho-so`
+- [ ] `app/(store)/tai-khoan/ho-so/page.tsx` — profile form
+- [ ] `app/(store)/tai-khoan/don-hang/page.tsx` + `[code]/page.tsx`
+- [ ] `app/(store)/tai-khoan/dia-chi/page.tsx`
+- [ ] `app/(store)/tai-khoan/yeu-thich/page.tsx`
+- [ ] `app/(store)/tai-khoan/danh-gia/page.tsx`
+- [ ] `app/(store)/tai-khoan/bao-mat/page.tsx`
+- [ ] `components/account/account-sidebar.tsx` + `account-mobile-tabs.tsx`
+- [ ] `components/account/profile-form.tsx`
+- [ ] `components/account/order-list.tsx` + `order-list-filters.tsx`
+- [ ] `components/account/address-card.tsx` + `address-form.tsx`
+- [ ] `components/account/wishlist-grid.tsx`
+- [ ] `components/account/review-list.tsx` + `review-form.tsx`
+- [ ] `components/account/security-panel.tsx`
+- [ ] `hooks/use-account-sync.ts` — localStorage wishlist ↔ DB
+
+### W. Integration
+- [ ] Update `app/(store)/thanh-toan/page.tsx` — pre-fill từ profile + addresses nếu logged in
+- [ ] Update `components/ui/wishlist-button.tsx` — gọi API nếu logged in
+- [ ] Update `app/(store)/don-hang/[code]/page.tsx` — auto-skip form SĐT nếu logged in
+- [ ] GA4 events: `account_register`, `account_login`, `account_logout`, `profile_updated`, `address_added`, `wishlist_synced`, `review_submitted`
+
+---
+
 ## 🟣 P1 — AI CHATBOT (mới — xem chi tiết `flows.md` §15)
 
 ### N. Schema & Vector

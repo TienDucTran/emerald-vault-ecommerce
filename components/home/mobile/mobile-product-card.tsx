@@ -47,12 +47,12 @@ export function ProductCardMobile({ product }: ProductCardMobileProps) {
   return (
     <Link
       href={`/san-pham/${product.slug}`}
-      className="group relative flex flex-col rounded-sm overflow-hidden border border-[rgba(77,70,53,0.1)] bg-[#231F17] transition-shadow hover:shadow-[0_0_20px_0_rgba(242,202,80,0.08)]"
+      className="group relative flex flex-col rounded-sm overflow-hidden border border-[rgba(77,70,53,0.1)] bg-[#231F17] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_0_20px_0_rgba(242,202,80,0.12)]"
       style={{ aspectRatio: '0.75' }}
     >
       {/* Image */}
       <div
-        className="flex-1 bg-center bg-cover bg-no-repeat"
+        className="flex-1 bg-center bg-cover bg-no-repeat transition-transform duration-500 group-hover:scale-110"
         style={{ backgroundImage: `url('${product.image_url}')` }}
       />
 

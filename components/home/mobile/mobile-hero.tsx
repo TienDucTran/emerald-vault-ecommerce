@@ -7,17 +7,26 @@ export function MobileHero() {
         style={{ backgroundColor: '#12241C' }}
       >
         {/* Eyebrow */}
-        <p className="font-heading text-[10px] uppercase tracking-[0.2em] text-gold">
+        <p
+          className="font-heading text-[10px] uppercase tracking-[0.2em] text-gold motion-safe:animate-fadeInUp"
+          style={{ animationDelay: '0ms', animationFillMode: 'backwards' }}
+        >
           TIER SSS CURATION
         </p>
 
         {/* H1 */}
-        <h2 className="font-heading text-[32px] font-normal leading-[1.3em] text-text-base">
+        <h2
+          className="font-heading text-[32px] font-normal leading-[1.3em] text-text-base motion-safe:animate-fadeInUp"
+          style={{ animationDelay: '150ms', animationFillMode: 'backwards' }}
+        >
           Kho Lưu Trữ Tuyệt Tác
         </h2>
 
         {/* Badge row */}
-        <div className="mt-2 flex items-center gap-2">
+        <div
+          className="mt-2 flex items-center gap-2 motion-safe:animate-fadeInUp"
+          style={{ animationDelay: '300ms', animationFillMode: 'backwards' }}
+        >
           <ShieldIcon />
           <p className="font-sans text-[11px] font-semibold uppercase tracking-[0.1em] text-gold/80">
             GIÁM ĐỊNH CHUYÊN GIA
@@ -27,10 +36,12 @@ export function MobileHero() {
 
       {/* 10-Minute Hold Banner */}
       <div
-        className="flex items-center justify-between px-4 py-2.5"
+        className="flex items-center justify-between px-4 py-2.5 motion-safe:animate-slideDown"
         style={{
           backgroundColor: 'rgba(52, 76, 63, 0.2)',
           borderBottom: '1px solid rgba(242, 202, 80, 0.1)',
+          animationDelay: '450ms',
+          animationFillMode: 'backwards',
         }}
       >
         <div className="flex items-center gap-2">

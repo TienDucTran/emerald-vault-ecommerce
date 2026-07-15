@@ -14,7 +14,10 @@ export function StorytellingSection({ product }: StorytellingSectionProps) {
     <section className="border-t border-gold/10 pt-24">
       <div className="mx-auto max-w-4xl">
         {/* Section heading — center */}
-        <h2 className="mb-12 text-center font-heading text-4xl font-bold tracking-tight text-text-base sm:text-5xl">
+        <h2
+          className="mb-12 text-center font-heading text-4xl font-bold tracking-tight text-text-base sm:text-5xl motion-safe:animate-fadeInUp"
+          style={{ animationDelay: '0ms', animationFillMode: 'backwards' }}
+        >
           CÂU CHUYỆN MÔN ĐỒ
         </h2>
 
@@ -22,7 +25,10 @@ export function StorytellingSection({ product }: StorytellingSectionProps) {
         <div className="flex flex-col gap-16 lg:flex-row lg:items-start lg:gap-16">
           {/* Quote with decorative L-border */}
           {product.story_quote && (
-            <div className="relative lg:w-2/5">
+            <div
+              className="relative lg:w-2/5 motion-safe:animate-fadeInUp"
+              style={{ animationDelay: '100ms', animationFillMode: 'backwards' }}
+            >
               {/* Decorative top-left border */}
               <div className="absolute -left-4 -top-4 h-24 w-24 border-l-2 border-t-2 border-gold/30" />
               <p className="font-heading text-lg font-semibold italic leading-relaxed text-text-base">
@@ -33,7 +39,10 @@ export function StorytellingSection({ product }: StorytellingSectionProps) {
 
           {/* Body paragraphs */}
           {product.story_body && product.story_body.length > 0 && (
-            <div className="flex flex-col gap-6 lg:w-3/5">
+            <div
+              className="flex flex-col gap-6 lg:w-3/5 motion-safe:animate-fadeInUp"
+              style={{ animationDelay: '200ms', animationFillMode: 'backwards' }}
+            >
               {product.story_body.map((paragraph, i) => (
                 <p key={i} className="text-base leading-relaxed text-text-muted">
                   {paragraph}
@@ -45,7 +54,10 @@ export function StorytellingSection({ product }: StorytellingSectionProps) {
 
         {/* Highlight card — image with blur overlay */}
         {product.highlight_title && product.highlight_image && (
-          <div className="mt-16 flex justify-center">
+          <div
+            className="mt-16 flex justify-center motion-safe:animate-fadeInUp"
+            style={{ animationDelay: '300ms', animationFillMode: 'backwards' }}
+          >
             <div className="relative w-full max-w-md overflow-hidden rounded-sm border border-gold/20 bg-surface-emerald">
               {/* Background image */}
               <div className="relative aspect-[5/4] w-full">

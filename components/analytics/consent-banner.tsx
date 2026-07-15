@@ -51,7 +51,7 @@ export function ConsentBanner() {
       role="dialog"
       aria-live="polite"
       aria-label="Thông báo sử dụng cookie"
-      className="fixed bottom-4 right-4 z-50 max-w-sm rounded-lg border border-gold/40 bg-surface/95 p-4 text-sm text-text-base shadow-2xl backdrop-blur"
+      className="motion-safe:animate-fadeInUp fixed bottom-4 right-4 z-50 max-w-sm rounded-lg border border-gold/40 bg-surface/95 p-4 text-sm text-text-base shadow-2xl backdrop-blur"
     >
       <button
         type="button"

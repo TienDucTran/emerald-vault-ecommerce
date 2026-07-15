@@ -30,7 +30,13 @@ export function ProductGrid({ products, columns = 4, className }: ProductGridPro
   return (
     <div className={cn('grid gap-5', colsMap[columns], className)}>
       {products.map((product, i) => (
-        <ProductCard key={product.id} product={product} priority={i < 4} />
+        <div
+          key={product.id}
+          className="motion-safe:animate-fadeInUp"
+          style={{ animationDelay: `${(i % 12) * 60}ms`, animationFillMode: 'backwards' }}
+        >
+          <ProductCard product={product} priority={i < 4} />
+        </div>
       ))}
     </div>
   );

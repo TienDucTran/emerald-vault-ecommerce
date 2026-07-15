@@ -19,7 +19,7 @@ export function ProductGallery({ product }: ProductGalleryProps) {
   return (
     <div className="flex flex-col gap-4">
       {/* Main image with TIER badge overlay */}
-      <div className="relative aspect-square overflow-hidden rounded-sm border border-gold/10 bg-surface-emerald">
+      <div className="relative aspect-square overflow-hidden rounded-sm border border-gold/10 bg-surface-emerald motion-safe:animate-scaleIn">
         <Image
           src={allImages[activeIndex]}
           alt={product.title}
@@ -58,7 +58,7 @@ export function ProductGallery({ product }: ProductGalleryProps) {
               type="button"
               onClick={() => setActiveIndex(i)}
               className={cn(
-                'relative aspect-square overflow-hidden rounded-sm border bg-surface-emerald transition-all',
+                'relative aspect-square overflow-hidden rounded-sm border bg-surface-emerald transition-all duration-200 hover:scale-105 active:scale-95',
                 activeIndex === i
                   ? 'border-gold/60 shadow-gold-glow'
                   : 'border-gold/15 hover:border-gold/30'
@@ -71,7 +71,7 @@ export function ProductGallery({ product }: ProductGalleryProps) {
                 fill
                 sizes="120px"
                 className={cn(
-                  'object-cover transition-opacity',
+                  'object-cover transition-opacity duration-200',
                   activeIndex === i ? 'opacity-100' : 'opacity-80 hover:opacity-100'
                 )}
               />

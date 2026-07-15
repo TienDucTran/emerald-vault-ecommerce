@@ -25,8 +25,8 @@ export function ProductCard({ product, priority = false, className }: ProductCar
       className={cn(
         'group relative block overflow-hidden rounded-lg',
         'border border-surface-emerald bg-surface shadow-card',
-        'transition-all duration-500',
-        'hover:border-gold/40 hover:shadow-card-hover',
+        'transition-all duration-300',
+        'hover:-translate-y-1 hover:border-gold/40 hover:shadow-lg hover:shadow-card-hover',
         className
       )}
     >
@@ -39,8 +39,8 @@ export function ProductCard({ product, priority = false, className }: ProductCar
           priority={priority}
           sizes="(max-width: 768px) 50vw, (max-width: 1200px) 33vw, 25vw"
           className={cn(
-            'object-cover transition-all duration-700',
-            'group-hover:scale-105',
+            'object-cover transition-transform duration-500',
+            'group-hover:scale-110',
             isSoldOut && 'opacity-50 grayscale'
           )}
         />

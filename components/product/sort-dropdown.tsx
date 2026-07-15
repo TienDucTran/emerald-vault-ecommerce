@@ -45,7 +45,7 @@ export function SortDropdown() {
         onClick={() => setOpen((v) => !v)}
         className={cn(
           'inline-flex h-10 items-center gap-2 rounded-md border border-gold/30 bg-surface px-3 text-sm text-text-base',
-          'transition-colors hover:border-gold/60'
+          'transition-all duration-200 hover:border-gold/60 hover:bg-gold/10 active:scale-95'
         )}
       >
         <span className="text-text-muted">Sắp xếp:</span>
@@ -55,17 +55,20 @@ export function SortDropdown() {
         />
       </button>
       {open && (
-        <div className="absolute right-0 top-full z-20 mt-2 min-w-[180px] rounded-md border border-gold/20 bg-surface py-1 shadow-xl">
+        <div
+          className="absolute right-0 top-full z-20 mt-2 min-w-[180px] rounded-md border border-gold/20 bg-surface py-1 shadow-xl motion-safe:animate-fadeInUp"
+          style={{ animationDelay: '0ms', animationFillMode: 'backwards' }}
+        >
           {SORT_OPTIONS.map((opt) => (
             <button
               key={opt.value}
               type="button"
               onClick={() => onSelect(opt.value)}
               className={cn(
-                'block w-full px-3 py-2 text-left text-sm transition-colors',
+                'block w-full px-3 py-2 text-left text-sm transition-colors duration-200',
                 opt.value === current
                   ? 'bg-gold/10 font-medium text-gold'
-                  : 'text-text-base hover:bg-gold/5 hover:text-gold'
+                  : 'text-text-base hover:bg-gold/10 hover:text-gold'
               )}
             >
               {opt.label}

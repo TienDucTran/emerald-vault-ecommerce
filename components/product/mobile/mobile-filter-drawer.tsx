@@ -63,19 +63,22 @@ export function MobileFilterDrawer({ open, onClose, priceRange }: MobileFilterDr
     <div className="fixed inset-0 z-[60] lg:hidden">
       {/* Overlay */}
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm motion-safe:animate-fadeIn"
         onClick={onClose}
       />
 
       {/* Drawer */}
-      <div className="absolute bottom-0 inset-x-0 max-h-[85vh] overflow-y-auto rounded-t-3xl border-t border-gold/20 bg-surface/95 backdrop-blur-md animate-[fade-in_0.3s_ease-out]">
+      <div
+        className="absolute bottom-0 inset-x-0 max-h-[85vh] overflow-y-auto rounded-t-3xl border-t border-gold/20 bg-surface/95 backdrop-blur-md motion-safe:animate-fadeInUp"
+        style={{ animationDelay: '0ms', animationFillMode: 'backwards' }}
+      >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-gold/10 px-5 py-4">
           <h3 className="font-heading text-base font-semibold text-text-base">Bộ Lọc Sưu Tập</h3>
           <button
             type="button"
             onClick={onClose}
-            className="grid h-8 w-8 place-items-center rounded-full text-text-muted hover:text-gold"
+            className="grid h-8 w-8 place-items-center rounded-full text-text-muted transition-all duration-200 hover:scale-110 hover:text-gold active:scale-90"
             aria-label="Đóng"
           >
             <X className="h-5 w-5" />
@@ -85,7 +88,10 @@ export function MobileFilterDrawer({ open, onClose, priceRange }: MobileFilterDr
         {/* Body */}
         <div className="flex flex-col gap-6 px-5 py-5">
           {/* Category section */}
-          <div>
+          <div
+            className="motion-safe:animate-fadeInUp"
+            style={{ animationDelay: '80ms', animationFillMode: 'backwards' }}
+          >
             <p className="mb-3 font-heading text-xs uppercase tracking-wider text-gold/70">Phân Loại</p>
             <div className="grid grid-cols-2 gap-2">
               <button
@@ -117,7 +123,10 @@ export function MobileFilterDrawer({ open, onClose, priceRange }: MobileFilterDr
           </div>
 
           {/* Tier section */}
-          <div>
+          <div
+            className="motion-safe:animate-fadeInUp"
+            style={{ animationDelay: '160ms', animationFillMode: 'backwards' }}
+          >
             <p className="mb-3 font-heading text-xs uppercase tracking-wider text-gold/70">Phẩm Cấp (Tier)</p>
             <div className="flex flex-col gap-2">
               {TIER_OPTIONS.map((opt) => {
@@ -148,7 +157,10 @@ export function MobileFilterDrawer({ open, onClose, priceRange }: MobileFilterDr
           </div>
 
           {/* Price range section */}
-          <div>
+          <div
+            className="motion-safe:animate-fadeInUp"
+            style={{ animationDelay: '240ms', animationFillMode: 'backwards' }}
+          >
             <p className="mb-3 font-heading text-xs uppercase tracking-wider text-gold/70">Khoảng Giá</p>
             <div className="flex items-center gap-2">
               <input

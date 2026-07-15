@@ -15,7 +15,8 @@ export function MobileChatbotBubble() {
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-label={open ? 'Đóng chat' : 'Mở chat tư vấn'}
-        className="fixed bottom-20 right-4 lg:bottom-6 lg:right-6 z-50 h-14 w-14 rounded-full bg-[#c9a961] text-black shadow-lg shadow-[#c9a961]/30 flex items-center justify-center hover:scale-105 transition-transform"
+        className="fixed bottom-20 right-4 lg:bottom-6 lg:right-6 z-50 h-14 w-14 rounded-full bg-[#c9a961] text-black shadow-lg shadow-[#c9a961]/30 flex items-center justify-center transition-all duration-300 hover:scale-105 active:scale-95 motion-safe:animate-scaleIn"
+        style={{ animationDelay: '600ms', animationFillMode: 'backwards' }}
       >
         {open ? <X className="h-6 w-6" /> : <MessageCircle className="h-6 w-6" />}
       </button>
@@ -25,7 +26,7 @@ export function MobileChatbotBubble() {
         <div
           role="dialog"
           aria-label="Chat tư vấn"
-          className="fixed bottom-36 right-4 lg:bottom-24 lg:right-6 z-50 w-[min(360px,calc(100vw-2rem))] h-[480px] bg-[#0a0a0a] border border-[#c9a961]/30 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+          className="fixed bottom-36 right-4 lg:bottom-24 lg:right-6 z-50 w-[min(360px,calc(100vw-2rem))] h-[480px] bg-[#0a0a0a] border border-[#c9a961]/30 rounded-2xl shadow-2xl flex flex-col overflow-hidden motion-safe:animate-pop"
         >
           <div className="px-4 py-3 border-b border-[#c9a961]/20 flex items-center gap-2">
             <div className="h-8 w-8 rounded-full bg-[#c9a961]/20 flex items-center justify-center text-[#c9a961] font-serif text-sm">B</div>

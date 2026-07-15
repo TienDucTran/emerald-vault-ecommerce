@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Search, Menu, X, ShoppingBag } from 'lucide-react';
+import { Search, Menu, X, ShoppingBag, User } from 'lucide-react';
 import { useState } from 'react';
 import { CartBadge } from './cart-badge';
 import { cn } from '@/lib/utils';
@@ -29,12 +29,12 @@ export function Navbar() {
   const pathname = usePathname() || '/';
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-gold/10 bg-background/90 backdrop-blur-2xl">
+    <header className="w-full border-b border-gold/10 bg-background/90 backdrop-blur-2xl">
       <div className="flex h-[60px] items-center justify-between px-8">
         {/* Logo */}
         <Link
           href="/"
-          className="font-heading text-3xl font-bold tracking-tight text-gold"
+          className="font-heading text-3xl font-bold tracking-tight text-gold transition-transform duration-200 hover:scale-105"
         >
           EMERALD VAULT
         </Link>
@@ -49,13 +49,18 @@ export function Navbar() {
                 href={item.href}
                 aria-current={active ? 'page' : undefined}
                 className={cn(
-                  'font-heading text-xs font-bold uppercase tracking-[0.15em] transition-colors hover:text-gold',
-                  active
-                    ? 'border-b border-gold pb-1 text-gold'
-                    : 'text-text-muted'
+                  'group relative font-heading text-xs font-bold uppercase tracking-[0.15em] transition-colors hover:text-gold',
+                  active ? 'text-gold' : 'text-text-muted'
                 )}
               >
                 {item.label}
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    'absolute -bottom-1 left-0 h-px bg-gold transition-all duration-300 ease-out',
+                    active ? 'w-full' : 'w-0 group-hover:w-full'
+                  )}
+                />
               </Link>
             );
           })}
@@ -64,7 +69,7 @@ export function Navbar() {
         {/* Right actions */}
         <div className="flex items-center gap-6">
           {/* Search bar */}
-          <div className="hidden items-center rounded-xl border border-gold/30 bg-[#1F1B13] px-4 py-2 md:flex">
+          <div className="hidden items-center rounded-xl border border-gold/30 bg-[#1F1B13] px-4 py-2 transition-colors focus-within:border-gold md:flex">
             <Search className="h-4 w-4 text-text-muted" />
             <input
               type="text"
@@ -76,19 +81,29 @@ export function Navbar() {
           {/* Cart icon */}
           <Link
             href="/gio-hang"
-            className="relative grid h-8 w-8 place-items-center text-gold transition-colors hover:text-gold-champagne"
+            className="hidden lg:grid h-8 w-8 place-items-center text-gold transition-colors hover:text-gold-champagne active:scale-90"
             aria-label="Giỏ hàng"
           >
             <ShoppingBag className="h-5 w-5" />
             <CartBadge />
           </Link>
 
+          {/* Account icon */}
+          <Link
+            href="/tai-khoan"
+            className="hidden lg:grid h-8 w-8 place-items-center text-gold transition-colors hover:text-gold-champagne active:scale-90"
+            aria-label="Tài khoản"
+          >
+            <User className="h-5 w-5" />
+          </Link>
+
           {/* Mobile menu toggle */}
           <button
             type="button"
             onClick={() => setMobileOpen((v) => !v)}
-            className="grid h-8 w-8 place-items-center text-gold lg:hidden"
+            className="grid h-8 w-8 place-items-center text-gold transition-transform active:scale-90 lg:hidden"
             aria-label="Menu"
+            aria-expanded={mobileOpen}
           >
             {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
@@ -96,29 +111,37 @@ export function Navbar() {
       </div>
 
       {/* Mobile menu */}
-      {mobileOpen && (
-        <div className="border-t border-gold/10 bg-background lg:hidden">
-          <nav className="flex flex-col px-8 py-4">
-            {NAV_ITEMS.map((item) => {
-              const active = isActive(item.href, pathname);
-              return (
-                <Link
-                  key={item.label}
-                  href={item.href}
-                  onClick={() => setMobileOpen(false)}
-                  aria-current={active ? 'page' : undefined}
-                  className={cn(
-                    'border-b border-surface-emerald/50 py-3 font-heading text-sm font-semibold uppercase tracking-wider hover:text-gold',
-                    active ? 'text-gold' : 'text-text-base'
-                  )}
-                >
-                  {item.label}
-                </Link>
-              );
-            })}
-          </nav>
-        </div>
-      )}
+      <div
+        data-open={mobileOpen}
+        className={cn(
+          'overflow-hidden border-gold/10 bg-background transition-all duration-300 ease-out lg:hidden',
+          'border-t',
+          mobileOpen
+            ? 'max-h-[500px] opacity-100'
+            : 'pointer-events-none max-h-0 opacity-0'
+        )}
+      >
+        <nav className="flex flex-col px-8 py-4">
+          {NAV_ITEMS.map((item, i) => {
+            const active = isActive(item.href, pathname);
+            return (
+              <Link
+                key={item.label}
+                href={item.href}
+                onClick={() => setMobileOpen(false)}
+                aria-current={active ? 'page' : undefined}
+                style={{ animationDelay: mobileOpen ? `${i * 50}ms` : undefined }}
+                className={cn(
+                  'border-b border-surface-emerald/50 py-3 font-heading text-sm font-semibold uppercase tracking-wider transition-colors hover:text-gold motion-safe:animate-slideInLeft',
+                  active ? 'text-gold' : 'text-text-base'
+                )}
+              >
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
+      </div>
     </header>
   );
 }

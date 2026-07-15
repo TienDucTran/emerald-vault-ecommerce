@@ -6,6 +6,7 @@ import { Clock, Loader2, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useCartStore } from '@/lib/store/cart';
 import { useAnonymousId } from '@/hooks/use-anonymous-id';
+import { cn } from '@/lib/utils';
 import type { Product } from '@/lib/types';
 
 interface HoldButtonProps {
@@ -60,7 +61,7 @@ export function HoldButton({ product, className, size = 'lg', label }: HoldButto
         variant="primary"
         disabled={isLoading || isSuccess}
         onClick={onClick}
-        className={className}
+        className={cn('hover:scale-[1.02] active:scale-[0.98]', className)}
       >
         {isLoading ? (
           <>

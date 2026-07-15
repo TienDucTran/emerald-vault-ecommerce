@@ -13,7 +13,10 @@ export function ProductInfoPanel({ product }: ProductInfoPanelProps) {
   return (
     <div className="flex flex-col gap-6 lg:sticky lg:top-24 lg:self-start">
       {/* Title + subtitle */}
-      <div className="flex flex-col gap-2">
+      <div
+        className="flex flex-col gap-2 motion-safe:animate-fadeInUp"
+        style={{ animationDelay: '0ms', animationFillMode: 'backwards' }}
+      >
         <h1 className="font-heading text-4xl font-bold leading-tight tracking-tight text-text-base sm:text-5xl">
           {product.title}
         </h1>
@@ -30,7 +33,10 @@ export function ProductInfoPanel({ product }: ProductInfoPanelProps) {
       </div>
 
       {/* Price block — with top/bottom border */}
-      <div className="flex items-end gap-4 border-y border-gold/10 py-6">
+      <div
+        className="flex items-end gap-4 border-y border-gold/10 py-6 motion-safe:animate-fadeInUp"
+        style={{ animationDelay: '100ms', animationFillMode: 'backwards' }}
+      >
         <span className="font-sans text-4xl text-gold">
           {formatVND(product.price)}
         </span>
@@ -43,13 +49,19 @@ export function ProductInfoPanel({ product }: ProductInfoPanelProps) {
 
       {/* Description quote */}
       {product.description && (
-        <p className="text-base leading-relaxed text-text-base/80">
+        <p
+          className="text-base leading-relaxed text-text-base/80 motion-safe:animate-fadeInUp"
+          style={{ animationDelay: '200ms', animationFillMode: 'backwards' }}
+        >
           {product.description}
         </p>
       )}
 
       {/* CTA buttons */}
-      <div className="flex flex-col gap-4">
+      <div
+        className="flex flex-col gap-4 motion-safe:animate-fadeInUp"
+        style={{ animationDelay: '300ms', animationFillMode: 'backwards' }}
+      >
         {isAvailable ? (
           <HoldButton product={product} />
         ) : (
@@ -64,7 +76,7 @@ export function ProductInfoPanel({ product }: ProductInfoPanelProps) {
 
         <button
           type="button"
-          className="flex w-full items-center justify-center gap-3 border border-gold px-6 py-4 font-heading text-base text-gold transition-all hover:bg-gold/10"
+          className="flex w-full items-center justify-center gap-3 border border-gold px-6 py-4 font-heading text-base text-gold transition-all duration-200 hover:scale-[1.02] hover:bg-gold/10 active:scale-[0.98]"
         >
           <Heart className="h-5 w-5" />
           Thêm vào Wishlist
@@ -72,7 +84,10 @@ export function ProductInfoPanel({ product }: ProductInfoPanelProps) {
       </div>
 
       {/* Trust strip — 3 icons */}
-      <div className="grid grid-cols-3 gap-4 border-t border-gold/10 pt-6">
+      <div
+        className="grid grid-cols-3 gap-4 border-t border-gold/10 pt-6 motion-safe:animate-fadeInUp"
+        style={{ animationDelay: '400ms', animationFillMode: 'backwards' }}
+      >
         <div className="flex flex-col items-center gap-2 text-center">
           <ShieldCheck className="h-5 w-5 text-gold" />
           <span className="text-xs font-medium uppercase tracking-wider text-text-base/70">

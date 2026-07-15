@@ -95,7 +95,11 @@ export const WishlistButton = React.forwardRef<HTMLButtonElement, WishlistButton
           {...props}
         >
           <Heart
-            className={cn(iconSizes[size], isActive && 'fill-red-500')}
+            className={cn(
+              iconSizes[size],
+              isActive && 'fill-red-500',
+              'transition-transform duration-200 group-hover:scale-110'
+            )}
             aria-hidden
           />
           {showLabel && <span>{isActive ? 'Đã thích' : 'Yêu thích'}</span>}
@@ -111,8 +115,8 @@ export const WishlistButton = React.forwardRef<HTMLButtonElement, WishlistButton
         aria-label={label}
         aria-pressed={isActive}
         className={cn(
-          'grid place-items-center rounded-full backdrop-blur-sm',
-          'transition-all duration-200',
+          'group grid place-items-center rounded-full backdrop-blur-sm',
+          'transition-all duration-200 hover:scale-110 active:scale-90',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60',
           isActive
             ? 'bg-background/70 text-red-500 hover:bg-red-500/10'
@@ -123,7 +127,11 @@ export const WishlistButton = React.forwardRef<HTMLButtonElement, WishlistButton
         {...props}
       >
         <Heart
-          className={cn(iconSizes[size], isActive && 'fill-red-500')}
+          className={cn(
+            iconSizes[size],
+            isActive && 'fill-red-500',
+            'transition-transform duration-200'
+          )}
           aria-hidden
         />
       </button>

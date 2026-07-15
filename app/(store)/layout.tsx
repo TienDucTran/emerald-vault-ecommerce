@@ -67,14 +67,16 @@ gtag('consent', 'default', { ad_storage: 'denied', analytics_storage: 'denied', 
       </head>
       <body className="font-sans">
         <OrganizationJsonLd />
-        {/* Desktop header: AnnouncementBar (sticky top-0) + Navbar (sticky top-9).
-            Cả 2 dính đỉnh viewport. Khi scroll, cả 2 đều hiện, không bị ẩn. */}
-        <div className="hidden lg:block">
+        {/* Desktop: AnnouncementBar + Navbar dính cùng 1 cụm ở đỉnh viewport.
+            Cụm cha `sticky top-0 z-50` — khi scroll, cả 2 cùng cuộn, không bị tách rời. */}
+        <div className="sticky top-0 z-50 hidden lg:block bg-background">
           <AnnouncementBar />
           <Navbar />
         </div>
-        {/* Mobile navbar */}
-        <div className="lg:hidden">
+        {/* Mobile: AnnouncementBar + Navbar dính cùng cụm.
+            Thứ tự: announcement trên, navbar dưới (giống desktop). */}
+        <div className="sticky top-0 z-50 lg:hidden bg-background">
+          <AnnouncementBar />
           <Navbar />
         </div>
         <main className="min-h-[calc(100vh-4rem)] pb-20 lg:pb-0">{children}</main>

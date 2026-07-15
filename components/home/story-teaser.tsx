@@ -8,13 +8,16 @@ export function StoryTeaser() {
       <div className="container mx-auto px-4">
         <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-2">
           {/* Image side */}
-          <div className="relative aspect-[4/5] w-full overflow-hidden rounded-lg border border-gold/20 shadow-2xl">
+          <div
+            className="relative aspect-[4/5] w-full overflow-hidden rounded-lg border border-gold/20 shadow-2xl motion-safe:animate-fadeInUp"
+            style={{ animationDelay: '0ms', animationFillMode: 'backwards' }}
+          >
             <Image
               src="https://images.unsplash.com/photo-1599643477877-530eb83abc8e?w=1200&q=85"
               alt="Craftsmanship"
               fill
               sizes="(max-width: 1024px) 100vw, 50vw"
-              className="object-cover"
+              className="object-cover transition-transform duration-500 hover:scale-105"
             />
             <div className="absolute inset-0 bg-gradient-to-t from-background/80 via-transparent to-transparent" />
             <div className="absolute right-6 bottom-6 left-6 rounded-md border border-gold/30 bg-background/80 p-4 backdrop-blur-md">
@@ -24,7 +27,10 @@ export function StoryTeaser() {
           </div>
 
           {/* Text side */}
-          <div>
+          <div
+            className="motion-safe:animate-fadeInUp"
+            style={{ animationDelay: '150ms', animationFillMode: 'backwards' }}
+          >
             <p className="mb-2 text-xs font-medium uppercase tracking-[0.3em] text-gold">
               ✦ CÂU CHUYỆN CỦA TIỆM
             </p>
@@ -53,14 +59,14 @@ export function StoryTeaser() {
             <div className="mt-8 flex flex-wrap items-center gap-4">
               <Link
                 href="/cau-chuyen"
-                className="group inline-flex h-12 items-center gap-2 rounded-md bg-gradient-gold px-6 text-sm font-semibold text-background transition-shadow hover:shadow-gold-glow-lg"
+                className="group inline-flex h-12 items-center gap-2 rounded-md bg-gradient-gold px-6 text-sm font-semibold text-background transition-all duration-300 hover:scale-105 hover:shadow-gold-glow-lg active:scale-95"
               >
                 Đọc câu chuyện
                 <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
               </Link>
               <Link
                 href="/cach-phan-biet-do-si"
-                className="inline-flex h-12 items-center gap-2 rounded-md border border-gold/30 px-6 text-sm font-medium text-gold transition-colors hover:border-gold hover:bg-gold/10"
+                className="inline-flex h-12 items-center gap-2 rounded-md border border-gold/30 px-6 text-sm font-medium text-gold transition-all duration-300 hover:scale-105 hover:border-gold hover:bg-gold/10 active:scale-95"
               >
                 Cách phân biệt đồ si thật
               </Link>

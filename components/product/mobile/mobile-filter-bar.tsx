@@ -55,7 +55,10 @@ export function MobileFilterBar({ onOpenFilter, onOpenSort, totalProducts, displ
   }
 
   return (
-    <div className="sticky top-[60px] z-30 border-b border-gold/10 bg-background/95 backdrop-blur-md">
+    <div
+      className="sticky top-[60px] z-30 border-b border-gold/10 bg-background/95 backdrop-blur-md motion-safe:animate-fadeInUp"
+      style={{ animationDelay: '0ms', animationFillMode: 'backwards' }}
+    >
       {/* Search + Filter button */}
       <div className="flex items-center gap-2 px-4 pt-3">
         <div className="relative flex-1">
@@ -69,7 +72,7 @@ export function MobileFilterBar({ onOpenFilter, onOpenSort, totalProducts, displ
         <button
           type="button"
           onClick={onOpenFilter}
-          className="flex shrink-0 items-center gap-2 rounded-sm border border-gold/20 bg-surface px-4 py-2.5 text-sm text-gold transition-colors hover:border-gold/50"
+          className="flex shrink-0 items-center gap-2 rounded-sm border border-gold/20 bg-surface px-4 py-2.5 text-sm text-gold transition-all duration-200 hover:scale-105 hover:border-gold/50 active:scale-95"
         >
           <SlidersHorizontal className="h-4 w-4" />
           <span className="font-heading text-xs uppercase tracking-wider">Lọc</span>
@@ -85,7 +88,7 @@ export function MobileFilterBar({ onOpenFilter, onOpenSort, totalProducts, displ
               key={tag.label}
               type="button"
               onClick={() => quickTagNavigate(tag.value)}
-              className={`shrink-0 rounded-lg px-4 py-1.5 font-heading text-xs uppercase tracking-wider transition-colors ${
+              className={`shrink-0 rounded-lg px-4 py-1.5 font-heading text-xs uppercase tracking-wider transition-all duration-200 hover:scale-105 active:scale-95 ${
                 isActive
                   ? 'bg-gold/10 text-gold border border-gold'
                   : 'border border-gold/20 text-text-muted hover:border-gold/40 hover:text-gold'
@@ -105,7 +108,7 @@ export function MobileFilterBar({ onOpenFilter, onOpenSort, totalProducts, displ
         <button
           type="button"
           onClick={onOpenSort}
-          className="flex items-center gap-1 text-gold transition-colors hover:text-gold-champagne"
+          className="flex items-center gap-1 text-gold transition-all duration-200 hover:scale-105 hover:text-gold-champagne active:scale-95"
         >
           SẮP XẾP
         </button>

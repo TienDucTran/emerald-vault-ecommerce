@@ -1807,4 +1807,451 @@ app/(admin)/dashboard/products/import/page.tsx
 templates/product-import-template.xlsx  # File template download
 docs/auto-product-pipeline.md           # Hướng dẫn sử dụng
 ```
+
+---
+
+## 18. LUỒNG 10 — TRANG TÀI KHOẢN KHÁCH HÀNG (`/tai-khoan`)
+
+> Quyết định ngày 2026-07-15: BỔ SUNG flow tài khoản khách hàng (end-user) — vẫn giữ **guest checkout** cho khách không đăng ký, NHƯNG cho phép khách **tự nguyện đăng ký** để có: tra cứu đơn nhanh, wishlist sync, đánh giá, sổ địa chỉ, theo dõi đơn realtime. Không bắt buộc — tôn trọng UX đơn giản của flow cũ.
+>
+> **Không phải** thay thế §10 (admin auth) hay §7 (guest checkout). Hai flow chạy song song: khách có thể checkout không cần tài khoản (như cũ), HOẶC đăng nhập để trải nghiệm tiện hơn.
+
+### 18.1. Mục tiêu & Use case
+
+| Use case | Lợi ích |
+|---|---|
+| Tra cứu tất cả đơn của tôi (không cần nhớ từng mã) | Tăng retention, dễ theo dõi lịch sử mua |
+| Wishlist đồng bộ giữa thiết bị | Hiện tại chỉ localStorage, mất khi đổi máy |
+| Đánh giá sản phẩm đã mua (verified buyer) | Social proof → tăng conversion |
+| Lưu sổ địa chỉ giao hàng | Checkout 1-click |
+| Theo dõi trạng thái đơn real-time qua dashboard | Giảm ticket hỏi "đơn tôi đến đâu" |
+| Nhận thông báo drop hàng mới / restock | Re-engagement |
+
+### 18.2. Quyết định thiết kế
+
+| Quyết định | Chọn | Lý do |
+|---|---|---|
+| Đăng ký/đăng nhập bằng | **Email + Password** + **Magic Link (OTP email)** | Magic link giảm friction, email/password cho user quay lại |
+| Số trường đăng ký tối thiểu | `email` + `full_name` + `phone` | Đủ để giao hàng + tra cứu đơn |
+| Liên kết khách hiện tại với user mới | Match `customer_phone` của `orders` ↔ `profiles.phone` | Auto-import đơn cũ vào tài khoản mới |
+| Storage địa chỉ | Bảng `addresses` riêng (mới) | Hiện address denormalize trong `orders`, không query được |
+| Storage wishlist | Supabase table `wishlist_items` (mới) + giữ localStorage làm fallback | Sync giữa thiết bị |
+| Auth gate cho `/tai-khoan/*` | `requireUser()` (tương tự `requireAdmin()`) | Redirect `/dang-nhap?next=/tai-khoan` nếu chưa login |
+| Bảo vệ route API mới | Middleware update: thêm `/api/account/:path*` (any logged-in user) | Mở rộng §10 |
+
+### 18.3. Database schema bổ sung
+
+```sql
+-- ============================================
+-- Migration 0009: End-user account + address book + wishlist
+-- ============================================
+
+-- 1) Bảng addresses (sổ địa chỉ)
+CREATE TABLE addresses (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  label VARCHAR(40) DEFAULT 'Nhà riêng',        -- "Nhà riêng" | "Văn phòng" | custom
+  recipient_name VARCHAR(120) NOT NULL,
+  recipient_phone VARCHAR(20) NOT NULL,
+  address_line TEXT NOT NULL,                    -- Số nhà, đường
+  province VARCHAR(80) NOT NULL,
+  district VARCHAR(80) NOT NULL,
+  ward VARCHAR(80),                              -- Phường/Xã (optional)
+  is_default BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_addresses_user ON addresses(user_id) WHERE is_default = true;
+CREATE INDEX idx_addresses_user_all ON addresses(user_id);
+
+-- Chỉ cho phép 1 địa chỉ default / user
+CREATE UNIQUE INDEX idx_addresses_one_default ON addresses(user_id) WHERE is_default = true;
+
+-- RLS
+ALTER TABLE addresses ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users manage own addresses" ON addresses
+  FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- 2) Bảng wishlist (sync server-side)
+CREATE TABLE wishlist_items (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, product_id)
+);
+
+CREATE INDEX idx_wishlist_user ON wishlist_items(user_id, created_at DESC);
+
+ALTER TABLE wishlist_items ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users manage own wishlist" ON wishlist_items
+  FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- 3) Bảng product_reviews (P2 → đẩy lên MVP+ cho verified buyer)
+CREATE TABLE product_reviews (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  customer_name VARCHAR(120) NOT NULL,           -- snapshot từ profile tại thời điểm review
+  rating INT NOT NULL CHECK (rating >= 1 AND rating <= 5),
+  title VARCHAR(200),
+  content TEXT NOT NULL,
+  is_verified_purchase BOOLEAN DEFAULT false,   -- auto-true nếu user đã mua product
+  is_approved BOOLEAN DEFAULT false,             -- admin moderate
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_reviews_product_approved ON product_reviews(product_id, created_at DESC) WHERE is_approved = true;
+CREATE INDEX idx_reviews_user ON product_reviews(user_id);
+
+ALTER TABLE product_reviews ENABLE ROW LEVEL SECURITY;
+-- Public đọc review đã duyệt
+CREATE POLICY "Public read approved reviews" ON product_reviews
+  FOR SELECT USING (is_approved = true);
+-- User chỉ sửa review của mình trong 7 ngày
+CREATE POLICY "Users edit own reviews within 7 days" ON product_reviews
+  FOR UPDATE USING (
+    auth.uid() = user_id
+    AND created_at > NOW() - INTERVAL '7 days'
+  );
+-- Tạo mới: bất kỳ ai cũng tạo được (kể cả guest — dùng customer_name)
+CREATE POLICY "Anyone can create review" ON product_reviews
+  FOR INSERT WITH CHECK (true);
+
+-- 4) RPC: link_guest_orders_to_user (gọi 1 lần khi user vừa đăng ký)
+CREATE OR REPLACE FUNCTION link_guest_orders_to_user(p_user_id UUID, p_phone VARCHAR)
+RETURNS INT
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_count INT;
+BEGIN
+  -- Cập nhật customer_email cho orders trùng phone mà chưa có email
+  UPDATE orders
+  SET customer_email = (SELECT email FROM auth.users WHERE id = p_user_id)
+  WHERE customer_phone = p_phone
+    AND (customer_email IS NULL OR customer_email = '');
+
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  RETURN v_count;
+END;
+$$;
+
+-- 5) RPC: check_verified_purchase (dùng cho review)
+CREATE OR REPLACE FUNCTION is_verified_purchase(p_user_id UUID, p_product_id UUID)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_exists BOOLEAN;
+BEGIN
+  SELECT EXISTS(
+    SELECT 1
+    FROM orders o
+    JOIN order_items oi ON oi.order_id = o.id
+    WHERE o.customer_phone = (SELECT phone FROM profiles WHERE id = p_user_id)
+      AND oi.product_id = p_product_id
+      AND o.status IN ('CONFIRMED', 'SHIPPING', 'DONE')
+  ) INTO v_exists;
+  RETURN v_exists;
+END;
+$$;
+
+-- 6) Bổ sung profiles: avatar + marketing opt-in
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS avatar_url TEXT,
+  ADD COLUMN IF NOT EXISTS date_of_birth DATE,
+  ADD COLUMN IF NOT EXISTS gender VARCHAR(10) CHECK (gender IN ('male', 'female', 'other')),
+  ADD COLUMN IF NOT EXISTS marketing_opt_in BOOLEAN DEFAULT false,
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+```
+
+### 18.4. Sitemap bổ sung
+
+```
+app/
+├── dang-nhap/page.tsx                      # MỚI — Email + Magic Link
+├── dang-ky/page.tsx                        # MỚI — Signup form (full_name, email, phone, password)
+├── quen-mat-khau/page.tsx                  # MỚI — Reset password qua email
+├── xac-nhan-email/page.tsx                 # MỚI — Thông báo verify email
+└── tai-khoan/                              # MỚI — Layout + 6 trang con
+    ├── layout.tsx                          # Auth gate + sidebar nav
+    ├── page.tsx                            # Redirect → /tai-khoan/ho-so
+    ├── ho-so/page.tsx                      # Tab 1: Hồ sơ
+    ├── don-hang/page.tsx                   # Tab 2: Đơn hàng của tôi
+    ├── dia-chi/page.tsx                    # Tab 3: Sổ địa chỉ
+    ├── yeu-thich/page.tsx                  # Tab 4: Wishlist
+    ├── danh-gia/page.tsx                   # Tab 5: Đánh giá của tôi
+    └── bao-mat/page.tsx                    # Tab 6: Bảo mật
+```
+
+```
+app/api/
+├── auth/
+│   ├── magic-link/route.ts                 # MỚI — POST gửi OTP email
+│   └── reset-password/route.ts             # MỚI — POST request reset
+└── account/                                # MỚI — Protected by requireUser
+    ├── profile/route.ts                    # GET / PATCH
+    ├── addresses/route.ts                  # GET / POST
+    ├── addresses/[id]/route.ts             # PATCH / DELETE
+    ├── addresses/[id]/default/route.ts     # POST — set default
+    ├── wishlist/route.ts                   # GET / POST (add)
+    ├── wishlist/[productId]/route.ts       # DELETE (remove)
+    ├── orders/route.ts                     # GET — list orders by phone
+    ├── reviews/route.ts                    # GET (own) / POST
+    └── reviews/[id]/route.ts               # PATCH / DELETE
+```
+
+### 18.5. Auth flow (end-user)
+
+```
+[User click icon User ở navbar]
+        │
+        ├─► Chưa đăng nhập → /dang-nhap?next=/tai-khoan
+        │
+        └─► Đã đăng nhập → /tai-khoan/ho-so
+
+[/dang-nhap]
+┌────────────────────────────────────────┐
+│  [Tab] Email + Mật khẩu | Magic Link  │
+├────────────────────────────────────────┤
+│  Email: [_____________]                │
+│  Password: [__________]                │
+│  [ĐĂNG NHẬP]                          │
+│                                        │
+│  Chưa có tài khoản? Đăng ký →          │
+│  Quên mật khẩu? →                      │
+└────────────────────────────────────────┘
+
+        │
+        ▼
+[supabase.auth.signInWithPassword / signInWithOtp]
+        │
+        ├─► Thành công:
+        │     - Auto link guest orders (RPC link_guest_orders_to_user)
+        │     - Sync localStorage wishlist → DB (POST /api/account/wishlist nhiều lần)
+        │     - Redirect → /tai-khoan
+        │
+        └─► Lỗi: Hiển thị toast "Email hoặc mật khẩu không đúng"
+```
+
+**Đăng ký**:
+```
+[/dang-ky]
+Email: [_____________]
+Họ tên: [_____________]
+Số ĐT: [_____________]
+Mật khẩu: [__________]   (min 8, có số + chữ)
+[Xác nhận mật khẩu]
+[ĐĂNG KÝ]
+        │
+        ▼
+[supabase.auth.signUp({ email, password, options: { data: { full_name, phone } } })]
+        │
+        ▼
+[Trigger handle_new_user() tạo profile với full_name + phone]
+        │
+        ▼
+[/xac-nhan-email] "Vui lòng kiểm tra email để xác nhận tài khoản"
+[Đồng thời signIn tự động nếu auto-confirm ON trong Supabase]
+```
+
+### 18.6. Tabs trang tài khoản (tổng hợp)
+
+| # | Tab | Route | Mục đích | Data source |
+|---|---|---|---|---|
+| 1 | **Hồ sơ** | `/tai-khoan/ho-so` | Xem/sửa thông tin cá nhân | `profiles` + `auth.users` |
+| 2 | **Đơn hàng của tôi** | `/tai-khoan/don-hang` | List + filter + chi tiết | `orders` WHERE `customer_phone` = user's phone |
+| 3 | **Sổ địa chỉ** | `/tai-khoan/dia-chi` | CRUD địa chỉ giao hàng | `addresses` |
+| 4 | **Yêu thích** | `/tai-khoan/yeu-thich` | Sản phẩm đã thả tim | `wishlist_items` JOIN `products` |
+| 5 | **Đánh giá của tôi** | `/tai-khoan/danh-gia` | Reviews đã viết + form viết mới | `product_reviews` |
+| 6 | **Bảo mật** | `/tai-khoan/bao-mat` | Đổi MK, sessions, xóa TK | `auth.users` |
+
+### 18.7. Layout UI
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  AnnouncementBar (đã có)                                     │
+│  Navbar (đã có) — icon User sáng gold nếu đang ở /tai-khoan  │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  ┌──────────┬────────────────────────────────────────────┐  │
+│  │ SIDEBAR  │  HEADER TAB + CONTENT                       │  │
+│  │ (240px)  │                                             │  │
+│  │          │  ┌──────────────────────────────────────┐  │  │
+│  │  [Avatar] │  │  "Hồ sơ của tôi"                     │  │  │
+│  │  Tên     │  │                                      │  │  │
+│  │  SĐT     │  │  [Form fields]                       │  │  │
+│  │          │  │                                      │  │  │
+│  │ ─────    │  │  [Lưu thay đổi]                      │  │  │
+│  │ • Hồ sơ  │  └──────────────────────────────────────┘  │  │
+│  │ • Đơn    │                                             │  │
+│  │ • Địa chỉ                                              │  │
+│  │ • Yêu   │                                             │  │
+│  │   thích │                                             │  │
+│  │ • Đánh   │                                             │  │
+│  │   giá    │                                             │  │
+│  │ • Bảo    │                                             │  │
+│  │   mật    │                                             │  │
+│  │          │                                             │  │
+│  │ [Đăng   │                                             │  │
+│  │  xuất]  │                                             │  │
+│  └──────────┴─────────────────────────────────────────────┘  │
+│                                                              │
+│  Footer                                                      │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**Mobile** (<768px): sidebar collapse thành **horizontal scroll chips** phía trên content.
+
+### 18.8. Style tokens & components
+
+| Token | Value | Dùng cho |
+|---|---|---|
+| `bg-background` | `#0D1117` | Page background |
+| `bg-surface` | `#161B22` | Card, sidebar |
+| `bg-surface-emerald` | `#12241C` | Sidebar highlight |
+| `border-gold/20` | gold 20% | Card border |
+| `text-gold` | `#F2CA50` | Active tab, link |
+| `text-gold-champagne` | `#F1E5AC` | Highlight price |
+| `text-text-base` | `#EAE1D4` | Body text |
+| `text-text-muted` | `#D0C5AF` | Label, hint |
+| `font-heading` (Cinzel) | — | Section title (latin only) |
+| `font-sans` (Inter) | — | Form labels (tiếng Việt) |
+
+**Sidebar item active**: `bg-surface-emerald` + `border-l-2 border-gold` + `text-gold` + `font-heading text-xs uppercase tracking-wider`.
+
+**Status badge (đơn hàng)**:
+- `NEW`: `text-blue-400` / `bg-blue-400/10`
+- `CONFIRMED`: `text-gold` / `bg-gold/10`
+- `SHIPPING`: `text-amber-400` / `bg-amber-400/10`
+- `DONE`: `text-success` / `bg-success/10`
+- `CANCELLED`: `text-error` / `bg-error/10`
+
+### 18.9. Files cần tạo
+
+```
+supabase/migrations/0009_user_account.sql           # addresses, wishlist, reviews, RPC
+app/(store)/dang-nhap/page.tsx
+app/(store)/dang-ky/page.tsx
+app/(store)/quen-mat-khau/page.tsx
+app/(store)/xac-nhan-email/page.tsx
+app/(store)/tai-khoan/layout.tsx
+app/(store)/tai-khoan/page.tsx                     # redirect
+app/(store)/tai-khoan/ho-so/page.tsx
+app/(store)/tai-khoan/don-hang/page.tsx
+app/(store)/tai-khoan/don-hang/[code]/page.tsx
+app/(store)/tai-khoan/dia-chi/page.tsx
+app/(store)/tai-khoan/yeu-thich/page.tsx
+app/(store)/tai-khoan/danh-gia/page.tsx
+app/(store)/tai-khoan/bao-mat/page.tsx
+app/api/auth/magic-link/route.ts
+app/api/auth/reset-password/route.ts
+app/api/account/profile/route.ts
+app/api/account/addresses/route.ts
+app/api/account/addresses/[id]/route.ts
+app/api/account/addresses/[id]/default/route.ts
+app/api/account/wishlist/route.ts
+app/api/account/wishlist/[productId]/route.ts
+app/api/account/orders/route.ts
+app/api/account/reviews/route.ts
+app/api/account/reviews/[id]/route.ts
+components/account/account-sidebar.tsx
+components/account/account-mobile-tabs.tsx
+components/account/profile-form.tsx
+components/account/order-list.tsx
+components/account/order-list-filters.tsx
+components/account/address-card.tsx
+components/account/address-form.tsx
+components/account/wishlist-grid.tsx
+components/account/review-list.tsx
+components/account/review-form.tsx
+components/account/security-panel.tsx
+hooks/use-account-sync.ts                          # localStorage wishlist ↔ DB
+lib/auth/require-user.ts                           # tương tự require-admin nhưng customer
+lib/validations/account.ts                         # Zod schemas
+docs/account-page-spec.md                          # Spec cho Google Stitch
+```
+
+### 18.10. Middleware update (mở rộng §10)
+
+```ts
+// middleware.ts — thêm matcher
+export const config = {
+  matcher: [
+    '/dashboard/:path*',
+    '/admin/:path*',
+    '/api/admin/:path*',
+    '/tai-khoan/:path*',          // MỚI — yêu cầu đăng nhập
+    '/api/account/:path*',        // MỚI — yêu cầu đăng nhập
+  ],
+};
+```
+
+Logic: với matcher mới, **chỉ cần user tồn tại** (không check role). Redirect `/dang-nhap?next=<path>` nếu chưa login. API trả 401 JSON như §10.
+
+### 18.11. Edge cases
+
+| Case | Xử lý |
+|---|---|
+| User đăng ký bằng email đã có trong `orders.customer_email` | Auto-update `customer_email` các order cũ (nếu NULL) bằng RPC |
+| User đăng ký bằng SĐT đã có đơn cũ | Auto-fill profile.phone, RPC `link_guest_orders_to_user` chạy 1 lần |
+| User có wishlist localStorage khi đăng nhập lần đầu | Hook `useAccountSync` POST từng item lên `/api/account/wishlist` (dedupe bằng UNIQUE constraint) |
+| User xóa tài khoản | RPC `delete_user_account` xóa profile + addresses + wishlist + signOut. Reviews giữ nhưng set `user_id = NULL` (giữ social proof) |
+| User A muốn review sản phẩm chưa mua | Vẫn cho review nhưng `is_verified_purchase = false`. Hiển thị badge "Chưa xác minh" |
+| 2 user trùng SĐT (vd mua chung) | Orders link theo phone → cả 2 user sẽ thấy đơn. Cảnh báo trong UI |
+| Spam review | Rate-limit 5 reviews / ngày / user. Admin moderate `is_approved = false` |
+
+### 18.12. Security & RLS
+
+| Bảng | Policy |
+|---|---|
+| `addresses` | User chỉ CRUD row của mình (`auth.uid() = user_id`) |
+| `wishlist_items` | User chỉ CRUD row của mình |
+| `product_reviews` | Public đọc `is_approved = true`; user update row của mình trong 7 ngày; insert mở (kể cả guest) |
+| `profiles` | User đọc/update row của mình (đã có từ migration 0003) |
+
+**Rate limit API `/api/account/*`**: 30 req / phút / user (Upstash Redis).
+**Rate limit review POST**: 5 / ngày / user.
+**API `/api/account/orders`**: chỉ trả orders có `customer_phone` khớp với `profiles.phone` của user hiện tại.
+
+### 18.13. Tương tác với flow hiện tại
+
+- **Checkout (`/thanh-toan`)**: Nếu user đã đăng nhập, **pre-fill** form từ `profiles` + `addresses` (chọn dropdown). Vẫn cho phép sửa từng đơn (không ghi đè profile).
+- **Wishlist button (header)**: Khi đã login → gọi API DB. Khi chưa login → gọi localStorage + hiển thị toast nhẹ "Đăng nhập để đồng bộ yêu thích".
+- **Navbar icon User**: Click → `/tai-khoan` nếu đã login, `/dang-nhap` nếu chưa. Hiển thị avatar nhỏ nếu có.
+- **Tra cứu đơn (`/don-hang/[code]`)**: Vẫn hoạt động bình thường cho guest. Nếu đã login + có đơn này → tự động skip form nhập SĐT.
+
+### 18.14. Migration path (không breaking)
+
+1. Tạo `0009_user_account.sql` (idempotent, thêm bảng mới + ALTER profiles).
+2. Triển khai `/dang-nhap`, `/dang-ky` song song — guest checkout **không đổi**.
+3. Triển khai `/tai-khoan/*` — opt-in, không ai bị ép.
+4. Sau 1 tháng: A/B test xem user đăng ký nhiều không → quyết định có đẩy login lên navbar chính không.
+
+### 18.15. GA4 events mới
+
+| Event | Trigger | Params |
+|---|---|---|
+| `account_register` | `signUp` thành công | `method: 'email'` |
+| `account_login` | `signIn` thành công | `method: 'password' \| 'magic_link'` |
+| `account_logout` | Click "Đăng xuất" | — |
+| `profile_updated` | PATCH `/api/account/profile` 200 | `fields_changed: string[]` |
+| `address_added` | POST `/api/account/addresses` 201 | — |
+| `address_set_default` | POST `.../default` | `address_id` |
+| `wishlist_synced` | Hook `useAccountSync` xong | `items_synced: number` |
+| `review_submitted` | POST `/api/account/reviews` 201 | `product_id, rating, is_verified_purchase` |
+
+---
+
+### 18.16. Liên kết
+
+- Xem chi tiết UI từng tab + design tokens + form schemas cho **Google Stitch** tại `docs/account-page-spec.md`.
+- Auth pattern tham chiếu `docs/auth.md` + `flows.md §10`.
+- Tailwind tokens dùng lại `tailwind.config.ts` (đã có `gold`, `surface`, `text-*`, `font-heading`, `font-sans`).
+
 ```

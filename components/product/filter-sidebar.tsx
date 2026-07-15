@@ -13,9 +13,10 @@ interface CheckboxGroupProps {
   paramKey: 'category' | 'material' | 'tier';
   options: { value: string; label: string }[];
   selected: FilterValue;
+  delay?: number;
 }
 
-function CheckboxGroup({ title, paramKey, options, selected }: CheckboxGroupProps) {
+function CheckboxGroup({ title, paramKey, options, selected, delay = 0 }: CheckboxGroupProps) {
   const router = useRouter();
   const params = useSearchParams();
 
@@ -34,7 +35,10 @@ function CheckboxGroup({ title, paramKey, options, selected }: CheckboxGroupProp
   );
 
   return (
-    <div className="border-b border-gold/10 py-4 last:border-0">
+    <div
+      className="border-b border-gold/10 py-4 last:border-0 motion-safe:animate-fadeInUp"
+      style={{ animationDelay: `${delay}ms`, animationFillMode: 'backwards' }}
+    >
       <h4 className="mb-3 font-heading text-sm font-semibold uppercase tracking-wider text-gold">
         {title}
       </h4>
@@ -91,9 +95,10 @@ interface PriceRangeProps {
   max: number;
   currentMin?: number;
   currentMax?: number;
+  delay?: number;
 }
 
-function PriceRange({ min, max, currentMin, currentMax }: PriceRangeProps) {
+function PriceRange({ min, max, currentMin, currentMax, delay = 0 }: PriceRangeProps) {
   const router = useRouter();
   const params = useSearchParams();
   const [open, setOpen] = useState(true);
@@ -111,11 +116,14 @@ function PriceRange({ min, max, currentMin, currentMax }: PriceRangeProps) {
   };
 
   return (
-    <div className="border-b border-gold/10 py-4 last:border-0">
+    <div
+      className="border-b border-gold/10 py-4 last:border-0 motion-safe:animate-fadeInUp"
+      style={{ animationDelay: `${delay}ms`, animationFillMode: 'backwards' }}
+    >
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between"
+        className="flex w-full items-center justify-between transition-colors hover:text-gold"
       >
         <h4 className="font-heading text-sm font-semibold uppercase tracking-wider text-gold">
           Khoảng giá
@@ -197,6 +205,7 @@ export function FilterSidebar({ priceRange, activeCount }: FilterSidebarProps) {
           paramKey="category"
           options={Object.entries(CATEGORY_LABELS).map(([value, label]) => ({ value, label }))}
           selected={params.get('category') ?? undefined}
+          delay={0}
         />
 
         <CheckboxGroup
@@ -204,6 +213,7 @@ export function FilterSidebar({ priceRange, activeCount }: FilterSidebarProps) {
           paramKey="material"
           options={Object.entries(MATERIAL_LABELS).map(([value, label]) => ({ value, label }))}
           selected={params.get('material') ?? undefined}
+          delay={80}
         />
 
         <CheckboxGroup
@@ -215,6 +225,7 @@ export function FilterSidebar({ priceRange, activeCount }: FilterSidebarProps) {
             { value: 'S', label: 'S — Trên 90%' },
           ]}
           selected={params.get('tier') ?? undefined}
+          delay={160}
         />
 
         <PriceRange
@@ -222,6 +233,7 @@ export function FilterSidebar({ priceRange, activeCount }: FilterSidebarProps) {
           max={priceRange.max}
           currentMin={params.get('min') ? Number(params.get('min')) : undefined}
           currentMax={params.get('max') ? Number(params.get('max')) : undefined}
+          delay={240}
         />
       </div>
     </aside>
