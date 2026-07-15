@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { Suspense } from 'react';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, X } from 'lucide-react';
 import { ProductGrid } from '@/components/product/product-grid';
 import { FilterSidebar } from '@/components/product/filter-sidebar';
 import { SortDropdown } from '@/components/product/sort-dropdown';
@@ -22,6 +22,7 @@ type ValidSort = 'newest' | 'price-asc' | 'price-desc' | 'featured';
 
 interface Props {
   searchParams: {
+    keyword?: string;
     category?: string;
     material?: string;
     tier?: string;
@@ -32,10 +33,17 @@ interface Props {
 }
 
 function getPageTitle(searchParams: Props['searchParams']): { eyebrow: string; title: string } {
-  const { category, material, tier } = searchParams;
+  const { keyword, category, material, tier } = searchParams;
+  const trimmedKeyword = keyword?.trim();
   const validCategory = VALID_CATEGORIES.includes(category as any) ? (category as typeof VALID_CATEGORIES[number]) : undefined;
   const validMaterial = VALID_MATERIALS.includes(material as any) ? (material as typeof VALID_MATERIALS[number]) : undefined;
   const validTier = VALID_TIERS.includes(tier as any) ? (tier as typeof VALID_TIERS[number]) : undefined;
+  if (trimmedKeyword) {
+    return {
+      eyebrow: '✦ TÌM KIẾM',
+      title: `Kết quả tìm kiếm cho "${trimmedKeyword}"`,
+    };
+  }
   if (validCategory) {
     return {
       eyebrow: `DANH MỤC · ${validCategory}`,
@@ -66,10 +74,14 @@ function getPageTitle(searchParams: Props['searchParams']): { eyebrow: string; t
 }
 
 function getHeroStory(searchParams: Props['searchParams']) {
-  const { category, material, tier } = searchParams;
+  const { keyword, category, material, tier } = searchParams;
+  const trimmedKeyword = keyword?.trim();
   const validCategory = VALID_CATEGORIES.includes(category as any) ? (category as typeof VALID_CATEGORIES[number]) : undefined;
   const validMaterial = VALID_MATERIALS.includes(material as any) ? (material as typeof VALID_MATERIALS[number]) : undefined;
   const validTier = VALID_TIERS.includes(tier as any) ? (tier as typeof VALID_TIERS[number]) : undefined;
+  if (trimmedKeyword) {
+    return `Các sản phẩm phù hợp với từ khóa "${trimmedKeyword}".`;
+  }
   if (validCategory) {
     return `Khám phá bộ sưu tập ${CATEGORY_LABELS[validCategory]?.toLowerCase() ?? validCategory} tuyển chọn từ các tiệm kim hoàn cổ điển Nhật Bản.`;
   }
@@ -109,12 +121,14 @@ export default async function ProductsPage({ searchParams }: Props) {
 
   const minPrice = searchParams.min ? Number(searchParams.min) : undefined;
   const maxPrice = searchParams.max ? Number(searchParams.max) : undefined;
+  const trimmedKeyword = searchParams.keyword?.trim() || undefined;
 
   const sort = mapSort(searchParams.sort);
 
   // Lấy products theo filter hiện tại + tổng available (không filter) để tính count
   const [filteredRes, allRes, collectionsRes] = await Promise.all([
     safeSearch(() => searchProducts({
+      ...(trimmedKeyword ? { keyword: trimmedKeyword } : {}),
       category,
       material,
       tier,
@@ -146,6 +160,7 @@ export default async function ProductsPage({ searchParams }: Props) {
   };
 
   const activeCount = [
+    trimmedKeyword,
     category,
     material,
     tier,
@@ -187,6 +202,18 @@ export default async function ProductsPage({ searchParams }: Props) {
               <span className="text-gradient-gold">{pageMeta.title}</span>
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-relaxed text-text-muted">{heroStory}</p>
+            {trimmedKeyword && (
+              <div className="mt-3">
+                <Link
+                  href="/san-pham"
+                  scroll={false}
+                  className="inline-flex items-center gap-1 text-xs text-text-muted underline-offset-4 transition-colors hover:text-gold hover:underline"
+                >
+                  <X className="h-3 w-3" />
+                  Xóa tìm kiếm
+                </Link>
+              </div>
+            )}
           </div>
         </section>
 

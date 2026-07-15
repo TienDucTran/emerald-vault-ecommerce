@@ -1,14 +1,11 @@
 'use client';
 
 import Link from 'next/link';
-import { Eye, RefreshCcw, Search, Star, Truck, X } from 'lucide-react';
+import { Eye, RefreshCcw, Search, Truck, X, Star } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { cn, formatVND, MATERIAL_LABELS, TIER_LABELS } from '@/lib/utils';
-import type { OrderRow } from './order-list';
+import { cn, formatVND } from '@/lib/utils';
+import type { CustomerOrderListItem } from '@/lib/supabase/queries/orders';
 
-// ─────────────────────────────────────────────
-// Status pill config — match Stitch design
-// ─────────────────────────────────────────────
 const STATUS_PILL: Record<
   string,
   { label: string; className: string }
@@ -35,13 +32,8 @@ const STATUS_PILL: Record<
   },
 };
 
-// ─────────────────────────────────────────────
-// Card component
-// ─────────────────────────────────────────────
-export function OrderCard({ order }: { order: OrderRow }) {
-  const pill = STATUS_PILL[order.status];
-  const firstItem = order.order_items[0];
-  const itemCount = order.order_items.length;
+export function OrderCard({ order }: { order: CustomerOrderListItem }) {
+  const pill = STATUS_PILL[order.status] ?? STATUS_PILL.NEW;
   const isCancelled = order.status === 'CANCELLED';
   const isShipped = order.status === 'SHIPPING';
   const isDone = order.status === 'DONE';
@@ -49,7 +41,6 @@ export function OrderCard({ order }: { order: OrderRow }) {
 
   return (
     <div className="rounded-lg border border-gold/20 bg-surface p-5 transition-colors hover:border-gold/40">
-      {/* ── Header row: code (left) + status pill (right) ── */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-col gap-1">
           <Link
@@ -59,7 +50,7 @@ export function OrderCard({ order }: { order: OrderRow }) {
             ORDER #{order.code}
           </Link>
           <p className="text-xs text-text-muted">
-            Đặt ngày: {formatDate(order.created_at)}
+            Đặt ngày: {formatDate(order.createdAt)}
           </p>
         </div>
         <span
@@ -72,25 +63,24 @@ export function OrderCard({ order }: { order: OrderRow }) {
         </span>
       </div>
 
-      {/* ── Divider ── */}
       <div className="my-4 h-px bg-gold/10" />
 
-      {/* ── Product body: thumb + title + meta + price ── */}
       <div className="flex gap-4">
         <Link
-          href={
-            firstItem.product
-              ? `/san-pham/${firstItem.product.slug}`
-              : `/tai-khoan/don-hang/${order.code}`
-          }
+          href={`/tai-khoan/don-hang/${order.code}`}
           className="h-20 w-20 shrink-0 overflow-hidden rounded-md border border-gold/10 bg-surface-emerald"
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={firstItem.snapshot_image}
-            alt={firstItem.snapshot_title}
-            className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
-          />
+          {order.thumbnailUrl ? (
+            <img
+              src={order.thumbnailUrl}
+              alt="Sản phẩm trong đơn hàng"
+              className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
+            />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center text-[10px] text-text-muted/60">
+              No image
+            </div>
+          )}
         </Link>
 
         <div className="flex flex-1 flex-col justify-between gap-2">
@@ -101,18 +91,16 @@ export function OrderCard({ order }: { order: OrderRow }) {
                 isCancelled ? 'text-text-muted line-through' : 'text-text-base'
               )}
             >
-              {firstItem.snapshot_title}
+              {order.itemCount > 1
+                ? `${order.itemCount} sản phẩm`
+                : order.itemCount === 1
+                ? '1 sản phẩm'
+                : 'Đơn hàng'}
             </h3>
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-text-muted">
-              {firstItem.snapshot_material && (
-                <span>{MATERIAL_LABELS[firstItem.snapshot_material] ?? firstItem.snapshot_material}</span>
-              )}
-              {firstItem.snapshot_material && <span className="text-gold/40">•</span>}
-              {itemCount > 1 ? (
-                <span>+{itemCount - 1} sản phẩm khác</span>
-              ) : (
-                <span>1 sản phẩm</span>
-              )}
+              <span>
+                Mã đơn: <span className="text-text-base">{order.code}</span>
+              </span>
             </div>
           </div>
 
@@ -123,42 +111,34 @@ export function OrderCard({ order }: { order: OrderRow }) {
                 isCancelled ? 'text-text-disabled' : 'text-gold'
               )}
             >
-              {formatVND(order.total_amount)}
+              {formatVND(order.totalAmount)}
             </span>
-            {order.shipping_fee === 0 && !isCancelled && (
+            {order.paymentStatus === 'PAID' && !isCancelled && (
               <span className="text-[11px] uppercase tracking-wider text-success">
-                ✓ Freeship
+                ✓ Đã thanh toán
               </span>
             )}
           </div>
         </div>
       </div>
 
-      {/* ── Cancel reason (nếu có) ── */}
-      {isCancelled && order.cancel_reason && (
-        <p className="mt-3 rounded-md border border-error/20 bg-error/5 px-3 py-2 text-xs text-error">
-          <span className="font-semibold">Lý do hủy:</span> {order.cancel_reason}
-        </p>
-      )}
-
-      {/* ── Footer: total summary + actions ── */}
       <div className="mt-5 flex flex-col gap-3 border-t border-gold/10 pt-4 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-xs text-text-muted">
-          Tổng cộng: <span className="text-text-base">{itemCount}</span> sản phẩm
-          {order.payment_method === 'COD' && (
+          Tổng cộng: <span className="text-text-base">{order.itemCount}</span>{' '}
+          sản phẩm
+          {order.paymentStatus === 'PENDING' && (
             <span className="ml-2 rounded border border-gold/20 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-gold">
-              COD
+              Chờ TT
             </span>
           )}
-          {order.payment_method === 'MOMO' && (
-            <span className="ml-2 rounded border border-gold/20 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-pink-400">
-              MoMo
+          {order.paymentStatus === 'PAID' && (
+            <span className="ml-2 rounded border border-success/30 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-success">
+              Đã TT
             </span>
           )}
         </p>
 
         <div className="flex flex-wrap gap-2">
-          {/* Common: Xem chi tiết */}
           <Link href={`/tai-khoan/don-hang/${order.code}`}>
             <Button variant="outline" size="sm">
               <Eye className="h-3.5 w-3.5" />
@@ -166,7 +146,6 @@ export function OrderCard({ order }: { order: OrderRow }) {
             </Button>
           </Link>
 
-          {/* NEW: Hủy đơn */}
           {isNew && (
             <Button
               variant="ghost"
@@ -178,7 +157,6 @@ export function OrderCard({ order }: { order: OrderRow }) {
             </Button>
           )}
 
-          {/* SHIPPING: Theo dõi */}
           {isShipped && (
             <Button variant="ghost" size="sm">
               <Truck className="h-3.5 w-3.5" />
@@ -186,7 +164,6 @@ export function OrderCard({ order }: { order: OrderRow }) {
             </Button>
           )}
 
-          {/* DONE: Mua lại + Đánh giá */}
           {isDone && (
             <>
               <Button variant="ghost" size="sm">
@@ -200,7 +177,6 @@ export function OrderCard({ order }: { order: OrderRow }) {
             </>
           )}
 
-          {/* CANCELLED: Tìm sản phẩm tương tự */}
           {isCancelled && (
             <Link href="/san-pham">
               <Button variant="ghost" size="sm">
@@ -215,9 +191,6 @@ export function OrderCard({ order }: { order: OrderRow }) {
   );
 }
 
-// ─────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('vi-VN', {
     day: '2-digit',

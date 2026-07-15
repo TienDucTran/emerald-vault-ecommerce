@@ -1,9 +1,13 @@
 'use client';
 
 import * as React from 'react';
+import { useEffect } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 import { Heart } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWishlistStore } from '@/lib/store/wishlist';
+import { createClient } from '@/lib/supabase/client';
+import { toast } from '@/lib/toast/toast-store';
 import type { Product } from '@/lib/types';
 
 type Variant = 'icon' | 'full';
@@ -48,28 +52,133 @@ export const WishlistButton = React.forwardRef<HTMLButtonElement, WishlistButton
     },
     ref
   ) => {
-    const isActive = useWishlistStore((s) => s.hasItem(product.id));
+    const router = useRouter();
+    const pathname = usePathname() || '/';
+    const isActive = useWishlistStore((s) => s.ids.has(product.id));
 
-    const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
-      // Ngăn trigger parent Link navigation
+    // Bootstrap server wishlist vào cache nếu chưa load (user đã đăng nhập).
+    // Đảm bảo heart state đúng ngay từ frame đầu tiên khi user vào page.
+    useEffect(() => {
+      if (useWishlistStore.getState().loaded) return;
+      let cancelled = false;
+      (async () => {
+        try {
+          const supabase = createClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user || cancelled) return;
+          const res = await fetch('/api/account/wishlist', { cache: 'no-store' });
+          if (!res.ok || cancelled) return;
+          const json = (await res.json()) as { data?: Array<{ product_id: string }> };
+          const ids = (json.data ?? []).map((it) => it.product_id);
+          if (!cancelled) {
+            useWishlistStore.getState().setItems(ids);
+          }
+        } catch {
+          // ignore — heart sẽ tự update khi user click
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, []);
+
+    const handleClick = async (e: React.MouseEvent<HTMLButtonElement>) => {
       e.stopPropagation();
       e.preventDefault();
 
-      useWishlistStore.getState().toggleItem(product);
+      try {
+        const supabase = createClient();
+        const { data: { user } } = await supabase.auth.getUser();
 
-      // Dispatch custom event cho toast / listener khác
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(
-          new CustomEvent('wishlist:toggle', {
-            detail: {
-              product,
-              added: !isActive, // sau khi toggle, state mới
+        if (!user) {
+          const next =
+            pathname + (typeof window !== 'undefined' ? window.location.search : '');
+          const nextEncoded = encodeURIComponent(next);
+          const productIdEncoded = encodeURIComponent(product.id);
+          toast.info('Bạn cần đăng nhập để thêm yêu thích', {
+            description: 'Đăng nhập để đồng bộ yêu thích giữa các thiết bị.',
+            durationMs: 5000,
+            action: {
+              label: 'Đăng nhập',
+              onClick: () => {
+                router.push(
+                  `/tai-khoan/dang-nhap?next=${nextEncoded}&wishlist=1&product=${productIdEncoded}`
+                );
+              },
             },
-          })
-        );
-      }
+          });
+          return;
+        }
 
-      onClick?.(e);
+        // Optimistic update
+        const previous = isActive;
+        useWishlistStore.getState().setHas(product.id, !previous);
+
+        try {
+          if (!previous) {
+            // Đang thêm
+            const res = await fetch('/api/account/wishlist', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ product_id: product.id }),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          } else {
+            // Đang xoá
+            const res = await fetch(
+              `/api/account/wishlist/${encodeURIComponent(product.id)}`,
+              { method: 'DELETE' }
+            );
+            if (!res.ok && res.status !== 204) {
+              throw new Error(`HTTP ${res.status}`);
+            }
+          }
+
+          // Thành công → toast + dispatch event cho listener khác.
+          if (!previous) {
+            toast.success('Đã thêm vào yêu thích', {
+              description: product.title,
+              durationMs: 2500,
+            });
+          } else {
+            toast.success('Đã xoá khỏi yêu thích', {
+              description: product.title,
+              durationMs: 2500,
+            });
+          }
+
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent('wishlist:toggle', {
+                detail: {
+                  product,
+                  added: !previous,
+                },
+              })
+            );
+          }
+        } catch (apiErr) {
+          // Revert optimistic update
+          useWishlistStore.getState().setHas(product.id, previous);
+          toast.error('Không thể cập nhật yêu thích', {
+            description: 'Vui lòng thử lại sau.',
+          });
+          console.error('[WishlistButton] API error:', apiErr);
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent('wishlist:error', {
+                detail: {
+                  product,
+                  action: previous ? 'remove' : 'add',
+                  error: apiErr instanceof Error ? apiErr.message : 'unknown',
+                },
+              })
+            );
+          }
+        }
+      } finally {
+        onClick?.(e);
+      }
     };
 
     const label = isActive ? 'Bỏ yêu thích' : 'Thêm vào yêu thích';

@@ -6,7 +6,7 @@ import { CATEGORY_LABELS, MATERIAL_LABELS } from '@/lib/utils';
 
 interface ActiveFilter {
   key: string;
-  paramKey: 'category' | 'material' | 'tier' | 'min' | 'max';
+  paramKey: 'keyword' | 'category' | 'material' | 'tier' | 'min' | 'max';
   value: string;
   label: string;
 }
@@ -16,6 +16,16 @@ export function ActiveFilters() {
   const params = useSearchParams();
 
   const filters: ActiveFilter[] = [];
+
+  const keyword = params.get('keyword')?.trim();
+  if (keyword) {
+    filters.push({
+      key: 'keyword',
+      paramKey: 'keyword',
+      value: keyword,
+      label: `Từ khóa: "${keyword}"`,
+    });
+  }
 
   const cat = params.get('category');
   if (cat) {

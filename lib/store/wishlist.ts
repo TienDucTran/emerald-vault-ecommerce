@@ -1,86 +1,61 @@
 'use client';
 
 /**
- * Wishlist store — client-side only, persist in localStorage (mirrors cart.ts pattern).
- * Không gọi server. Dùng cho optimistic UI: thêm/xóa sản phẩm yêu thích.
+ * Wishlist store — in-memory cache of the server-side wishlist.
+ * No persistence (no localStorage). User must be logged in to use wishlist.
+ *
+ * Hydrated on app start by `useWishlistBootstrap` (mounted in Navbar)
+ * and/or on first render of any <WishlistButton>.
+ *
+ * Public API kept stable for any future consumer:
+ *   - hasItem(productId)  → boolean
+ *   - setHas(id, value)   → optimistic update after API call
+ *   - setItems(ids)       → bulk-load server response
+ *   - clear()             → reset on logout
  */
 
 import { create } from 'zustand';
-import { persist, createJSONStorage } from 'zustand/middleware';
-import type { Product } from '@/lib/types';
-
-export type WishlistItem = {
-  product: Product;
-  /** Timestamp (ms) lúc thêm vào wishlist */
-  addedAt: number;
-};
 
 type WishlistState = {
-  items: WishlistItem[];
+  /** Set of productIds currently in the user's server-side wishlist */
+  ids: Set<string>;
+  /** True sau khi initial server fetch đã hoàn tất (dù thành công hay rỗng) */
+  loaded: boolean;
 
-  /** Thêm vào wishlist (no-op nếu đã tồn tại) */
-  addItem: (product: Product) => void;
+  /** Bulk-load server response: mảng productId → Set */
+  setItems: (productIds: string[]) => void;
 
-  /** Xóa khỏi wishlist theo productId */
-  removeItem: (productId: string) => void;
-
-  /** Toggle: nếu có thì xóa, nếu chưa có thì thêm */
-  toggleItem: (product: Product) => void;
+  /** Cập nhật 1 item (optimistic update sau add/remove) */
+  setHas: (productId: string, value: boolean) => void;
 
   /** Check tồn tại theo productId */
   hasItem: (productId: string) => boolean;
 
-  /** Xóa toàn bộ wishlist */
+  /** Reset về rỗng — dùng khi logout */
   clear: () => void;
-
-  /** Tổng số item hiện tại */
-  count: () => number;
 };
 
-export const useWishlistStore = create<WishlistState>()(
-  persist(
-    (set, get) => ({
-      items: [],
+export const useWishlistStore = create<WishlistState>((set, get) => ({
+  ids: new Set(),
+  loaded: false,
 
-      addItem: (product) => {
-        set((state) => {
-          const existing = state.items.find((i) => i.product.id === product.id);
-          if (existing) {
-            // No-op: đã tồn tại
-            return state;
-          }
-          const newItem: WishlistItem = { product, addedAt: Date.now() };
-          return { items: [...state.items, newItem] };
-        });
-      },
+  setItems: (productIds) => {
+    set({ ids: new Set(productIds), loaded: true });
+  },
 
-      removeItem: (productId) => {
-        set((state) => ({
-          items: state.items.filter((i) => i.product.id !== productId),
-        }));
-      },
-
-      toggleItem: (product) => {
-        const exists = get().items.some((i) => i.product.id === product.id);
-        if (exists) {
-          get().removeItem(product.id);
-        } else {
-          get().addItem(product);
-        }
-      },
-
-      hasItem: (productId) =>
-        get().items.some((i) => i.product.id === productId),
-
-      clear: () => set({ items: [] }),
-
-      count: () => get().items.length,
-    }),
-    {
-      name: 'ev-wishlist',
-      storage: createJSONStorage(() => localStorage),
-      // Chỉ persist items, không persist functions
-      partialize: (state) => ({ items: state.items }),
+  setHas: (productId, value) => {
+    const next = new Set(get().ids);
+    if (value) {
+      next.add(productId);
+    } else {
+      next.delete(productId);
     }
-  )
-);
+    set({ ids: next });
+  },
+
+  hasItem: (productId) => get().ids.has(productId),
+
+  clear: () => {
+    set({ ids: new Set(), loaded: false });
+  },
+}));

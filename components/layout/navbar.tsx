@@ -2,9 +2,11 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Search, Menu, X, ShoppingBag, User } from 'lucide-react';
+import { Menu, X, ShoppingBag, User } from 'lucide-react';
 import { useState } from 'react';
 import { CartBadge } from './cart-badge';
+import { WishlistBootstrap } from './wishlist-bootstrap';
+import { SearchAutocomplete } from '@/components/search/search-autocomplete';
 import { cn } from '@/lib/utils';
 
 const NAV_ITEMS = [
@@ -30,6 +32,7 @@ export function Navbar() {
 
   return (
     <header className="w-full border-b border-gold/10 bg-background/90 backdrop-blur-2xl">
+      <WishlistBootstrap />
       <div className="flex h-[60px] items-center justify-between px-8">
         {/* Logo */}
         <Link
@@ -69,19 +72,12 @@ export function Navbar() {
         {/* Right actions */}
         <div className="flex items-center gap-6">
           {/* Search bar */}
-          <div className="hidden items-center rounded-xl border border-gold/30 bg-[#1F1B13] px-4 py-2 transition-colors focus-within:border-gold md:flex">
-            <Search className="h-4 w-4 text-text-muted" />
-            <input
-              type="text"
-              placeholder="Tìm kho báu..."
-              className="ml-2 w-32 bg-transparent text-sm text-text-muted placeholder:text-text-disabled/50 focus:outline-none"
-            />
-          </div>
+          <SearchAutocomplete className="hidden md:flex" />
 
           {/* Cart icon */}
           <Link
             href="/gio-hang"
-            className="hidden lg:grid h-8 w-8 place-items-center text-gold transition-colors hover:text-gold-champagne active:scale-90"
+            className="relative hidden lg:grid h-8 w-8 place-items-center text-gold transition-colors hover:text-gold-champagne active:scale-90"
             aria-label="Giỏ hàng"
           >
             <ShoppingBag className="h-5 w-5" />
@@ -122,6 +118,11 @@ export function Navbar() {
         )}
       >
         <nav className="flex flex-col px-8 py-4">
+          <SearchAutocomplete
+            mobile
+            className="mb-2 w-full"
+            onResultClick={() => setMobileOpen(false)}
+          />
           {NAV_ITEMS.map((item, i) => {
             const active = isActive(item.href, pathname);
             return (

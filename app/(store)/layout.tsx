@@ -8,6 +8,7 @@ import { MobileBottomNav } from '@/components/home/mobile/mobile-bottom-nav';
 import { MobileChatbotBubble } from '@/components/home/mobile/mobile-chatbot-bubble';
 import { ConsentBanner } from '@/components/analytics/consent-banner';
 import { OrganizationJsonLd } from '@/components/seo/json-ld-organization';
+import { Toaster } from '@/components/ui/toast';
 import '../globals.css';
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
@@ -88,6 +89,7 @@ gtag('consent', 'default', { ad_storage: 'denied', analytics_storage: 'denied', 
         <MobileBottomNav />
         <MobileChatbotBubble />
         <ConsentBanner />
+        <Toaster />
       </body>
     </html>
   );

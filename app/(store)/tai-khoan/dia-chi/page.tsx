@@ -1,10 +1,9 @@
-import { MapPin } from 'lucide-react';
-import { AccountPlaceholder } from '@/components/account/account-placeholder';
+import { requireCustomer } from '@/lib/auth/require-customer';
+import { AddressBook } from '@/components/account/address-book';
 
 export const metadata = { title: 'Sổ địa chỉ' };
 
-export default function AddressesPage() {
-  return (
-    <AccountPlaceholder title="SỔ ĐỊ CHỈ" subtitle="Lưu địa chỉ giao hàng để thanh toán nhanh hơn" icon={MapPin} />
-  );
+export default async function AddressesPage() {
+  const { user } = await requireCustomer();
+  return <AddressBook userId={user.id} />;
 }

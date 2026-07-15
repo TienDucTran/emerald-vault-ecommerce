@@ -82,7 +82,7 @@ export default async function ProductDetailPage({ params }: Props) {
   const errorMsg = relatedRes.error;
 
   return (
-    <div className="container mx-auto px-4 py-8">
+    <div className="container mx-auto px-4 py-6">
       <DataWarning message={errorMsg} />
       <RecentlyViewedTracker
         product={{
@@ -104,7 +104,7 @@ export default async function ProductDetailPage({ params }: Props) {
         ]}
       />
       {/* Breadcrumb */}
-      <nav className="mb-6 flex items-center gap-1.5 text-xs text-text-muted">
+      <nav className="mb-4 flex items-center gap-1.5 text-xs text-text-muted">
         <Link href="/" className="hover:text-gold">Trang chủ</Link>
         <ChevronRight className="h-3 w-3" />
         <Link href="/san-pham" className="hover:text-gold">Sản phẩm</Link>
@@ -119,9 +119,9 @@ export default async function ProductDetailPage({ params }: Props) {
         <span className="text-text-base">{product.title}</span>
       </nav>
 
-      <div className="grid grid-cols-1 gap-10 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
         {/* Gallery */}
-        <div className="space-y-3">
+        <div className="space-y-2">
           <div className="relative aspect-square overflow-hidden rounded-lg border border-gold/20 bg-surface">
             <Image
               src={product.image_url}
@@ -138,13 +138,13 @@ export default async function ProductDetailPage({ params }: Props) {
             )}
           </div>
           {product.gallery && product.gallery.length > 0 && (
-            <div className="grid grid-cols-4 gap-3">
+            <div className="grid grid-cols-5 gap-2">
               {product.gallery.map((img, i) => (
                 <div
                   key={i}
                   className="relative aspect-square overflow-hidden rounded-md border border-gold/20"
                 >
-                  <Image src={img} alt="" fill sizes="120px" className="object-cover" />
+                  <Image src={img} alt="" fill sizes="80px" className="object-cover" />
                 </div>
               ))}
             </div>
@@ -152,17 +152,17 @@ export default async function ProductDetailPage({ params }: Props) {
         </div>
 
         {/* Info */}
-        <div className="lg:sticky lg:top-24 lg:self-start">
-          <div className="mb-4 flex items-center gap-2">
+        <div className="lg:sticky lg:top-20 lg:self-start">
+          <div className="mb-3 flex items-center gap-2">
             <Badge tier={product.quality_tier}>Tier {product.quality_tier}</Badge>
             {product.is_featured && <Badge variant="gold">Nổi bật</Badge>}
           </div>
 
-          <h1 className="mb-2 font-heading text-3xl font-bold leading-tight sm:text-4xl">
+          <h1 className="mb-2 font-heading text-2xl font-bold leading-tight sm:text-3xl">
             {product.title}
           </h1>
 
-          <div className="mb-6 flex flex-wrap items-center gap-3 text-sm text-text-muted">
+          <div className="mb-4 flex flex-wrap items-center gap-3 text-sm text-text-muted">
             <span>{MATERIAL_LABELS[product.material]}</span>
             <span>·</span>
             <span>{CATEGORY_LABELS[product.category]}</span>
@@ -174,45 +174,45 @@ export default async function ProductDetailPage({ params }: Props) {
             )}
           </div>
 
-          <p className="mb-6 font-heading text-4xl font-bold text-gradient-gold">
+          <p className="mb-4 font-heading text-2xl font-bold text-gradient-gold">
             {formatVND(product.price)}
           </p>
 
           {product.description && (
-            <p className="mb-6 leading-relaxed text-text-base">{product.description}</p>
+            <p className="mb-4 text-sm leading-relaxed text-text-base">{product.description}</p>
           )}
 
           {/* Tier description */}
-          <div className="mb-6 rounded-md border border-gold/20 bg-surface-emerald p-4">
+          <div className="mb-4 rounded-md border border-gold/20 bg-surface-emerald p-3">
             <p className="text-xs font-semibold uppercase tracking-wider text-gold">
               Về tier {product.quality_tier}
             </p>
-            <p className="mt-1 text-sm text-text-muted">
+            <p className="mt-0.5 text-xs text-text-muted">
               {TIER_DESCRIPTIONS[product.quality_tier]}
             </p>
           </div>
 
           {/* CTA */}
           {product.status === 'AVAILABLE' ? (
-            <HoldButton product={product} size="lg" className="w-full text-base" />
+            <HoldButton product={product} size="md" className="w-full" />
           ) : (
-            <Button size="lg" className="w-full" variant="dark" disabled>
+            <Button size="md" className="w-full" variant="dark" disabled>
               Đã được sưu tầm
             </Button>
           )}
 
           {/* Trust micro-icons */}
-          <div className="mt-6 grid grid-cols-3 gap-2 border-t border-gold/10 pt-6 text-center">
+          <div className="mt-4 grid grid-cols-3 gap-2 border-t border-gold/10 pt-4 text-center">
             <div className="flex flex-col items-center gap-1.5">
-              <ShieldCheck className="h-5 w-5 text-gold" />
+              <ShieldCheck className="h-4 w-4 text-gold" />
               <span className="text-xs text-text-muted">Đã thẩm định</span>
             </div>
             <div className="flex flex-col items-center gap-1.5">
-              <Truck className="h-5 w-5 text-gold" />
+              <Truck className="h-4 w-4 text-gold" />
               <span className="text-xs text-text-muted">Freeship 2tr+</span>
             </div>
             <div className="flex flex-col items-center gap-1.5">
-              <Clock className="h-5 w-5 text-gold" />
+              <Clock className="h-4 w-4 text-gold" />
               <span className="text-xs text-text-muted">Đổi trả 7 ngày</span>
             </div>
           </div>
@@ -221,8 +221,8 @@ export default async function ProductDetailPage({ params }: Props) {
 
       {/* Related */}
       {related.length > 0 && (
-        <section className="mt-24">
-          <h2 className="mb-6 font-heading text-2xl font-bold">
+        <section className="mt-12">
+          <h2 className="mb-4 font-heading text-xl font-bold">
             <span className="text-text-base">Có thể bạn </span>
             <span className="text-gradient-gold">cũng thích</span>
           </h2>

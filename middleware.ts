@@ -1,11 +1,13 @@
 /**
- * Middleware — Auth & Role Gate (flows.md §10)
+ * Middleware — Auth & Role Gate (flows.md §10, §18.10)
  *
- * Bảo vệ 2 nhóm route:
- *   - /dashboard/*   → admin pages
- *   - /api/admin/*   → admin-only API routes
+ * Bảo vệ 4 nhóm route:
+ *   - /dashboard/*     → admin pages
+ *   - /api/admin/*     → admin-only API routes
+ *   - /tai-khoan/*     → customer account pages (có whitelist auth sub-paths)
+ *   - /api/account/*   → customer-only API routes
  *
- * Flow:
+ * Flow (admin):
  *   1. Read cookies via @supabase/ssr → call supabase.auth.getUser()
  *      (getUser validate JWT thật với Supabase Auth server; KHÔNG dùng getSession).
  *   2. Nếu !user → redirect /admin/login?next=<pathname>  (cho page) hoặc 401 JSON (cho API).
@@ -13,26 +15,61 @@
  *   4. Nếu role !== 'admin' → redirect /403 (cho page) hoặc 403 JSON (cho API).
  *   5. Ngược lại → cho qua.
  *
+ * Flow (customer):
+ *   1. Tạo Supabase client giống admin flow.
+ *   2. Nếu path nằm trong PUBLIC_AUTH_SUBPATHS (dang-nhap, dang-ky, quen-mat-khau,
+ *      dat-lai-mat-khau) → pass through, không cần check.
+ *   3. Nếu !user → redirect /tai-khoan/dang-nhap?next=<pathname>  (cho page) hoặc
+ *      401 JSON (cho API).
+ *   4. Nếu user tồn tại nhưng role !== 'customer' → redirect /403 (cho page) hoặc
+ *      403 JSON (cho API).
+ *   5. Ngược lại → cho qua.
+ *
  * Lý do API trả JSON thay vì redirect: client gọi fetch không tự follow redirect
  * tới login page; trả JSON 401/403 giúp client xử lý lỗi rõ ràng.
  */
-import { createServerClient } from '@supabase/ssr';
+import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import type { Database } from '@/lib/supabase/types';
 
 const ADMIN_LOGIN = '/admin/login';
 const FORBIDDEN = '/403';
+const CUSTOMER_LOGIN = '/tai-khoan/dang-nhap';
 
 const isApiAdminRoute = (pathname: string) => pathname.startsWith('/api/admin/');
+const isApiAccountRoute = (pathname: string) => pathname.startsWith('/api/account/');
+const isDashboardRoute = (pathname: string) =>
+  pathname === '/dashboard' || pathname.startsWith('/dashboard/');
+const isTaiKhoanRoute = (pathname: string) =>
+  pathname === '/tai-khoan' || pathname.startsWith('/tai-khoan/');
+
+const PUBLIC_AUTH_SUBPATHS = [
+  '/tai-khoan/dang-nhap',
+  '/tai-khoan/dang-ky',
+  '/tai-khoan/quen-mat-khau',
+  '/tai-khoan/dat-lai-mat-khau',
+];
+const isPublicAuthPath = (pathname: string) =>
+  PUBLIC_AUTH_SUBPATHS.some((p) => pathname === p || pathname.startsWith(p + '/'));
 
 function jsonError(status: number, code: string, message: string) {
   return NextResponse.json({ error: code, message }, { status });
 }
 
-export async function middleware(request: NextRequest) {
-  const { pathname, search } = request.nextUrl;
+interface MiddlewareContext {
+  request: NextRequest;
+  pathname: string;
+  search: string;
+  response: NextResponse;
+  supabase: ReturnType<typeof createServerClient<Database>>;
+}
 
-  // Tạo response thẳng để có thể gắn cookie refresh nếu Supabase rotate session.
+/**
+ * Tạo Supabase server client + response, gắn cookie refresh nếu Supabase rotate session.
+ * Cookie adapter giống pattern trong `lib/auth/require-admin.ts`.
+ */
+function createSupabaseContext(request: NextRequest): MiddlewareContext {
+  const { pathname, search } = request.nextUrl;
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient<Database>(
@@ -43,7 +80,7 @@ export async function middleware(request: NextRequest) {
         getAll() {
           return request.cookies.getAll();
         },
-        setAll(cookiesToSet) {
+        setAll(cookiesToSet: { name: string; value: string; options: CookieOptions }[]) {
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
           response = NextResponse.next({ request });
           cookiesToSet.forEach(({ name, value, options }) =>
@@ -54,18 +91,47 @@ export async function middleware(request: NextRequest) {
     }
   );
 
-  // Quan trọng: phải await createServerClient xong mới gọi được getUser
-  // (vì @supabase/ssr khởi tạo async internals).
-  // Validate JWT thật với Supabase Auth server — KHÔNG trust cookie payload.
-  // getUser có thể throw khi JWT invalid / network error → coi như unauthenticated.
-  let user = null;
+  return { request, pathname, search, response, supabase };
+}
+
+/**
+ * Validate JWT thật với Supabase Auth server — KHÔNG trust cookie payload.
+ * getUser có thể throw khi JWT invalid / network error → coi như unauthenticated.
+ */
+async function getAuthenticatedUser(
+  supabase: MiddlewareContext['supabase']
+): Promise<{ id: string } | null> {
   try {
     const result = await supabase.auth.getUser();
-    user = result.data.user;
+    return result.data.user;
   } catch {
-    user = null;
+    return null;
   }
+}
 
+async function getUserRole(
+  supabase: MiddlewareContext['supabase'],
+  userId: string
+): Promise<string | null> {
+  try {
+    const result = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', userId)
+      .single();
+    return result.data?.role ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Admin check: áp dụng cho /dashboard/* và /api/admin/*.
+ * Trả về NextResponse để short-circuit, hoặc null để cho qua.
+ */
+async function checkAdmin(ctx: MiddlewareContext): Promise<NextResponse | null> {
+  const { request, pathname, search, supabase } = ctx;
+  const user = await getAuthenticatedUser(supabase);
   if (!user) {
     if (isApiAdminRoute(pathname)) {
       return jsonError(401, 'UNAUTHENTICATED', 'Yêu cầu đăng nhập');
@@ -76,20 +142,8 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  // User hợp lệ → kiểm tra role.
-  let profile: { role: string } | null = null;
-  try {
-    const result = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single();
-    profile = result.data;
-  } catch {
-    profile = null;
-  }
-
-  if (!profile || profile.role !== 'admin') {
+  const role = await getUserRole(supabase, user.id);
+  if (role !== 'admin') {
     if (isApiAdminRoute(pathname)) {
       return jsonError(403, 'FORBIDDEN', 'Tài khoản không có quyền admin');
     }
@@ -99,9 +153,71 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(forbiddenUrl);
   }
 
+  return null;
+}
+
+/**
+ * Customer check: áp dụng cho /tai-khoan/* và /api/account/*.
+ * Whitelist auth sub-paths (dang-nhap, dang-ky, quen-mat-khau, dat-lai-mat-khau)
+ * trước khi check đăng nhập.
+ * Trả về NextResponse để short-circuit, hoặc null để cho qua.
+ */
+async function checkCustomer(ctx: MiddlewareContext): Promise<NextResponse | null> {
+  const { request, pathname, supabase } = ctx;
+
+  if (isPublicAuthPath(pathname)) {
+    return null;
+  }
+
+  const user = await getAuthenticatedUser(supabase);
+  if (!user) {
+    if (isApiAccountRoute(pathname)) {
+      return jsonError(401, 'NOT_AUTHENTICATED', 'Yêu cầu đăng nhập');
+    }
+    const loginUrl = request.nextUrl.clone();
+    loginUrl.pathname = CUSTOMER_LOGIN;
+    loginUrl.search = `?next=${encodeURIComponent(pathname)}`;
+    return NextResponse.redirect(loginUrl);
+  }
+
+  const role = await getUserRole(supabase, user.id);
+  if (role !== 'customer') {
+    if (isApiAccountRoute(pathname)) {
+      return jsonError(403, 'NOT_CUSTOMER', 'Tài khoản không phải customer');
+    }
+    const forbiddenUrl = request.nextUrl.clone();
+    forbiddenUrl.pathname = FORBIDDEN;
+    forbiddenUrl.search = '';
+    return NextResponse.redirect(forbiddenUrl);
+  }
+
+  return null;
+}
+
+export async function middleware(request: NextRequest) {
+  const ctx = createSupabaseContext(request);
+  const { pathname, response } = ctx;
+
+  if (isDashboardRoute(pathname) || isApiAdminRoute(pathname)) {
+    const blocked = await checkAdmin(ctx);
+    if (blocked) return blocked;
+    return response;
+  }
+
+  if (isTaiKhoanRoute(pathname) || isApiAccountRoute(pathname)) {
+    const blocked = await checkCustomer(ctx);
+    if (blocked) return blocked;
+    return response;
+  }
+
   return response;
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/api/admin/:path*'],
+  matcher: [
+    '/dashboard/:path*',
+    '/api/admin/:path*',
+    '/tai-khoan/:path*',
+    '/api/account/:path*',
+  ],
 };
