@@ -9,7 +9,16 @@
       },
       "enabled": true,
       "timeout": 30000
+    },
+    "stitch": {
+      "url": "https://stitch.googleapis.com/mcp",
+      "type": "http",
+      "headers": {
+        "Accept": "application/json",
+        "X-Goog-Api-Key": "${STITCH_API_KEY}"
+      },
+      "enabled": true,
+      "timeout": 60000
     }
   }
 }
-
