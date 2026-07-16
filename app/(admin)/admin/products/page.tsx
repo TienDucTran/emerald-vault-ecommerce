@@ -87,6 +87,8 @@ export default function ProductsPage() {
 
   const abortRef = useRef<AbortController | null>(null);
 
+  const confirm = useConfirm();
+
   // Debounce keyword (300ms) → reset page to 1
   useEffect(() => {
     const t = setTimeout(() => {
@@ -184,7 +186,7 @@ export default function ProductsPage() {
   };
 
   const deleteOne = async (p: Product) => {
-    const ok = await useConfirm()({
+    const ok = await confirm({
       title: `Xóa sản phẩm "${p.title}"?`,
       description: 'Hành động này không thể hoàn tác.',
       variant: 'danger',
@@ -219,7 +221,7 @@ export default function ProductsPage() {
   const deleteBulk = async () => {
     const ids = Array.from(selected);
     if (ids.length === 0) return;
-    const ok = await useConfirm()({
+    const ok = await confirm({
       title: `Xóa ${ids.length} sản phẩm đã chọn?`,
       description: 'Hành động này không thể hoàn tác.',
       variant: 'danger',

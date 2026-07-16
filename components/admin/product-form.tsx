@@ -217,6 +217,7 @@ export function ProductForm({
   backHref = '/admin/products',
 }: ProductFormProps) {
   const router = useRouter();
+  const confirm = useConfirm();
 
   // Hold initialData in state for edit mode (so we can update it after PATCH)
   const [currentInitial, setCurrentInitial] = useState<ProductRow | null>(
@@ -738,7 +739,7 @@ export function ProductForm({
   /* -------- Discard changes (edit) -------- */
   const discardChanges = async () => {
     if (!currentInitial) return;
-    const ok = await useConfirm()({
+    const ok = await confirm({
       title: 'Hủy mọi thay đổi?',
       description: 'Các thay đổi chưa lưu sẽ bị mất. Hành động này không thể hoàn tác.',
       variant: 'danger',

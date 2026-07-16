@@ -50,6 +50,8 @@ export function MediaDetailDrawer({ item, onClose, onDeleted }: MediaDetailDrawe
   const [deleting, setDeleting] = useState(false);
   const open = item !== null;
 
+  const confirm = useConfirm();
+
   // ESC key
   useEffect(() => {
     if (!open) return;
@@ -91,7 +93,7 @@ export function MediaDetailDrawer({ item, onClose, onDeleted }: MediaDetailDrawe
   const handleDelete = async () => {
     if (!item) return;
     if (!canDelete || deleting) return;
-    const ok = await useConfirm()({
+    const ok = await confirm({
       title: 'Xoá ảnh này?',
       description:
         'Hành động không thể hoàn tác. Ảnh sẽ bị xoá vĩnh viễn khỏi Supabase Storage.',

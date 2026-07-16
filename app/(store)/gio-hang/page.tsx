@@ -88,7 +88,7 @@ export default function CartPage() {
           </div>
           <h1 className="mb-2 font-heading text-2xl font-bold">Giỏ hàng trống</h1>
           <p className="mb-6 text-sm text-text-muted">
-            Bạn chưa giữ món đồ nào. Hãy khám phá bộ sưu tập và bấm "Giữ hàng 10 phút" để không ai cướp mất món bạn thích.
+            Bạn chưa giữ món đồ nào. Hãy khám phá bộ sưu tập và bấm &ldquo;Giữ hàng 10 phút&rdquo; để không ai cướp mất món bạn thích.
           </p>
           <Link
             href="/san-pham"
