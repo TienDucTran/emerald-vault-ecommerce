@@ -19,6 +19,10 @@ import { BulkProductsSchema } from '@/lib/admin/products-schema';
 import { AuthError, requireAdmin } from '@/lib/auth/require-admin';
 import type { AdminProduct } from '@/lib/supabase/queries/admin-products';
 
+// requireAdmin() gọi cookies() → bắt buộc dynamic.
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 interface PerRowError {
   index: number;
   error: string;

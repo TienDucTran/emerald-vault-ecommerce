@@ -123,7 +123,10 @@ async function getUserRole(
       .select('role')
       .eq('id', userId)
       .single();
-    return result.data?.role ?? null;
+    // Cast vì Supabase type narrowing khiến row bị narrow về `never`
+    // (xem docs/ts-errors-cleanup.md nhóm 6).
+    const role = (result.data as { role: string } | null)?.role;
+    return role ?? null;
   } catch {
     return null;
   }

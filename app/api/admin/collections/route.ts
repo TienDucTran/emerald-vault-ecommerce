@@ -10,6 +10,10 @@
 import { NextResponse } from 'next/server';
 import { AuthError, requireAdmin } from '@/lib/auth/require-admin';
 
+// requireAdmin() gọi cookies() → bắt buộc dynamic.
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 export async function GET() {
   try {
     const { adminClient } = await requireAdmin();

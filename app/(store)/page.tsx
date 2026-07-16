@@ -10,6 +10,10 @@ import { getNewestProducts } from '@/lib/supabase/queries/products';
 import { toCollection, toProduct } from '@/lib/adapters/supabase-to-app';
 import { safeList } from '@/lib/data/safe-fetch';
 
+// Trang này gọi createClient() (cookies) → bắt buộc dynamic.
+// (xem https://nextjs.org/docs/messages/dynamic-server-error)
+export const dynamic = 'force-dynamic';
+
 export default async function HomePage() {
   const [collectionsRes, latestRes] = await Promise.all([
     safeList(() => getPublishedCollections()),

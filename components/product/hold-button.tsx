@@ -6,13 +6,15 @@ import { Clock, Loader2, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useCartStore } from '@/lib/store/cart';
 import { useAnonymousId } from '@/hooks/use-anonymous-id';
+import { useJewelryAnalytics } from '@/hooks/use-jewelry-analytics';
 import { cn } from '@/lib/utils';
 import type { Product } from '@/lib/types';
 
 interface HoldButtonProps {
   product: Product;
   className?: string;
-  size?: 'sm' | 'lg';
+  /** Khớp với <Button/> size variants: 'sm' | 'md' | 'lg'. */
+  size?: 'sm' | 'md' | 'lg';
   label?: string;
 }
 
@@ -28,6 +30,7 @@ export function HoldButton({ product, className, size = 'lg', label }: HoldButto
   const router = useRouter();
   const clientId = useAnonymousId();
   const lockItemAsync = useCartStore((s) => s.lockItemAsync);
+  const analytics = useJewelryAnalytics();
   const [state, setState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
 
@@ -42,6 +45,25 @@ export function HoldButton({ product, className, size = 'lg', label }: HoldButto
     const res = await lockItemAsync(product, clientId);
     if (res.ok) {
       setState('success');
+      // GA4: lock_item_success — fire-and-forget sau khi server confirm.
+      // Cart store lưu lockId + expiresAt trong internal state; ta đọc lại
+      // để có đủ data cho event. (lib/store/cart.ts line 47-49, 75-76).
+      const items = useCartStore.getState().items;
+      const locked = items.find((i) => i.product.id === product.id);
+      if (locked?.lockId) {
+        analytics.lockItemSuccess({
+          product: {
+            id: product.id,
+            title: product.title,
+            category: product.category,
+            material: product.material,
+            quality_tier: product.quality_tier,
+            price: product.price,
+          },
+          lockId: locked.lockId,
+          expiresAt: new Date(locked.expiresAt).toISOString(),
+        });
+      }
       // Chuyển sang cart sau 600ms
       setTimeout(() => router.push('/gio-hang'), 600);
     } else {

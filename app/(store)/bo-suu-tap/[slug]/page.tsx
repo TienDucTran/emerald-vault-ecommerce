@@ -8,6 +8,7 @@ import { safeList, safeOne } from '@/lib/data/safe-fetch';
 import { DataWarning } from '@/components/layout/data-warning';
 import { ProductGrid } from '@/components/product/product-grid';
 import { JsonLdBreadcrumb } from '@/components/seo/json-ld-breadcrumb';
+import { CollectionViewTracker } from '@/components/analytics/collection-view-tracker';
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
 
@@ -113,6 +114,15 @@ export default async function CollectionDetailPage({ params }: Props) {
       </section>
 
       <ProductGrid products={products} columns={4} />
+      {/* GA4: view_collection — fire 1 lần khi user mount trang collection. */}
+      <CollectionViewTracker
+        collection={{
+          id: collection.id,
+          name: collection.name,
+          slug: collection.slug,
+        }}
+        productCount={products.length}
+      />
     </div>
   );
 }

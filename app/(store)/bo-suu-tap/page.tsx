@@ -6,6 +6,10 @@ import { toCollection } from '@/lib/adapters/supabase-to-app';
 import { safeList } from '@/lib/data/safe-fetch';
 import { DataWarning } from '@/components/layout/data-warning';
 
+// Trang này gọi createClient() (cookies) → bắt buộc dynamic.
+// (xem https://nextjs.org/docs/messages/dynamic-server-error)
+export const dynamic = 'force-dynamic';
+
 export default async function CollectionsPage() {
   const res = await safeList(() => getPublishedCollections());
   const collections = res.data.map(toCollection);

@@ -14,6 +14,10 @@ import { safeList, safeSearch } from '@/lib/data/safe-fetch';
 import { DataWarning } from '@/components/layout/data-warning';
 import type { ProductCategory, Material, QualityTier } from '@/lib/types';
 
+// Trang này gọi createClient() (cookies) → bắt buộc dynamic.
+// (xem https://nextjs.org/docs/messages/dynamic-server-error)
+export const dynamic = 'force-dynamic';
+
 const VALID_CATEGORIES = ['NHAN', 'DAY_CHUYEN', 'BONG_TAI', 'VONG_TAY', 'MAT_DAY'] as const;
 const VALID_MATERIALS = ['BAC_925', 'MA_VANG_18K', 'MA_VANG_24K', 'VANG_18K', 'KIM_CUONG'] as const;
 const VALID_TIERS = ['SSS', 'SS', 'S'] as const;

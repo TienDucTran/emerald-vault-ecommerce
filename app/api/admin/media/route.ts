@@ -45,6 +45,10 @@ import { BUCKET, deleteImage } from '@/lib/supabase/storage';
 import type { MediaItem } from '@/components/admin/media/types';
 import { z } from 'zod';
 
+// requireAdmin() gọi cookies() → bắt buộc dynamic.
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 /** Max số product references trả về trong `usedIn` của mỗi media item. */
 const USED_IN_LIMIT = 5;
 

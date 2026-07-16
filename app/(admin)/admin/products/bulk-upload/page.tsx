@@ -425,7 +425,13 @@ export default function BulkUploadPage() {
         return;
       }
       dataRows.forEach((r, i) => {
-        const padded = r.length < headerMap ? r : r;
+        // Pad row nếu ngắn hơn số cột đã khai báo trong header.
+        // So sánh với số cột (= Object.keys(headerMap).length), không phải object headerMap.
+        const columnCount = Object.keys(headerMap).length;
+        const padded =
+          r.length < columnCount
+            ? [...r, ...Array(columnCount - r.length).fill('')]
+            : r;
         candidates.push({ index: i, row: rowToObject(padded, headerMap) });
       });
     }

@@ -1,5 +1,9 @@
 import Image from 'next/image';
 
+// Trang này gọi createClient() (cookies) → bắt buộc dynamic.
+// (xem https://nextjs.org/docs/messages/dynamic-server-error)
+export const dynamic = 'force-dynamic';
+
 export default function AboutPage() {
   return (
     <div className="container mx-auto max-w-4xl px-4 py-12">

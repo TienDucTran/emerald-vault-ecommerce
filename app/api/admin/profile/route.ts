@@ -11,6 +11,10 @@ import { NextResponse } from 'next/server';
 import { authErrorResponse, requireAdmin } from '@/lib/auth/require-admin';
 import type { ProfileRow } from '@/lib/supabase/types';
 
+// requireAdmin() gọi cookies() → bắt buộc dynamic (xem nextjs.org/docs/messages/dynamic-server-error).
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 export async function GET() {
   try {
     const { profile } = await requireAdmin();

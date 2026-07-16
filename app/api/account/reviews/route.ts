@@ -82,7 +82,9 @@ export async function POST(request: NextRequest) {
 
     const { product_id, rating, title, content } = parsed.data;
 
-    const { data: verified, error: rpcErr } = await adminClient.rpc(
+    // Cast vì Supabase type narrowing khiến RPC args bị narrow về `undefined`
+    // (xem docs/ts-errors-cleanup.md nhóm 6).
+    const { data: verified, error: rpcErr } = await (adminClient.rpc as any)(
       'is_verified_purchase',
       { p_user_id: user.id, p_product_id: product_id }
     );

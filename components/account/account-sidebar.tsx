@@ -33,8 +33,8 @@ interface SidebarProfile {
   avatar_url: string | null;
 }
 
-function getInitials(name: string | null, email: string): string {
-  const source = (name && name.trim()) || email || '?';
+function getInitials(name?: string | null, fallback?: string | null): string {
+  const source = (name && name.trim()) || fallback || '?';
   const parts = source.trim().split(/\s+/);
   if (parts.length === 0) return '?';
   return parts[parts.length - 1].charAt(0).toUpperCase();

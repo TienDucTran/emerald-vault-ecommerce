@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Script from 'next/script';
 import { Cinzel, Inter } from 'next/font/google';
+import { GoogleAnalytics } from '@next/third-parties/google';
 import { AnnouncementBar } from '@/components/layout/announcement-bar';
 import { Navbar } from '@/components/layout/navbar';
 import { Footer } from '@/components/layout/footer';
@@ -12,6 +13,7 @@ import { Toaster } from '@/components/ui/toast';
 import '../globals.css';
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+const GA_ID = process.env.NEXT_PUBLIC_GA_ID;
 
 // Cinzel chỉ hỗ trợ latin + latin-ext (không có vietnamese)
 const cinzel = Cinzel({
@@ -90,6 +92,10 @@ gtag('consent', 'default', { ad_storage: 'denied', analytics_storage: 'denied', 
         <MobileChatbotBubble />
         <ConsentBanner />
         <Toaster />
+        {/* GA4 — chỉ mount khi NEXT_PUBLIC_GA_ID đã set; nếu trống (dev mới setup)
+            thì skip để tránh warning. Default-deny consent ở <head> phía trên
+            vẫn chạy để Nghị định 13/2023 VN tuân thủ. */}
+        {GA_ID ? <GoogleAnalytics gaId={GA_ID} /> : null}
       </body>
     </html>
   );

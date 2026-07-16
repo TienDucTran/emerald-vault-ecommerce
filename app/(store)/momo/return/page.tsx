@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Loader2, CheckCircle2, XCircle, Clock } from 'lucide-react';
@@ -11,7 +11,28 @@ type PollState = 'polling' | 'success' | 'failed' | 'timeout';
 const POLL_INTERVAL_MS = 2000;
 const POLL_TIMEOUT_MS = 30_000;
 
-export default function MomoReturnPage() {
+// `useSearchParams()` bên dưới khiến Next.js không thể prerender trang này tĩnh
+// ở build time (nó phụ thuộc query string từ MoMo redirect). Ta bọc phần dùng
+// useSearchParams trong <Suspense> để Next vẫn prerender được shell trống.
+// (xem https://nextjs.org/docs/messages/dynamic-server-error)
+
+function LoadingState() {
+  return (
+    <div className="container mx-auto px-4 py-20">
+      <div className="mx-auto max-w-md rounded-lg border border-gold/20 bg-surface p-10 text-center">
+        <Loader2 className="mx-auto mb-6 h-12 w-12 animate-spin text-gold" />
+        <h1 className="mb-2 font-heading text-2xl font-bold text-gold">
+          Đang tải...
+        </h1>
+        <p className="text-sm text-text-muted">
+          Vui lòng đợi trong giây lát.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function MomoReturnContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const orderCode = searchParams.get('orderId');
@@ -153,5 +174,13 @@ export default function MomoReturnPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function MomoReturnPage() {
+  return (
+    <Suspense fallback={<LoadingState />}>
+      <MomoReturnContent />
+    </Suspense>
   );
 }

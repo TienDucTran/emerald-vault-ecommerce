@@ -11,6 +11,10 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { AuthError, requireCustomer } from '@/lib/auth/require-customer';
 import { getOrdersByCustomer } from '@/lib/supabase/queries/orders';
 
+// requireCustomer() gọi cookies() → bắt buộc dynamic.
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 export async function GET(request: NextRequest) {
   try {
     const { profile } = await requireCustomer();

@@ -16,8 +16,9 @@ import {
   Loader2,
   X,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 
-type IconComp = React.ComponentType<{ className?: string; 'aria-hidden'?: boolean }>;
+type IconComp = LucideIcon;
 
 const ICONS: Record<ConfirmIcon, IconComp> = {
   warning: AlertTriangle,

@@ -93,6 +93,7 @@ export default async function ProductDetailPage({ params }: Props) {
           price: product.price,
           material: product.material,
           quality_tier: product.quality_tier,
+          category: product.category,
         }}
       />
       <JsonLdProduct product={product} />

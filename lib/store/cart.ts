@@ -94,7 +94,7 @@ export const useCartStore = create<CartState>()(
             await fetch('/api/unlock-item', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ lockId: item.lockId, productId: product.id }),
+              body: JSON.stringify({ lockId: item.lockId, productId }),
             });
           } catch {
             /* ignore */

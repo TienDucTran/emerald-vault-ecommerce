@@ -126,12 +126,15 @@ export async function getRelatedProducts(productId: string, limit = 4): Promise<
     .eq('id', productId)
     .single();
   if (e1 || !current) return [];
+  // Cast vì Supabase type narrowing khiến row bị narrow về `never`
+  // (xem docs/ts-errors-cleanup.md nhóm 6).
+  const currentRow = current as { collection_id: string | null; category: ProductCategory };
 
   const { data, error } = await supabase
     .from('products')
     .select(PRODUCT_BASIC)
     .neq('id', productId)
-    .or(`collection_id.eq.${current.collection_id},category.eq.${current.category}`)
+    .or(`collection_id.eq.${currentRow.collection_id},category.eq.${currentRow.category}`)
     .eq('status', 'AVAILABLE')
     .order('is_featured', { ascending: false })
     .limit(limit);

@@ -5,11 +5,15 @@ import { useEffect, useRef, useState } from 'react';
 import { ShoppingBag, ArrowRight, Trash2, Clock } from 'lucide-react';
 import { useCartStore } from '@/lib/store/cart';
 import { formatCountdown } from '@/hooks/use-countdown';
+import { useJewelryAnalytics } from '@/hooks/use-jewelry-analytics';
 import { formatVND } from '@/lib/utils';
+
+const LOCK_DURATION_MS = 10 * 60 * 1000; // 10 phút — đồng bộ với lib/constants
 
 export default function CartPage() {
   const items = useCartStore((s) => s.items);
   const removeItem = useCartStore((s) => s.removeItem);
+  const analytics = useJewelryAnalytics();
   const [tick, setTick] = useState(0);
   const [mounted, setMounted] = useState(false);
 
@@ -27,6 +31,7 @@ export default function CartPage() {
   }, [mounted]);
 
   // Khi item vừa hết hạn → gọi API release lock (server-side cleanup)
+  //                    + fire GA4 lock_item_timeout (1 lần / product)
   useEffect(() => {
     if (!mounted) return;
     const now = Date.now();
@@ -41,9 +46,20 @@ export default function CartPage() {
             keepalive: true,
           }).catch(() => {});
         }
+        // GA4: lock_item_timeout. Ước lượng lockDuration = LOCK_DURATION_MS
+        // (user có thể đã refresh / reload làm mất locked_at thật, nên dùng constant).
+        analytics.lockItemTimeout({
+          product: {
+            id: item.product.id,
+            title: item.product.title,
+            category: item.product.category,
+            price: item.product.price,
+          },
+          lockDurationMs: LOCK_DURATION_MS,
+        });
       }
     }
-  }, [tick, items, mounted]);
+  }, [tick, items, mounted, analytics]);
 
   if (!mounted) {
     return (

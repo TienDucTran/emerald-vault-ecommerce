@@ -5,6 +5,8 @@ import { toProduct } from '@/lib/adapters/supabase-to-app';
 import { safeList } from '@/lib/data/safe-fetch';
 import { DataWarning } from '@/components/layout/data-warning';
 
+export const dynamic = 'force-dynamic';
+
 export const metadata = {
   title: 'Thanh Toán',
   description: 'Hoàn tất đơn hàng của bạn tại Emerald Vault.',
@@ -31,6 +33,8 @@ export default async function CheckoutPage() {
     title: checkoutProduct.title,
     code: checkoutProduct.code,
     tier: checkoutProduct.quality_tier,
+    category: checkoutProduct.category,
+    material: checkoutProduct.material,
     price: checkoutProduct.price,
     image: checkoutProduct.image_url,
   };

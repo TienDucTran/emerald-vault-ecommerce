@@ -21,6 +21,10 @@ import {
 import { listAdminProducts } from '@/lib/supabase/queries/admin-products';
 import { AuthError, requireAdmin } from '@/lib/auth/require-admin';
 
+// requireAdmin() gọi cookies() → bắt buộc dynamic.
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 function isUniqueViolation(err: { code?: string; message?: string }): boolean {
   return err?.code === '23505' || /duplicate key|unique constraint/i.test(err?.message ?? '');
 }

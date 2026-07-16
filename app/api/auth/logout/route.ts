@@ -8,6 +8,10 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 
+// createClient() (server) gọi cookies() → bắt buộc dynamic.
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 async function handleLogout(request: NextRequest) {
   const supabase = createClient();
   await supabase.auth.signOut();

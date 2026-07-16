@@ -7,13 +7,20 @@ import { cn } from '@/lib/utils';
 import { useCartStore } from '@/lib/store/cart';
 import { useEffect, useState } from 'react';
 
-const ITEMS = [
+type NavItem = {
+  href: string;
+  label: string;
+  Icon: typeof Home;
+  showCartBadge?: boolean;
+};
+
+const ITEMS: readonly NavItem[] = [
   { href: '/',               label: 'Trang chủ',     Icon: Home },
   { href: '/san-pham',       label: 'Sản phẩm',     Icon: Grid3x3 },
   { href: '/bo-suu-tap',     label: 'Bộ sưu tập',   Icon: Sparkles },
   { href: '/gio-hang',       label: 'Giỏ hàng',      Icon: ShoppingBag, showCartBadge: true },
   { href: '/tai-khoan',      label: 'Tài khoản',     Icon: User },
-] as const;
+];
 
 function isActive(href: string, pathname: string): boolean {
   if (href === '/') return pathname === '/';

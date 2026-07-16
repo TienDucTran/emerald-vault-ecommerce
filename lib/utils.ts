@@ -1,6 +1,9 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
+/** Canonical currency code cho toàn bộ app (GA4 events, hiển thị, …). */
+export const CURRENCY = 'VND' as const;
+
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
@@ -9,7 +12,7 @@ export function cn(...inputs: ClassValue[]) {
 export function formatVND(amount: number): string {
   return new Intl.NumberFormat('vi-VN', {
     style: 'currency',
-    currency: 'VND',
+    currency: CURRENCY,
     maximumFractionDigits: 0,
   }).format(amount);
 }

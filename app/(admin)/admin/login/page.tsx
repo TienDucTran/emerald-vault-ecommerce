@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type FormEvent } from 'react';
+import { Suspense, useEffect, useState, type FormEvent } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
@@ -8,7 +8,12 @@ import type { ProfileRow } from '@/lib/supabase/types';
 
 const DEFAULT_NEXT = '/admin';
 
-export default function AdminLoginPage() {
+// `useSearchParams()` bên dưới đọc `?next=...` query param — không thể prerender
+// tĩnh. Ta bọc phần dùng useSearchParams trong <Suspense> để Next vẫn prerender
+// được shell trống.
+// (xem https://nextjs.org/docs/messages/dynamic-server-error)
+
+function AdminLoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const nextParam = searchParams.get('next') || DEFAULT_NEXT;
@@ -227,5 +232,19 @@ export default function AdminLoginPage() {
         © {new Date().getFullYear()} Emerald Vault — Internal use only
       </footer>
     </div>
+  );
+}
+
+export default function AdminLoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center bg-[#0D1117] text-[#D0C5AF]/60 text-sm font-heading tracking-[0.1em]">
+          Đang tải...
+        </div>
+      }
+    >
+      <AdminLoginForm />
+    </Suspense>
   );
 }

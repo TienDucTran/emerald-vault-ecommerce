@@ -21,6 +21,10 @@ import { NextResponse } from 'next/server';
 import { UpdateProductSchema } from '@/lib/admin/products-schema';
 import { AuthError, requireAdmin } from '@/lib/auth/require-admin';
 
+// requireAdmin() gọi cookies() → bắt buộc dynamic.
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 function isUniqueViolation(err: { code?: string; message?: string }): boolean {
   return err?.code === '23505' || /duplicate key|unique constraint/i.test(err?.message ?? '');
 }
@@ -113,7 +117,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
 
     const { data, error } = await adminClient
       .from('products')
-      .update(input as any)
+      .update(input)
       .eq('id', id)
       .select()
       .single();

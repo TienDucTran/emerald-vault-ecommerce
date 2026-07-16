@@ -25,7 +25,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import type { SupabaseClient, User } from '@supabase/supabase-js';
-import type { Database, ProfileRow } from '@/lib/supabase/types';
+import type { ProfileRow } from '@/lib/supabase/types';
 
 export class AuthError extends Error {
   status: number;
@@ -45,8 +45,8 @@ export class AuthError extends Error {
 export interface RequireCustomerResult {
   user: User;
   profile: ProfileRow;
-  supabase: SupabaseClient<Database>;
-  adminClient: SupabaseClient<Database>;
+  supabase: SupabaseClient<any, 'public', any>;
+  adminClient: SupabaseClient<any, 'public', any>;
 }
 
 /**

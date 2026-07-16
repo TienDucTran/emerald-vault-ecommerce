@@ -11,10 +11,11 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useToastStore, type Toast, type ToastVariant } from '@/lib/toast/toast-store';
+import type { LucideIcon } from 'lucide-react';
 
 const variantStyles: Record<
   ToastVariant,
-  { border: string; icon: string; iconColor: string }
+  { border: string; icon: LucideIcon; iconColor: string }
 > = {
   info: {
     border: 'border-gold/30',

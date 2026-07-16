@@ -11,19 +11,19 @@
 
 | Trạng thái | Số lượng | % |
 |---|---|---|
-| ✅ DONE | ~58 | 39% |
+| ✅ DONE | ~62 | 41% |
 | 🟡 PARTIAL | ~32 | 21% |
-| ❌ NOT STARTED | ~60 | 40% |
+| ❌ NOT STARTED | ~56 | 38% |
 
 **Customer flow** (mua hàng, thanh toán, tài khoản): gần như end-to-end, chạy được.
 **Admin products CRUD + bulk import**: xong thật (real data, session này).
 **Admin orders/collections/dashboard/inventory/payments/settings/newsletter**: còn mock data.
 **3 gap lớn nhất**:
 1. ❌ **AI Chatbot §15** — 0% dòng code
-2. ❌ **GA4 events firing** — `<GoogleAnalytics/>` chưa mount, `useJewelryAnalytics` chưa có
-3. ❌ **MoMo env chưa populate** — `/api/momo/create` đang trả 503
+2. ❌ **MoMo env chưa populate** — `/api/momo/create` đang trả 503
+3. ❌ **Còn lại admin pages real data** — 7 page còn mock
 
-**Top 3 quick-win (< 2h)**: populate MoMo env → mount GA4 + hook → migration pg_cron `release_expired_locks`.
+**Top 3 quick-win (< 2h)**: populate MoMo env → ~~mount GA4 + hook~~ ✅ done → ~~migration pg_cron `release_expired_locks`~~ ✅ done.
 
 ---
 
@@ -2343,9 +2343,9 @@ Logic: với matcher mới, **chỉ cần user tồn tại** (không check role)
 | # | § | Job | File/route | Effort | Mô tả |
 |---|---|---|---|---|---|
 | C1 | §15 | **AI Chatbot — full stack** | `app/api/chat/route.ts`, `lib/chatbot/*`, `components/chatbot/*`, migrations `0004_chatbot_schema.sql` + `0005_embed_trigger.sql`, `scripts/embed-all-products.ts` | 2–3 ngày | pgvector + chat_sessions + chat_messages + match_products RPC + embed trigger + Vercel AI SDK + 7 component + use-chat-session. Feature signature. |
-| C2 | §9 | **GA4 analytics — fire real events** | `lib/analytics/events.ts`, `hooks/use-jewelry-analytics.ts`, mount `<GoogleAnalytics/>` trong `app/(store)/layout.tsx`, set `NEXT_PUBLIC_GA_ID` | 2–3h | Mount GA, tạo hook, fire 8 event: view_item, add_to_cart, lock_item_success, lock_item_timeout, begin_checkout, add_payment_info, purchase, view_collection. |
+| C2 | §9 | **GA4 analytics — fire real events** ✅ DONE | `lib/analytics/events.ts`, `hooks/use-jewelry-analytics.ts`, mount `<GoogleAnalytics/>` trong `app/(store)/layout.tsx` | 2–3h | Hook typed + consent-gated (chỉ fire khi `localStorage[ev_cookie_consent]==='granted'`) + 8 event builders pure function. Wired: view_item (PDP), lock_item_success (HoldButton), lock_item_timeout (gio-hang), begin_checkout + add_payment_info (CheckoutClient), purchase (don-hang/[code] PAID + useRef once-flag), view_collection (CollectionViewTracker). MoMo return không cần wire riêng — redirect về `/don-hang/[code]` đã trigger purchase. Cần set `NEXT_PUBLIC_GA_ID` thật trong `.env` để bắt đầu tracking. |
 | C3 | §7 / §14 | **Populate MoMo env + sandbox test** | `.env` / `.env.local` | 1h | 5 env var: MOMO_PARTNER_CODE/ACCESS_KEY/SECRET_KEY/REDIRECT_URL/IPN_URL. Test create + IPN end-to-end trên sandbox. |
-| C4 | §6 / §2 | **pg_cron `release_expired_locks`** | new `supabase/migrations/00XX_pg_cron_release_locks.sql` | 30m | `SELECT cron.schedule('release-expired-locks', '* * * * *', $$ ... $$)`. Hiện chỉ có comment "bật thủ công" trong `0001`. |
+| C4 | §6 / §2 | **pg_cron `release_expired_locks`** ✅ DONE | new `supabase/migrations/0010_pg_cron_jobs.sql` | 30m | `SELECT cron.schedule('release-expired-locks', '* * * * *', $$ ... $$)`. Migration đã có: extension + 2 RPC (`release_expired_locks`, `cancel_pending_momo_orders`) + 2 cron jobs + partial index `idx_orders_pending_momo_cron`. Cần enable pg_cron extension trên Supabase Dashboard trước khi apply (xem comment trong file SQL). |
 | C5 | §13 | **Rate-limit `/api/lock-item`, `/api/orders`, `/api/momo/*`, `/api/chat`** | new `lib/middleware/rate-limit.ts` (Upstash Redis) | 2h | 10 req/min/IP. Lock flow đang wide open, dễ abuse. |
 | C6 | §3.2 | **Admin Orders page real data** | `app/(admin)/dashboard/orders/page.tsx` + `app/api/admin/orders/route.ts` + `app/(admin)/dashboard/orders/[id]/page.tsx` | 3h | Page hiện tại hardcode 10 đơn mock. Cần query `orders` join `order_items`, filter status/date/payment, status update action, CSV export, detail page. |
 
@@ -2384,12 +2384,13 @@ Logic: với matcher mới, **chỉ cần user tồn tại** (không check role)
 | N10 | §16.2 | **care-guide + authentication-guide** | `components/care/{care-guide,authentication-guide}.tsx` | 2h |
 | N11 | §16.2 | **mobile-menu (slide-out)** | `components/layout/mobile-menu.tsx` | 1.5h |
 | N12 | §6 | **`use-gsap-sparkle` hook** | `hooks/use-gsap-sparkle.ts` | 1h |
-| N13 | §7 | **Cron: cancel PENDING orders > 30 min** | new migration với pg_cron | 1h |
+| N13 | §7 | **Cron: cancel PENDING orders > 30 min** ✅ DONE | gộp trong `supabase/migrations/0010_pg_cron_jobs.sql` | 1h | RPC `cancel_pending_momo_orders()` + cron `cancel-pending-momo-orders` mỗi phút. Đồng thời giải phóng `inventory_locks` ACTIVE trỏ về product của order bị hủy (match qua `order_items` vì `lock_item` RPC hiện chưa set `order_id`). |
 | N14 | §9 / §18 | **GA4 account events** | `lib/analytics/events.ts` extensions | 1h |
 | N15 | §18.7 | **account-mobile-tabs** | `components/account/account-mobile-tabs.tsx` | 30m |
 | N16 | §3.3 | **account order list filter UI** | `components/account/order-list-filters.tsx` | 1h |
 | N17 | §12 | **Hero image preload** | `app/(store)/layout.tsx` | 30m |
 | N18 | §13 | **Structured logging với redaction** | `lib/log.ts` | 2h |
+| N19 | §13 | **Cleanup 39 pre-existing TypeScript errors** | `docs/ts-errors-cleanup.md` (đã liệt kê) | 2-3h | Phát hiện 2026-07-16 sau khi `tsc --noEmit` toàn project. 6 nhóm: Supabase generic narrowing (14 errors), Lucide IconComp (7), mobile-bottom-nav prop (1), account-sidebar getInitials (2), Postgrest update/insert never (8), queries row type (7). `next build` vẫn pass vì file lỗi nằm ngoài route graph hiện tại. |
 
 ### 19.5. Infrastructure
 
@@ -2411,9 +2412,9 @@ Logic: với matcher mới, **chỉ cần user tồn tại** (không check role)
 | # | Job | Impact | Effort |
 |---|---|---|---|
 | 1 | Populate `MOMO_*` env + sandbox test | Unblocks payment | 1h |
-| 2 | Mount `<GoogleAnalytics/>` + set `NEXT_PUBLIC_GA_ID` | Bắt đầu tracking data | 30m |
-| 3 | `useJewelryAnalytics` hook + call ở PDP/hold/return | Funnel visibility | 1–2h |
-| 4 | Migration `00XX_pg_cron_release_locks.sql` | Lock tự expire | 30m |
+| 2 | Mount `<GoogleAnalytics/>` + set `NEXT_PUBLIC_GA_ID` ✅ DONE | Bắt đầu tracking data | 30m |
+| 3 | `useJewelryAnalytics` hook + call ở PDP/hold/return ✅ DONE | Funnel visibility | 1–2h |
+| 4 | Migration `00XX_pg_cron_release_locks.sql` ✅ DONE | Lock tự expire | 30m |
 | 5 | Wire admin Orders page real data | Admin operate được | 2h |
 | 6 | Wire admin Order detail `[id]` | Hoàn thiện admin loop | 1–2h |
 | 7 | Add `POST/PATCH/DELETE /api/admin/collections` + wire page | Quản lý collection | 2h |

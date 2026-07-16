@@ -9,7 +9,7 @@
 - [x] **Payment gateway**: **MoMo captureWallet** (xem `flows.md` §7) + hỗ trợ **COD** làm fallback.
 - [x] **End-user auth**: **Guest checkout** (nhập SĐT mỗi lần), tra cứu đơn qua `code + phone`. Chỉ admin cần đăng nhập.
 - [x] **Sitemap & component architecture**: đã chuẩn hóa trong `flows.md` §3-4.
-- [x] **Database schema** (8 bảng + 3 RPC + 1 cron): đã chuẩn hóa trong `flows.md` §2.
+- [x] **Database schema** (8 bảng + 3 RPC + 2 cron): đã chuẩn hóa trong `flows.md` §2.
 - [x] **MoMo signature** + **IPN** + **idempotency**: đã document chi tiết trong `flows.md` §7.3-7.5.
 - [x] **AI Chatbot tư vấn sản phẩm**: Vercel AI SDK 7 + OpenAI GPT-4o-mini + Supabase pgvector — chi tiết trong `flows.md` §15.
 - [x] **Figma MCP**: file `kilo.json` dùng env var `${FIGMA_TOKEN}`, `.env.local` template đã có, `.gitignore` đã bảo vệ secret. User paste token vào `.env.local` rồi restart Kilo.
@@ -17,6 +17,9 @@
 - [x] **Google Stitch (stitch.withgoogle.com)**: tool AI generate UI từ prompt. Vai trò: tạo nhanh mockup dark theme để paste vào Figma làm inspiration. Không dùng để generate code sản xuất (vì output generic).
 - [x] **Storage upload pipeline**: client-side resize → webp + Supabase Storage bucket + admin upload API. Chi tiết xem flows.md §2.2 + mục X. bên dưới.
 - [x] **Media Library Phase 1 (read-only)**: list + search + sort + detail drawer. Phase 2/3/4 đang pending. Xem mục X. bên dưới.
+- [x] **GA4 analytics — fire real events**: `lib/analytics/events.ts` (8 pure event builders) + `hooks/use-jewelry-analytics.ts` (typed hook, consent-gated qua `localStorage[ev_cookie_consent]`) + `<GoogleAnalytics/>` mount trong `app/(store)/layout.tsx` (chỉ store route group, admin tự loại trừ). Đã wire 6/8 event: view_item, lock_item_success, lock_item_timeout, begin_checkout, add_payment_info, purchase, view_collection. Cần set `NEXT_PUBLIC_GA_ID` thật trong `.env` để bắt đầu nhận data.
+- [x] **pg_cron**: migration `supabase/migrations/0010_pg_cron_jobs.sql` (extension + 2 RPC + 2 cron schedule). Cần enable pg_cron trên Supabase Dashboard trước khi apply.
+- [ ] **Cleanup 39 pre-existing TypeScript errors** — chi tiết 6 nhóm root cause + file + effort ở `docs/ts-errors-cleanup.md` (Effort 2-3h, không block `next build`). Đã fix 3 errors (cart.ts:97, media-picker.tsx:348, server.ts:17,19) trong session 2026-07-16; 39 còn lại là pre-existing.
 
 ---
 
@@ -24,10 +27,10 @@
 
 ### A. Database & Migration
 - [ ] Tạo file `supabase/migrations/0001_initial_schema.sql` (chứa toàn bộ schema §2)
-- [ ] Tạo file `supabase/migrations/0002_rpc_functions.sql` (lock_item, confirm_payment, release_expired_locks)
+- [ ] Tạo file `supabase/migrations/0002_rpc_functions.sql` (lock_item, confirm_payment, release_expired_locks) — ĐÃ GỘP: `lock_item` + `confirm_payment` ở `0001_initial_schema.sql`; `release_expired_locks` ở `0010_pg_cron_jobs.sql`.
 - [ ] Tạo file `supabase/migrations/0003_rls_policies.sql` (RLS cho từng bảng)
 - [ ] Tạo file `supabase/seed.sql` (3-5 sản phẩm demo + 1 collection)
-- [ ] Bật extension `pg_cron` trên Supabase dashboard
+- [x] Bật extension `pg_cron` trên Supabase dashboard — MIGRATION READY: `supabase/migrations/0010_pg_cron_jobs.sql` chứa `CREATE EXTENSION pg_cron` + 2 RPC + 2 cron schedule. Cần enable extension trên Dashboard trước khi apply (xem comment trong file). Sau khi apply: `SELECT * FROM cron.job;` để verify.
 - [ ] Tạo storage bucket `jewelry-images` (public, max 5MB, .webp)
 - [ ] Trigger `handle_new_user()` cho profile auto-create
 - [ ] Migration `0006_newsletter.sql` — bảng newsletter_subscribers
@@ -62,7 +65,7 @@
 ## 🟡 P1 — QUAN TRỌNG (sprint đầu)
 
 ### E. UI/UX Pages
-- [ ] `app/layout.tsx` — RootLayout: GoogleAnalytics, fonts (Cormorant Garamond + Inter), ConsentBanner, theme provider
+- [x] `app/layout.tsx` — RootLayout: GoogleAnalytics, fonts (Cormorant Garamond + Inter), ConsentBanner, theme provider — LƯU Ý: GA + ConsentBanner mount ở `app/(store)/layout.tsx` (route group, không phải root). Root layout `app/layout.tsx` chỉ phục vụ `/403`.
 - [ ] `app/page.tsx` — Trang chủ: Hero + Featured Collections + Latest Arrivals + Story Teaser
 - [ ] `app/san-pham/page.tsx` — Danh sách: filter (collection, category, tier, price), grid responsive
 - [ ] `app/san-pham/[slug]/page.tsx` — Chi tiết: ProductGallery + ProductMeta + ProductStory + JSON-LD
@@ -114,7 +117,7 @@
 - [ ] `hooks/use-cart.ts` — Zustand store: items, expiresAt, total
 - [ ] `hooks/use-countdown.ts` — tick từ expiresAt, onExpire callback
 - [ ] `hooks/use-anonymous-id.ts` — uuid v4 lưu cookie
-- [ ] `hooks/use-jewelry-analytics.ts` — GA4 events (5 hàm)
+- [x] `hooks/use-jewelry-analytics.ts` — GA4 events (8 hàm: viewItem, addToCart, lockItemSuccess, lockItemTimeout, beginCheckout, addPaymentInfo, purchase, viewCollection; consent-gated qua `localStorage[ev_cookie_consent]`).
 - [ ] `hooks/use-gsap-sparkle.ts` — GSAP hover effect
 
 ### H. SEO

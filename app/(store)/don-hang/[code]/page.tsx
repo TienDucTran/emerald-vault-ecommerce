@@ -1,10 +1,18 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Loader2, Search, Package, Clock, Truck, CheckCircle2, XCircle } from 'lucide-react';
 import { formatVND } from '@/lib/utils';
+import { useJewelryAnalytics } from '@/hooks/use-jewelry-analytics';
+import type {
+  OrderRow,
+  OrderItemRow,
+  PaymentMethod,
+  PaymentStatus,
+  OrderStatus,
+} from '@/lib/supabase/types';
 
 interface OrderItem {
   id: string;
@@ -56,6 +64,7 @@ export default function OrderLookupPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const code = decodeURIComponent(params.code);
+  const analytics = useJewelryAnalytics();
 
   // Nếu URL có sẵn ?phone=... thì auto-fetch
   const initialPhone = searchParams.get('phone') ?? '';
@@ -63,6 +72,8 @@ export default function OrderLookupPage() {
   const [order, setOrder] = useState<OrderDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Tránh fire purchase 2 lần (MoMo redirect có thể trùng với direct reload).
+  const purchaseFiredRef = useRef(false);
 
   async function lookup(p: string) {
     if (!p.trim()) {
@@ -81,7 +92,29 @@ export default function OrderLookupPage() {
         setError('Không tìm thấy đơn hàng. Vui lòng kiểm tra mã và số điện thoại.');
         return;
       }
-      setOrder(json.order);
+      const next = json.order as OrderDetail;
+      setOrder(next);
+      // GA4: purchase — chỉ fire 1 lần / mount, chỉ khi đã PAID.
+      if (!purchaseFiredRef.current && next.payment_status === 'PAID') {
+        purchaseFiredRef.current = true;
+        // Cast an toàn: API trả về đúng shape, chỉ là type narrow.
+        const orderRow = {
+          ...next,
+          payment_method: next.payment_method as PaymentMethod,
+          payment_status: next.payment_status as PaymentStatus,
+          status: next.status as OrderStatus,
+        } as unknown as OrderRow;
+        const itemRows: OrderItemRow[] = (next.order_items ?? []).map((oi) => ({
+          id: oi.id,
+          order_id: next.id,
+          product_id: oi.product_id,
+          price: oi.price,
+          snapshot_title: oi.snapshot_title,
+          snapshot_image: oi.snapshot_image,
+          snapshot_material: (oi.snapshot_material ?? null) as OrderItemRow['snapshot_material'],
+        }));
+        analytics.purchase({ order: orderRow, items: itemRows });
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'NETWORK_ERROR');
     } finally {

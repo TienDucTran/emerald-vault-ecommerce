@@ -42,11 +42,14 @@ import { cn } from '@/lib/utils';
 
 export type MediaPickerMode = 'single' | 'multi';
 
+/** Khớp với MediaUploadDropzone.folder — nếu thêm folder mới, update cả 2 chỗ. */
+export type MediaFolder = 'products' | 'categories' | 'collections' | 'banners';
+
 export interface MediaPickerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   mode?: MediaPickerMode;
-  folder?: string;
+  folder?: MediaFolder | '';
   initialSelected?: string[];
   max?: number;
   title?: string;
@@ -345,7 +348,7 @@ export function MediaPicker({
         {showUpload && (
           <div className="px-5 pt-3">
             <MediaUploadDropzone
-              folder={folder}
+              folder={folder || undefined}
               onUploadComplete={handleUploadComplete}
             />
           </div>

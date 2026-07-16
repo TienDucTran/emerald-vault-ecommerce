@@ -98,7 +98,7 @@ export async function getOrdersByCustomer(
       return { data: [], total: 0 };
     }
 
-    const items: CustomerOrderListItem[] = (data ?? []).map((row) => {
+    const items: CustomerOrderListItem[] = (data ?? []).map((row: any) => {
       const orderItems = (row.order_items ?? []) as Array<{
         snapshot_image: string;
         product: { image_url: string } | null;
