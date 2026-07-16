@@ -8,6 +8,7 @@ const navItems = [
   { label: 'Overview', href: '/admin', icon: '◈' },
   { label: 'Products', href: '/admin/products', icon: '◇' },
   { label: 'Collections', href: '/admin/collections', icon: '◆' },
+  { label: 'Media', href: '/admin/media', icon: '🖼' },
   { label: 'Inventory', href: '/admin/inventory', icon: '📋' },
   { label: 'Orders', href: '/admin/orders', icon: '📦' },
   { label: 'Payments', href: '/admin/payments', icon: '💳' },

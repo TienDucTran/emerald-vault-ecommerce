@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation';
 import { AdminSidebar } from './admin-sidebar';
 import { AdminHeader } from './admin-header';
 import { Toaster } from '@/components/ui/toast';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 
 const AUTH_PATHS = ['/admin/login'];
 
@@ -26,6 +27,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
         <div className="p-8">{children}</div>
       </main>
       <Toaster />
+      <ConfirmDialog />
     </div>
   );
 }

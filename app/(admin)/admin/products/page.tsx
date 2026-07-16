@@ -16,6 +16,8 @@ import type {
   QualityTier,
   ProductStatus,
 } from '@/lib/supabase/types';
+import { useConfirm } from '@/components/ui/confirm-dialog';
+import { toast } from '@/lib/toast/toast-store';
 
 type Product = ProductRow;
 
@@ -182,13 +184,19 @@ export default function ProductsPage() {
   };
 
   const deleteOne = async (p: Product) => {
-    if (!window.confirm(`Xóa sản phẩm "${p.title}"?`)) return;
+    const ok = await useConfirm()({
+      title: `Xóa sản phẩm "${p.title}"?`,
+      description: 'Hành động này không thể hoàn tác.',
+      variant: 'danger',
+      confirmText: 'Xóa vĩnh viễn',
+    });
+    if (!ok) return;
     setDeleting((s) => new Set(s).add(p.id));
     try {
       const res = await fetch(`/api/admin/products/${p.id}`, { method: 'DELETE' });
       const json = await res.json().catch(() => null);
       if (!res.ok || !json?.ok) {
-        window.alert(json?.error || `Xóa thất bại (${res.status})`);
+        toast.error(json?.error || `Xóa thất bại (${res.status})`);
         return;
       }
       setSelected((s) => {
@@ -198,7 +206,7 @@ export default function ProductsPage() {
       });
       await load();
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : 'Network error');
+      toast.error(err instanceof Error ? err.message : 'Network error');
     } finally {
       setDeleting((s) => {
         const next = new Set(s);
@@ -211,7 +219,13 @@ export default function ProductsPage() {
   const deleteBulk = async () => {
     const ids = Array.from(selected);
     if (ids.length === 0) return;
-    if (!window.confirm(`Xóa ${ids.length} sản phẩm đã chọn?`)) return;
+    const ok = await useConfirm()({
+      title: `Xóa ${ids.length} sản phẩm đã chọn?`,
+      description: 'Hành động này không thể hoàn tác.',
+      variant: 'danger',
+      confirmText: 'Xóa tất cả',
+    });
+    if (!ok) return;
     setBulkDeleting(true);
     try {
       const results = await Promise.allSettled(
@@ -224,7 +238,7 @@ export default function ProductsPage() {
       );
       setSelected(new Set());
       if (failed.length > 0) {
-        window.alert(`Đã xóa ${ids.length - failed.length}/${ids.length} sản phẩm. Có lỗi xảy ra.`);
+        toast.warning(`Đã xóa ${ids.length - failed.length}/${ids.length} sản phẩm. Có lỗi xảy ra.`);
       }
       await load();
     } finally {

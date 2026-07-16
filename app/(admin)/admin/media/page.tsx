@@ -23,6 +23,7 @@ import { AlertCircle, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react'
 import { MediaToolbar } from '@/components/admin/media/media-toolbar';
 import { MediaGrid } from '@/components/admin/media/media-grid';
 import { MediaDetailDrawer } from '@/components/admin/media/media-detail-drawer';
+import { MediaUploadDropzone } from '@/components/admin/media/media-upload-dropzone';
 import type { MediaItem, MediaSort } from '@/components/admin/media/types';
 import { toast } from '@/lib/toast/toast-store';
 
@@ -45,6 +46,9 @@ export default function MediaPage() {
   const [search, setSearch] = useState('');
   // Cách sắp xếp
   const [sort, setSort] = useState<MediaSort>('created_desc');
+  // Folder filter trong bucket ('' = root). Mặc định 'products' để khớp default
+  // của API và là nơi mọi upload từ product form / dropzone đổ về.
+  const [folder, setFolder] = useState<string>('products');
   // Offset phân trang (LIMIT = 50 / trang)
   const [offset, setOffset] = useState(0);
   // Item đang mở trong drawer (null = đóng)
@@ -63,6 +67,7 @@ export default function MediaPage() {
         limit: String(LIMIT),
         offset: String(offset),
         sort,
+        folder,
       });
       if (search.trim()) params.set('search', search.trim());
 
@@ -82,7 +87,7 @@ export default function MediaPage() {
     } finally {
       setLoading(false);
     }
-  }, [search, sort, offset]);
+  }, [search, sort, offset, folder]);
 
   // Debounce search 300ms: khi user gõ, chờ 300ms rồi reset về trang đầu + fetch.
   useEffect(() => {
@@ -94,11 +99,11 @@ export default function MediaPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search]);
 
-  // Khi sort hoặc offset đổi → fetch ngay (không debounce).
+  // Khi sort, folder hoặc offset đổi → fetch ngay (không debounce).
   useEffect(() => {
     fetchMedia();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sort, offset]);
+  }, [sort, offset, folder]);
 
   // Stats tính từ items hiện tại (page-level, không phải tổng DB).
   const totalSize = useMemo(
@@ -125,6 +130,40 @@ export default function MediaPage() {
     setOffset(offset + LIMIT);
   };
 
+  /**
+   * Callback khi dropzone hoàn tất batch upload: refresh grid + toast tổng.
+   * Đặt ngoài `fetchMedia` để tránh stale closure khi MediaUploadDropzone memo hoá.
+   */
+  const handleUploadComplete = useCallback(
+    (count: number) => {
+      if (count > 0) {
+        toast.success(`Đã upload ${count} ảnh mới`);
+        // Reset về trang đầu để chắc chắn ảnh mới (thường mới nhất) hiện ra.
+        setOffset(0);
+        // Gọi trực tiếp fetchMedia ở đây sẽ dùng search/sort/offset hiện tại.
+        // setOffset(0) ở trên sẽ kích hoạt effect → fetchMedia chạy lại; gọi
+        // thêm 1 lần nữa để cover trường hợp effect chưa kịp (vd cùng offset).
+        void fetchMedia();
+      }
+    },
+    [fetchMedia]
+  );
+
+  /**
+   * Callback khi drawer xoá 1 ảnh thành công:
+   *  - Optimistic remove khỏi list hiện tại (tránh 1 nhịp flash trống trên grid).
+   *  - Refetch nền để cập nhật lại usageCount của các item còn lại (nếu cùng path
+   *    xuất hiện trong product khác, `deleteImage` ở server đã chặn trước đó, nên
+   *    chỉ còn case list orphan giảm đi).
+   */
+  const handleItemDeleted = useCallback(
+    (path: string) => {
+      setItems((prev) => prev.filter((it) => it.path !== path));
+      void fetchMedia();
+    },
+    [fetchMedia]
+  );
+
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header (sticky) */}
@@ -150,6 +189,12 @@ export default function MediaPage() {
         </button>
       </div>
 
+      {/* Upload dropzone (Phase 2: chức năng upload) */}
+      <MediaUploadDropzone
+        folder="products"
+        onUploadComplete={handleUploadComplete}
+      />
+
       {/* Toolbar + Grid */}
       <section className="space-y-4 rounded-sm p-6" style={glassStyle}>
         <MediaToolbar
@@ -158,6 +203,11 @@ export default function MediaPage() {
           sort={sort}
           onSortChange={(s) => {
             setSort(s);
+            setOffset(0);
+          }}
+          folder={folder}
+          onFolderChange={(f) => {
+            setFolder(f);
             setOffset(0);
           }}
           total={items.length}
@@ -225,6 +275,7 @@ export default function MediaPage() {
       <MediaDetailDrawer
         item={selectedItem}
         onClose={() => setSelectedItem(null)}
+        onDeleted={handleItemDeleted}
       />
     </div>
   );

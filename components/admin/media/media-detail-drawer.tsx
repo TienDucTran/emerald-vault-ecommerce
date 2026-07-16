@@ -6,7 +6,7 @@
  * - Preview lớn + metadata (filename, path, size, content-type, createdAt).
  * - Section "Đang dùng ở" nếu usageCount > 0, link tới trang edit sản phẩm.
  * - Section warning "Orphan" nếu không dùng ở đâu.
- * - Footer: Copy URL / Mở tab mới / Đóng.
+ * - Footer: Copy URL / Mở tab mới / Xoá (nếu orphan) / Đóng.
  * - Close: click overlay, ESC, hoặc nút Đóng.
  *
  * Slide-in dùng CSS `translate-x-full` ↔ `translate-x-0` với transition 300ms.
@@ -15,8 +15,9 @@
 import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { Copy, ExternalLink, X } from 'lucide-react';
+import { Copy, ExternalLink, Loader2, Trash2, X } from 'lucide-react';
 
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import { formatBytes } from '@/lib/image/client-resize';
 import { toast } from '@/lib/toast/toast-store';
 import { cn } from '@/lib/utils';
@@ -25,6 +26,11 @@ import type { MediaItem } from './types';
 export interface MediaDetailDrawerProps {
   item: MediaItem | null;
   onClose: () => void;
+  /**
+   * Gọi sau khi DELETE API trả 200. Cha sẽ remove item khỏi list (optimistic)
+   * + có thể refetch nền để cập nhật usageCount của item còn lại.
+   */
+  onDeleted?: (path: string) => void;
 }
 
 function formatDate(iso: string): string {
@@ -39,8 +45,9 @@ function formatDate(iso: string): string {
   });
 }
 
-export function MediaDetailDrawer({ item, onClose }: MediaDetailDrawerProps) {
+export function MediaDetailDrawer({ item, onClose, onDeleted }: MediaDetailDrawerProps) {
   const [imgError, setImgError] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const open = item !== null;
 
   // ESC key
@@ -58,6 +65,12 @@ export function MediaDetailDrawer({ item, onClose }: MediaDetailDrawerProps) {
     setImgError(false);
   }, [item?.id]);
 
+  // Reset deleting state khi đổi item (đề phòng drawer bị mở lại với item khác
+  // trong khi request DELETE trước chưa về).
+  useEffect(() => {
+    setDeleting(false);
+  }, [item?.id]);
+
   if (!item) return null;
 
   const handleCopy = async () => {
@@ -71,6 +84,51 @@ export function MediaDetailDrawer({ item, onClose }: MediaDetailDrawerProps) {
 
   const handleOpen = () => {
     window.open(item.publicUrl, '_blank', 'noopener,noreferrer');
+  };
+
+  const canDelete = item.usageCount === 0;
+
+  const handleDelete = async () => {
+    if (!item) return;
+    if (!canDelete || deleting) return;
+    const ok = await useConfirm()({
+      title: 'Xoá ảnh này?',
+      description:
+        'Hành động không thể hoàn tác. Ảnh sẽ bị xoá vĩnh viễn khỏi Supabase Storage.',
+      variant: 'danger',
+      confirmText: 'Xoá vĩnh viễn',
+    });
+    if (!ok) return;
+
+    setDeleting(true);
+    try {
+      const res = await fetch('/api/admin/media', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paths: [item.path] }),
+      });
+      const json = (await res.json().catch(() => null)) as
+        | { ok: boolean; message?: string; error?: string }
+        | null;
+
+      if (!res.ok || !json?.ok) {
+        const message = json?.message || json?.error || `HTTP ${res.status}`;
+        toast.error(`Xoá thất bại: ${message}`);
+        setDeleting(false);
+        return;
+      }
+
+      toast.success('Đã xoá ảnh');
+      const removedPath = item.path;
+      onDeleted?.(removedPath);
+      onClose();
+      // Không reset `setDeleting(false)` vì drawer đã đóng; effect sẽ reset khi
+      // drawer mở lại.
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Lỗi không xác định';
+      toast.error(`Xoá thất bại: ${message}`);
+      setDeleting(false);
+    }
   };
 
   return (
@@ -214,6 +272,29 @@ export function MediaDetailDrawer({ item, onClose }: MediaDetailDrawerProps) {
           >
             <ExternalLink className="h-3.5 w-3.5" />
             Mở tab mới
+          </button>
+          <button
+            type="button"
+            onClick={handleDelete}
+            disabled={!canDelete || deleting}
+            title={
+              canDelete
+                ? 'Xoá ảnh này khỏi Storage'
+                : 'Không thể xoá ảnh đang được sử dụng bởi sản phẩm'
+            }
+            className={cn(
+              'flex flex-1 items-center justify-center gap-1.5 rounded-sm border px-3 py-2 text-xs',
+              'border-error/40 text-error/80',
+              'hover:border-error hover:bg-error/10 hover:text-error',
+              'disabled:cursor-not-allowed disabled:border-[#4D4635]/40 disabled:bg-transparent disabled:text-[#D0C5AF]/30 disabled:hover:border-[#4D4635]/40 disabled:hover:bg-transparent disabled:hover:text-[#D0C5AF]/30'
+            )}
+          >
+            {deleting ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Trash2 className="h-3.5 w-3.5" />
+            )}
+            Xoá
           </button>
           <button
             type="button"

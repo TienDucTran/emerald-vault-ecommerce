@@ -38,6 +38,7 @@ import {
   ExternalLink,
   Image as ImageIcon,
   Info,
+  Library,
   Loader2,
   Plus,
   RotateCcw,
@@ -59,8 +60,10 @@ import {
   UpdateProductSchema,
   type CreateProductInput,
 } from '@/lib/admin/products-schema';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import { toast } from '@/lib/toast/toast-store';
 import { resizeImage, formatBytes } from '@/lib/image/client-resize';
+import { MediaPicker } from '@/components/admin/media/media-picker';
 import type {
   ProductRow,
   ProductCategory,
@@ -235,6 +238,8 @@ export function ProductForm({
   const [uploadingGalleryIndex, setUploadingGalleryIndex] = useState<number | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [coverPickerOpen, setCoverPickerOpen] = useState(false);
+  const [galleryPickerOpen, setGalleryPickerOpen] = useState(false);
 
   // Field refs for focus management
   const fieldRefs = useRef<Record<string, HTMLElement | null>>({});
@@ -419,7 +424,11 @@ export function ProductForm({
       const saved = originalSize - newSize;
 
       const fd = new FormData();
-      fd.append('file', blob, 'image.webp');
+      // Truyền tên gốc (kèm extension gốc) để server slugify thành path sạch. Blob ở đây là webp
+      // (do resize), nhưng server không quan tâm extension gốc — nó chỉ lấy name để slugify rồi
+      // tự gắn '.webp'. Server fallback sang file.name nếu thiếu originalName.
+      fd.append('file', blob, file.name);
+      fd.append('originalName', file.name);
       fd.append('folder', 'products');
       const res = await fetch('/api/admin/uploads', { method: 'POST', body: fd });
       const json = await res.json().catch(() => null);
@@ -454,7 +463,11 @@ export function ProductForm({
       const newSize = blob.size;
 
       const fd = new FormData();
-      fd.append('file', blob, 'image.webp');
+      // Truyền tên gốc (kèm extension gốc) để server slugify thành path sạch. Blob ở đây là webp
+      // (do resize), nhưng server không quan tâm extension gốc — nó chỉ lấy name để slugify rồi
+      // tự gắn '.webp'. Server fallback sang file.name nếu thiếu originalName.
+      fd.append('file', blob, file.name);
+      fd.append('originalName', file.name);
       fd.append('folder', 'products');
       const res = await fetch('/api/admin/uploads', { method: 'POST', body: fd });
       const json = await res.json().catch(() => null);
@@ -723,9 +736,15 @@ export function ProductForm({
   };
 
   /* -------- Discard changes (edit) -------- */
-  const discardChanges = () => {
+  const discardChanges = async () => {
     if (!currentInitial) return;
-    if (!window.confirm('Hủy mọi thay đổi?')) return;
+    const ok = await useConfirm()({
+      title: 'Hủy mọi thay đổi?',
+      description: 'Các thay đổi chưa lưu sẽ bị mất. Hành động này không thể hoàn tác.',
+      variant: 'danger',
+      confirmText: 'Hủy thay đổi',
+    });
+    if (!ok) return;
     setFormData(fromProduct(currentInitial));
     setTouched(new Set());
     setErrors({});
@@ -1210,6 +1229,15 @@ export function ProductForm({
               onChange={onUploadImage}
               disabled={isUploadingMain}
             />
+            <button
+              type="button"
+              onClick={() => setCoverPickerOpen(true)}
+              className={outlineBtn}
+              title="Chọn ảnh đã có trong thư viện"
+            >
+              <Library className="w-3.5 h-3.5" />
+              Từ thư viện
+            </button>
           </div>
           <ErrorLine k="image_url" />
         </div>
@@ -1304,7 +1332,7 @@ export function ProductForm({
               </div>
             ))}
           </div>
-          <div className="mt-2">
+          <div className="mt-2 flex items-center gap-2">
             <button
               type="button"
               onClick={addGalleryRow}
@@ -1313,6 +1341,15 @@ export function ProductForm({
             >
               <Plus className="w-3.5 h-3.5" />
               Thêm ảnh
+            </button>
+            <button
+              type="button"
+              onClick={() => setGalleryPickerOpen(true)}
+              className={outlineBtn}
+              title="Chọn nhiều ảnh đã có trong thư viện"
+            >
+              <Library className="w-3.5 h-3.5" />
+              Chọn từ thư viện
             </button>
           </div>
           <p className="text-[10px] text-text-muted/50 mt-2">
@@ -1493,6 +1530,38 @@ export function ProductForm({
           loading={deleting}
         />
       )}
+
+      {/* MEDIA PICKER — ảnh chính (single) -------------------------- */}
+      <MediaPicker
+        open={coverPickerOpen}
+        onOpenChange={setCoverPickerOpen}
+        mode="single"
+        folder="products"
+        initialSelected={formData.image_url ? [formData.image_url] : []}
+        title="Chọn ảnh chính từ thư viện"
+        onConfirm={(urls) => {
+          const url = urls[0] ?? '';
+          setField('image_url', url);
+          if (localImagePreview) URL.revokeObjectURL(localImagePreview);
+          setLocalImagePreview(null);
+          if (url) toast.success('Đã chọn ảnh chính từ thư viện');
+        }}
+      />
+
+      {/* MEDIA PICKER — gallery (multi) ----------------------------- */}
+      <MediaPicker
+        open={galleryPickerOpen}
+        onOpenChange={setGalleryPickerOpen}
+        mode="multi"
+        folder="products"
+        initialSelected={formData.gallery.filter(Boolean)}
+        max={MAX_GALLERY}
+        title="Chọn ảnh cho gallery"
+        onConfirm={(urls) => {
+          setField('gallery', urls);
+          toast.success(`Đã chọn ${urls.length} ảnh cho gallery`);
+        }}
+      />
     </form>
   );
 }

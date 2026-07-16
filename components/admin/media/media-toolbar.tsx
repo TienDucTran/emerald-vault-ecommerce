@@ -18,6 +18,8 @@ export interface MediaToolbarProps {
   onSearchChange: (s: string) => void;
   sort: MediaSort;
   onSortChange: (s: MediaSort) => void;
+  folder: string;
+  onFolderChange: (f: string) => void;
   total: number;
   totalSize: number;
   orphanCount: number;
@@ -30,6 +32,15 @@ const SORT_OPTIONS: Array<{ value: MediaSort; label: string }> = [
   { value: 'name_asc', label: 'Tên A-Z' },
 ];
 
+/** Folder dropdown options. `''` = bucket root. */
+const FOLDER_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: '', label: 'Tất cả' },
+  { value: 'products', label: 'Products' },
+  { value: 'categories', label: 'Categories' },
+  { value: 'collections', label: 'Collections' },
+  { value: 'banners', label: 'Banners' },
+];
+
 const INPUT_CLASS =
   'bg-[#0D1117] border border-[#4D4635] text-sm rounded-sm px-3 py-2 focus:border-[#F2CA50]/60 outline-none';
 
@@ -38,6 +49,8 @@ export function MediaToolbar({
   onSearchChange,
   sort,
   onSortChange,
+  folder,
+  onFolderChange,
   total,
   totalSize,
   orphanCount,
@@ -79,6 +92,20 @@ export function MediaToolbar({
       >
         {SORT_OPTIONS.map((opt) => (
           <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
+
+      {/* Folder filter */}
+      <select
+        value={folder}
+        onChange={(e) => onFolderChange(e.target.value)}
+        className={cn(INPUT_CLASS, 'cursor-pointer pr-8')}
+        aria-label="Lọc theo folder"
+      >
+        {FOLDER_OPTIONS.map((opt) => (
+          <option key={opt.value || 'all'} value={opt.value}>
             {opt.label}
           </option>
         ))}

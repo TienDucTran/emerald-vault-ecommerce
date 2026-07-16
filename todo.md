@@ -163,12 +163,15 @@
 - [x] `app/api/admin/media/route.ts` — GET list + usage count (PostgREST 1 query cho products)
 - [x] `app/(admin)/admin/media/page.tsx` — tổng hợp, debounce search 300ms, prev/next pagination
 
-### X3. Media Library Phase 2 — Delete + Sidebar (~3h)
-- [ ] `app/api/admin/media/route.ts` — thêm `DELETE` body `{ paths: [] }` với check usage trước
-- [ ] `app/api/admin/media/usage/route.ts` — GET `?path=` trả `{ usageCount, usedIn }` (refactor từ inline trong GET list)
-- [ ] Nút "Xoá" trong `media-detail-drawer.tsx` (disabled nếu usageCount > 0, confirm modal nếu = 0)
-- [ ] Select mode trong `media-grid.tsx` (checkbox overlay, bulk delete orphan)
-- [ ] Thêm "Media" vào `navItems` trong `components/layout/admin-sidebar.tsx` (giữa Products và Collections)
+### X3. Media Library Phase 2 — Delete + Sidebar (DONE ✅)
+- [x] `app/api/admin/media/route.ts` — thêm `DELETE` body `{ paths: [] }` với check usage trước (atomic IN_USE 400, IN_USE paths list, 500 DELETE_FAILED w/ failedPaths)
+- [x] Nút "Xoá" trong `media-detail-drawer.tsx` (disabled nếu usageCount > 0, confirm qua window.confirm, Loader2 spinner khi đang xoá)
+- [x] Thêm "Media" vào `navItems` trong `components/layout/admin-sidebar.tsx` (giữa Collections và Inventory)
+- [x] Export `BUCKET` constant từ `lib/supabase/storage.ts` để route dùng chung
+- [x] Refactor: `MediaItem` type chia sẻ giữa `components/admin/media/types.ts` và `app/api/admin/media/route.ts`
+- [x] `handleItemDeleted` callback ở page: optimistic remove + refetch nền
+- [ ] `app/api/admin/media/usage/route.ts` — GET `?path=` trả `{ usageCount, usedIn }` (refactor từ inline trong GET list) — pending
+- [ ] Select mode trong `media-grid.tsx` (checkbox overlay, bulk delete orphan) — pending
 
 ### X4. Media Library Phase 3 — Picker Modal từ product-form (~4h)
 - [ ] `components/admin/media/media-picker-modal.tsx` — modal list ảnh, single/multi select, dùng lại `MediaGrid`
@@ -177,10 +180,11 @@
 - [ ] Empty state trong modal: "Chưa có ảnh nào, upload mới từ form?"
 - [ ] Refactor: share `MediaItem` type giữa API route + components (fix duplicate type)
 
-### X5. Media Library Phase 4 — Upload dropzone trong page (~2h)
-- [ ] `components/admin/media/upload-dropzone.tsx` — drag-drop lớn ở đầu page, multiple file, progress bar từng file
-- [ ] Tích hợp `POST /api/admin/media` (cần tạo route mới trước: `app/api/admin/media/route.ts` — thêm POST handler)
-- [ ] Sau upload: refresh grid + toast "Đã upload N ảnh"
+### X5. Media Library Phase 4 — Upload dropzone trong page (DONE ✅)
+- [x] `components/admin/media/media-upload-dropzone.tsx` — drag-drop lớn ở đầu page, multiple file, progress per-entry (pending → resizing → uploading → done/failed), semaphore 3 concurrent, % smaller badge, Toast per file, Clear all
+- [x] Tích hợp `POST /api/admin/uploads` (route có sẵn, không tạo mới — upload là phase trước)
+- [x] Sau upload: refresh grid + toast `Đã upload N ảnh mới`
+- [x] Client-side resize sang webp 1600px q=0.85 trước upload (giảm ~70% bandwidth)
 
 ---
 

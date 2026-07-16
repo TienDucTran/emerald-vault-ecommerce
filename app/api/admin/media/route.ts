@@ -1,7 +1,9 @@
 // GET  /api/admin/media
 //   Query: ?search=&folder=&limit=&offset=&sort=
 //     - search: filter filename contains (case-insensitive)
-//     - folder: folder con trong bucket (vd: 'products'). Bỏ trống = root.
+//     - folder: folder con trong bucket (vd: 'products', 'categories').
+//           Mặc định 'products' (nơi mọi upload từ product form / dropzone đổ về).
+//           Bỏ trống = root.
 //     - limit : 1-200, default 50
 //     - offset: >= 0,    default 0
 //     - sort  : 'created_desc' | 'created_asc' | 'size_desc' | 'name_asc'
@@ -9,11 +11,23 @@
 //   Response 200: { ok: true, items: MediaItem[], total, limit, offset }
 //   Response 4xx: { ok: false, error, details? }
 //
+// DELETE /api/admin/media
+//   Body: { paths: string[] } — danh sách storage path cần xoá (vd: ["products/abc.webp"]).
+//     - paths: 1-50 phần tử, mỗi phần tử là string non-empty.
+//   Hành vi:
+//     - Trước khi xoá, check usage bằng 1 query products (image_url + gallery).
+//       Nếu BẤT KỲ path nào đang được product tham chiếu → 400 IN_USE, KHÔNG xoá gì cả (atomic).
+//     - Nếu tất cả orphan → xoá từng path qua deleteImage (idempotent).
+//     - Nếu xoá partial fail → 500 DELETE_FAILED + failedPaths.
+//   Response 200: { ok: true, deleted: number, paths: string[] }
+//   Response 400: { ok: false, error: 'IN_USE' | 'INVALID_BODY' | 'INVALID_JSON',
+//                   message, inUsePaths?, details? }
+//   Response 500: { ok: false, error: 'DELETE_FAILED' | 'INTERNAL_ERROR', message, failedPaths? }
+//
 // Lưu ý:
 //   - requireAdmin() verify user + role + trả adminClient (service-role, bypass RLS).
 //   - Bucket 'jewelry-images' là public, đã tạo bằng migration 0010. Tên bucket
-//     hiện KHÔNG được export từ lib/supabase/storage.ts (chỉ là const nội bộ)
-//     nên ta hardcode ở đây để khớp với URL pattern Supabase trả về.
+//     được import từ `lib/supabase/storage.ts` (`BUCKET` constant).
 //   - StorageObject KHÔNG có field `publicUrl` → phải tự build qua `getPublicUrl(path)`
 //     với path = `${folder}/${name}`.
 //   - `usageCount` + `usedIn` được tính trong CÙNG response (không phải endpoint riêng)
@@ -21,12 +35,15 @@
 //     tốn thêm 1 round-trip. Vì product catalog hiện tại < 200 sp nên load 1 lần là đủ.
 
 import { NextResponse } from 'next/server';
-import { AuthError, requireAdmin } from '@/lib/auth/require-admin';
+import {
+  AuthError,
+  authErrorResponse,
+  requireAdmin,
+} from '@/lib/auth/require-admin';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { BUCKET, deleteImage } from '@/lib/supabase/storage';
+import type { MediaItem } from '@/components/admin/media/types';
 import { z } from 'zod';
-
-/** Tên bucket Supabase Storage chứa ảnh sản phẩm & media khác. */
-const BUCKET = 'jewelry-images' as const;
 
 /** Max số product references trả về trong `usedIn` của mỗi media item. */
 const USED_IN_LIMIT = 5;
@@ -37,7 +54,12 @@ const USED_IN_LIMIT = 5;
 
 const MediaListQuerySchema = z.object({
   search: z.string().trim().optional(),
-  folder: z.string().trim().optional(),
+  // Lưu ý: dùng `.default('')` thay cho `.optional()` để giữ chuỗi rỗng khi client
+  // gửi `folder=` (URLSearchParams.set vẫn ghi ra chuỗi rỗng, không phải undefined).
+  // `.trim().optional()` sẽ coi '' là undefined sau trim → không phân biệt được
+  // "root" vs "không truyền". `.default('')` giữ nguyên giá trị rỗng → code dùng
+  // `query.folder ?? 'products'` xử lý đúng: '' = root, undefined → fallback 'products'.
+  folder: z.string().trim().default(''),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   offset: z.coerce.number().int().min(0).default(0),
   sort: z
@@ -48,22 +70,21 @@ const MediaListQuerySchema = z.object({
 type MediaListQuery = z.infer<typeof MediaListQuerySchema>;
 
 // ────────────────────────────────────────────────────────────────────────────
-// Types
+// Schema validate body cho DELETE
 // ────────────────────────────────────────────────────────────────────────────
 
-/** Shape trả về cho mỗi item trong response. */
-interface MediaItem {
-  id: string;
-  path: string;
-  publicUrl: string;
-  filename: string;
-  size: number;
-  contentType: string;
-  folder: string;
-  createdAt: string;
-  usageCount: number;
-  usedIn: Array<{ id: string; title: string }>;
-}
+const MediaDeleteBodySchema = z.object({
+  paths: z
+    .array(z.string().trim().min(1, 'path không được rỗng'))
+    .min(1, 'Cần ít nhất 1 path')
+    .max(50, 'Tối đa 50 paths mỗi request'),
+});
+
+type MediaDeleteBody = z.infer<typeof MediaDeleteBodySchema>;
+
+// ────────────────────────────────────────────────────────────────────────────
+// Types
+// ────────────────────────────────────────────────────────────────────────────
 
 /** StorageObject trả về từ `supabase.storage.list()` (subset fields ta dùng). */
 interface StorageObject {
@@ -157,10 +178,13 @@ export async function GET(req: Request) {
 
     // 2. List objects trong bucket
     //
-    // `folder ?? ''` = root. Supabase trả `null` (không phải []) nếu folder rỗng/không tồn tại.
+    // `folder ?? DEFAULT_FOLDER` (mặc định 'products' — nơi mọi upload đổ về).
+    // Supabase trả `null` (không phải []) nếu folder rỗng/không tồn tại.
+    // Lưu ý: storage.list() là NON-RECURSIVE — chỉ list 1 cấp. Để list toàn bộ
+    // bucket cần đệ quy hoặc dùng RPC. Hiện tại UI cho chọn 1 folder cụ thể.
     const { data: objects, error: listError } = await supabase.storage
       .from(BUCKET)
-      .list(query.folder ?? '', {
+      .list(query.folder ?? 'products', {
         limit: query.limit,
         offset: query.offset,
         sortBy: toStorageSort(query.sort),
@@ -225,7 +249,7 @@ export async function GET(req: Request) {
     // 5. Compose items + áp filter search (case-insensitive)
     const searchLower = query.search?.toLowerCase();
     let items: MediaItem[] = safeObjects.map((obj) => {
-      const folder = query.folder ?? '';
+      const folder = query.folder ?? 'products';
       const publicUrl = buildPublicUrl(supabase, folder, obj.name);
       const path = folder ? `${folder}/${obj.name}` : obj.name;
       const used = usageMap.get(publicUrl) ?? [];
@@ -295,6 +319,159 @@ export async function GET(req: Request) {
       { status: 500 }
     );
   }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Handler: DELETE — xoá 1 hoặc nhiều media items theo path
+// ────────────────────────────────────────────────────────────────────────────
+
+export async function DELETE(req: Request) {
+  try {
+    await requireAdmin();
+
+    // 1. Parse + validate body
+    //
+    // Cần 2 lớp try/catch:
+    //   - Ngoài (catch all) → authErrorResponse cho AuthError, 500 cho phần còn lại.
+    //   - Trong (bọc req.json) → trả 400 INVALID_JSON nếu body không phải JSON hợp lệ
+    //     (mặc định `req.json()` throw SyntaxError — ta muốn message thân thiện).
+    let body: MediaDeleteBody;
+    try {
+      const raw: unknown = await req.json();
+      const parsed = MediaDeleteBodySchema.safeParse(raw);
+      if (!parsed.success) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: 'INVALID_BODY',
+            message: 'Body không hợp lệ',
+            details: parsed.error.flatten(),
+          },
+          { status: 400 }
+        );
+      }
+      body = parsed.data;
+    } catch {
+      return NextResponse.json(
+        { ok: false, error: 'INVALID_JSON', message: 'Body không phải JSON hợp lệ' },
+        { status: 400 }
+      );
+    }
+
+    const supabase = createAdminClient();
+
+    // 2. Check usage: load 1 lần tất cả products, build Set<publicUrl>.
+    //
+    // Cách này giống GET: O(1) lookup per path, không cần N round-trip.
+    // Nếu products > vài nghìn thì chuyển sang per-path `.or()` filter.
+    const { data: productRows, error: productsError } = await supabase
+      .from('products')
+      .select('id, title, image_url, gallery');
+
+    if (productsError) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'PRODUCTS_QUERY_FAILED',
+          message: productsError.message,
+        },
+        { status: 500 }
+      );
+    }
+
+    const usedUrls = new Set<string>();
+    for (const p of (productRows ?? []) as ProductUsageRow[]) {
+      if (p.image_url) usedUrls.add(p.image_url);
+      if (p.gallery && p.gallery.length) {
+        for (const g of p.gallery) usedUrls.add(g);
+      }
+    }
+
+    // 3. Tính publicUrl cho từng path, đối chiếu với Set usedUrls.
+    //
+    // `getPublicUrl` không cần network call thật — nó ghép URL từ SUPABASE_URL
+    // (env) + path. Nên gọi trong loop là rẻ.
+    const pathToUrl = new Map<string, string>();
+    for (const p of body.paths) pathToUrl.set(p, buildPublicUrlFromPath(supabase, p));
+
+    const inUsePaths = body.paths.filter((p) =>
+      usedUrls.has(pathToUrl.get(p) ?? ''),
+    );
+    if (inUsePaths.length > 0) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'IN_USE',
+          message: 'Ảnh đang được sử dụng bởi sản phẩm',
+          inUsePaths,
+        },
+        { status: 400 }
+      );
+    }
+
+    // 4. Tất cả orphan → xoá song song.
+    //
+    // `deleteImage` idempotent trên path không tồn tại (xem comment trong
+    // `lib/supabase/storage.ts`), nên `Promise.all` an toàn: nếu 1 path đã bị
+    // xoá từ request khác, các path còn lại vẫn tiếp tục. Nếu 1 path fail thật
+    // (vd: mất mạng) → promise đó reject, ta map sang failedPaths.
+    const settled = await Promise.allSettled(
+      body.paths.map((p) => deleteImage(p)),
+    );
+    const failedPaths: { path: string; message: string }[] = [];
+    settled.forEach((res, idx) => {
+      if (res.status === 'rejected') {
+        const path = body.paths[idx];
+        const msg = res.reason instanceof Error ? res.reason.message : String(res.reason);
+        failedPaths.push({ path, message: msg });
+      }
+    });
+
+    if (failedPaths.length > 0) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'DELETE_FAILED',
+          message: 'Một số ảnh không xoá được',
+          failedPaths,
+        },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json(
+      {
+        ok: true,
+        deleted: body.paths.length,
+        paths: body.paths,
+      },
+      { status: 200 }
+    );
+  } catch (e) {
+    if (e instanceof AuthError) {
+      return authErrorResponse(e, 'admin/api/media');
+    }
+    return NextResponse.json(
+      {
+        ok: false,
+        error: 'INTERNAL_ERROR',
+        message: (e as Error)?.message ?? 'Unknown error',
+      },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * Build publicUrl cho 1 path đầy đủ (vd: `products/abc-123.webp`).
+ * Dùng cho DELETE handler (khác GET: GET build từ folder + name từ storage.list).
+ */
+function buildPublicUrlFromPath(
+  supabase: ReturnType<typeof createAdminClient>,
+  path: string,
+): string {
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
+  return data.publicUrl;
 }
 
 // ────────────────────────────────────────────────────────────────────────────
