@@ -263,7 +263,7 @@ export default function ProductsPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
         <div>
           <h1 className="font-heading text-2xl font-bold text-[#EAE1D4] tracking-tight">
             Products
@@ -376,7 +376,7 @@ export default function ProductsPage() {
       {/* Bulk-actions banner */}
       {selected.size > 0 && (
         <div
-          className="px-4 py-2.5 rounded-sm flex items-center justify-between"
+          className="px-4 py-2.5 rounded-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2"
           style={{
             background: 'rgba(242, 202, 80, 0.08)',
             border: '1px solid rgba(242, 202, 80, 0.25)',
@@ -430,7 +430,7 @@ export default function ProductsPage() {
         )}
 
         <div className="overflow-x-auto">
-          <table className="w-full">
+          <table className="w-full min-w-[1024px]">
             <thead>
               <tr className="border-b border-[#4D4635]">
                 <th className="text-left px-6 py-4 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50 w-10">
@@ -589,7 +589,7 @@ export default function ProductsPage() {
         </div>
 
         {/* Pagination */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-[#4D4635]/30">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-4 sm:px-6 py-4 border-t border-[#4D4635]/30">
           <span className="text-[10px] text-[#D0C5AF]/40">
             {total === 0
               ? 'Showing 0 of 0 products'

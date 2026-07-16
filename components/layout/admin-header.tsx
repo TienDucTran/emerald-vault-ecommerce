@@ -3,24 +3,22 @@
 import { Fragment, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LogOut } from 'lucide-react';
+import { LogOut, Menu, ChevronLeft, ChevronRight } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import { useAdminShell } from './admin-shell-context';
+import { adminNavItems } from './admin-nav-config';
 
-const navItems: Array<{ label: string; href: string }> = [
-  { label: 'Overview', href: '/admin' },
-  { label: 'Products', href: '/admin/products' },
-  { label: 'Collections', href: '/admin/collections' },
-  { label: 'Inventory', href: '/admin/inventory' },
-  { label: 'Orders', href: '/admin/orders' },
-  { label: 'Payments', href: '/admin/payments' },
-  { label: 'Newsletter', href: '/admin/newsletter' },
-  { label: 'Analytics', href: '/admin/analytics' },
-  { label: 'Settings', href: '/admin/settings' },
-];
+const DESKTOP_EXPANDED_WIDTH = 256;
+const DESKTOP_COLLAPSED_WIDTH = 72;
+
+const breadcrumbItems = adminNavItems.filter((i) => i.id !== 'media');
 
 type Crumb = { label: string; href: string };
 
-function buildCrumbs(pathname: string, items: Array<{ label: string; href: string }>): Crumb[] {
+function buildCrumbs(
+  pathname: string,
+  items: Array<{ label: string; href: string }>
+): Crumb[] {
   const match = items
     .filter((it) => pathname === it.href || pathname.startsWith(it.href + '/'))
     .sort((a, b) => b.href.length - a.href.length)[0];
@@ -53,11 +51,18 @@ function buildCrumbs(pathname: string, items: Array<{ label: string; href: strin
 export function AdminHeader() {
   const router = useRouter();
   const pathname = usePathname();
+  const { collapsed, setCollapsed, setMobileOpen, isMobile } = useAdminShell();
   const [searchQuery, setSearchQuery] = useState('');
   const [signingOut, setSigningOut] = useState(false);
   const [profile, setProfile] = useState<{ name: string; email: string } | null>(null);
 
-  const crumbs = buildCrumbs(pathname, navItems);
+  const crumbs = buildCrumbs(pathname, breadcrumbItems);
+
+  const headerLeft = isMobile
+    ? 0
+    : collapsed
+      ? DESKTOP_COLLAPSED_WIDTH
+      : DESKTOP_EXPANDED_WIDTH;
 
   useEffect(() => {
     let cancelled = false;
@@ -113,37 +118,61 @@ export function AdminHeader() {
 
   return (
     <header
-      className="fixed top-0 right-0 z-30 h-16 flex items-center justify-between px-6 bg-[rgba(13,17,23,0.8)] backdrop-blur-[6px] border-b border-[#4D4635]"
-      style={{ left: '256px' }}
+      className="fixed top-0 right-0 z-30 h-16 flex items-center justify-between px-4 md:px-6 bg-[rgba(13,17,23,0.8)] backdrop-blur-[6px] border-b border-[#4D4635] transition-[left] duration-300 ease-in-out"
+      style={{ left: headerLeft }}
     >
-      {/* Left: Breadcrumb / Page Title */}
-      <div className="flex items-center gap-3">
-        {crumbs.map((c, i) => {
-          const isLast = i === crumbs.length - 1;
-          return (
-            <Fragment key={c.href}>
-              {i > 0 && <span className="text-xs text-[#D0C5AF]/40">/</span>}
-              {isLast ? (
-                <span className="font-heading text-xs font-bold text-gold tracking-[0.1em] uppercase">
-                  {c.label}
-                </span>
-              ) : (
-                <Link
-                  href={c.href}
-                  className="font-heading text-xs font-bold text-[#D0C5AF]/60 hover:text-gold tracking-[0.1em] uppercase transition-colors"
-                >
-                  {c.label}
-                </Link>
-              )}
-            </Fragment>
-          );
-        })}
+      {/* Left: Toolbar + Breadcrumb */}
+      <div className="flex items-center gap-3 min-w-0">
+        {isMobile ? (
+          <button
+            type="button"
+            onClick={() => setMobileOpen(true)}
+            className="p-2 -ml-2 text-[#D0C5AF]/70 hover:text-gold transition-colors"
+            aria-label="Open menu"
+            title="Open menu"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setCollapsed(!collapsed)}
+            className="p-2 -ml-2 text-[#D0C5AF]/70 hover:text-gold transition-colors"
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {collapsed ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
+          </button>
+        )}
+
+        <div className="flex items-center gap-3 min-w-0 overflow-hidden">
+          {crumbs.map((c, i) => {
+            const isLast = i === crumbs.length - 1;
+            return (
+              <Fragment key={c.href}>
+                {i > 0 && <span className="text-xs text-[#D0C5AF]/40">/</span>}
+                {isLast ? (
+                  <span className="font-heading text-xs font-bold text-gold tracking-[0.1em] uppercase truncate">
+                    {c.label}
+                  </span>
+                ) : (
+                  <Link
+                    href={c.href}
+                    className="hidden sm:inline-block font-heading text-xs font-bold text-[#D0C5AF]/60 hover:text-gold tracking-[0.1em] uppercase transition-colors truncate"
+                  >
+                    {c.label}
+                  </Link>
+                )}
+              </Fragment>
+            );
+          })}
+        </div>
       </div>
 
       {/* Right: Search + Notifications + Profile */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2 sm:gap-4">
         {/* Search */}
-        <div className="relative">
+        <div className="relative hidden sm:block">
           <svg
             className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#D0C5AF]/40"
             fill="none"
@@ -162,7 +191,7 @@ export function AdminHeader() {
             placeholder="Search..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-64 pl-10 pr-4 py-2 bg-[#1F1B13] border border-[#4D4635] rounded-xl text-xs text-[#D0C5AF] placeholder-[#D0C5AF]/30 focus:outline-none focus:border-gold/40 transition-colors"
+            className="w-32 sm:w-48 md:w-64 pl-10 pr-4 py-2 bg-[#1F1B13] border border-[#4D4635] rounded-xl text-xs text-[#D0C5AF] placeholder-[#D0C5AF]/30 focus:outline-none focus:border-gold/40 transition-colors"
           />
         </div>
 
@@ -180,8 +209,8 @@ export function AdminHeader() {
         </button>
 
         {/* Profile */}
-        <div className="flex items-center gap-3 pl-4 border-l border-[#4D4635]">
-          <div className="text-right">
+        <div className="flex items-center gap-3 pl-2 sm:pl-4 border-l border-[#4D4635]">
+          <div className="hidden md:block text-right">
             <p className="text-xs font-medium text-[#D0C5AF]">{displayName}</p>
             <p className="text-[10px] text-[#D0C5AF]/50">{displayEmail}</p>
           </div>
@@ -195,11 +224,11 @@ export function AdminHeader() {
           type="button"
           onClick={handleSignOut}
           disabled={signingOut}
-          className="flex items-center gap-2 pl-4 border-l border-[#4D4635] text-[#D0C5AF]/60 hover:text-gold transition-colors disabled:opacity-50"
+          className="flex items-center gap-2 pl-2 sm:pl-4 border-l border-[#4D4635] text-[#D0C5AF]/60 hover:text-gold transition-colors disabled:opacity-50"
           title="Đăng xuất"
         >
           <LogOut className="w-4 h-4" />
-          <span className="text-[10px] font-heading tracking-[0.1em] uppercase">
+          <span className="hidden sm:inline text-[10px] font-heading tracking-[0.1em] uppercase">
             {signingOut ? 'Đang thoát...' : 'Đăng xuất'}
           </span>
         </button>

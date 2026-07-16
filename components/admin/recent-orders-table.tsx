@@ -60,11 +60,11 @@ export function RecentOrdersTable() {
   return (
     <div>
       {/* Table Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-[#4D4635]">
+      <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-[#4D4635] gap-2">
         <h3 className="font-heading text-sm font-bold text-[#EAE1D4] tracking-[0.05em] uppercase">
           Recent Orders
         </h3>
-        <button className="text-[10px] text-gold hover:text-gold/80 transition-colors font-heading tracking-[0.1em] uppercase">
+        <button className="text-[10px] text-gold hover:text-gold/80 transition-colors font-heading tracking-[0.1em] uppercase shrink-0">
           View All →
         </button>
       </div>

@@ -708,7 +708,7 @@ export default function BulkUploadPage() {
               </div>
             ) : (
               <div className="flex items-center justify-between flex-wrap gap-3">
-                <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                   <FileSpreadsheet className="w-5 h-5 text-gold/70" />
                   <div>
                     <p className="text-sm text-[#EAE1D4]">{csvFileName}</p>
@@ -933,28 +933,28 @@ export default function BulkUploadPage() {
             ) : (
               <>
                 <div className="overflow-x-auto">
-                  <table className="w-full">
+                  <table className="w-full min-w-[760px]">
                     <thead>
                       <tr className="border-b border-[#4D4635]/30">
-                        <th className="text-left px-6 py-3 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50 w-12">
+                        <th className="text-left px-4 sm:px-6 py-3 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50 w-12">
                           #
                         </th>
-                        <th className="text-left px-6 py-3 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">
+                        <th className="text-left px-4 sm:px-6 py-3 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">
                           Title
                         </th>
-                        <th className="text-left px-6 py-3 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">
+                        <th className="text-left px-4 sm:px-6 py-3 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">
                           Slug
                         </th>
-                        <th className="text-left px-6 py-3 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">
+                        <th className="text-left px-4 sm:px-6 py-3 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">
                           Category
                         </th>
-                        <th className="text-left px-6 py-3 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">
+                        <th className="text-left px-4 sm:px-6 py-3 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">
                           Material
                         </th>
-                        <th className="text-left px-6 py-3 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">
+                        <th className="text-left px-4 sm:px-6 py-3 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">
                           Tier
                         </th>
-                        <th className="text-right px-6 py-3 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">
+                        <th className="text-right px-4 sm:px-6 py-3 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">
                           Price
                         </th>
                       </tr>
@@ -965,26 +965,26 @@ export default function BulkUploadPage() {
                           key={v.index}
                           className="border-b border-[#4D4635]/10 hover:bg-[rgba(56,52,43,0.1)] transition-colors"
                         >
-                          <td className="px-6 py-3 font-mono text-xs text-[#D0C5AF]/50">
+                          <td className="px-4 sm:px-6 py-3 font-mono text-xs text-[#D0C5AF]/50">
                             {v.index + 1}
                           </td>
-                          <td className="px-6 py-3 text-xs text-[#EAE1D4]">{v.input.title}</td>
-                          <td className="px-6 py-3 font-mono text-xs text-[#D0C5AF]/70">
+                          <td className="px-4 sm:px-6 py-3 text-xs text-[#EAE1D4] max-w-[180px] sm:max-w-none truncate">{v.input.title}</td>
+                          <td className="px-4 sm:px-6 py-3 font-mono text-xs text-[#D0C5AF]/70 whitespace-nowrap">
                             {v.input.slug}
                           </td>
-                          <td className="px-6 py-3 text-xs text-[#D0C5AF]/80">
+                          <td className="px-4 sm:px-6 py-3 text-xs text-[#D0C5AF]/80 whitespace-nowrap">
                             {CATEGORY_LABELS[v.input.category] ?? v.input.category}
                           </td>
-                          <td className="px-6 py-3 text-xs text-[#D0C5AF]/80">
+                          <td className="px-4 sm:px-6 py-3 text-xs text-[#D0C5AF]/80 whitespace-nowrap">
                             {MATERIAL_LABELS[v.input.material] ?? v.input.material}
                           </td>
-                          <td className="px-6 py-3 text-xs text-gold/80">
+                          <td className="px-4 sm:px-6 py-3 text-xs text-gold/80">
                             {v.input.quality_tier}{' '}
-                            <span className="text-[#D0C5AF]/40">
+                            <span className="text-[#D0C5AF]/40 hidden sm:inline">
                               — {TIER_LABELS[v.input.quality_tier] ?? ''}
                             </span>
                           </td>
-                          <td className="px-6 py-3 text-xs text-right text-[#EAE1D4] font-medium">
+                          <td className="px-4 sm:px-6 py-3 text-xs text-right text-[#EAE1D4] font-medium whitespace-nowrap">
                             {formatVND(v.input.price)}
                           </td>
                         </tr>

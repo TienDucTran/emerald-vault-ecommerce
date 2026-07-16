@@ -167,7 +167,7 @@ export default function MediaPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header (sticky) */}
-      <div className="sticky top-0 z-10 -mx-6 flex items-center justify-between px-6 py-4 backdrop-blur"
+      <div className="sticky top-0 z-10 -mx-4 md:-mx-6 lg:-mx-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 md:px-6 lg:px-8 py-4 backdrop-blur"
         style={{ background: 'rgba(13, 17, 23, 0.6)' }}
       >
         <div>
@@ -196,7 +196,7 @@ export default function MediaPage() {
       />
 
       {/* Toolbar + Grid */}
-      <section className="space-y-4 rounded-sm p-6" style={glassStyle}>
+      <section className="space-y-4 rounded-sm p-4 sm:p-6" style={glassStyle}>
         <MediaToolbar
           search={search}
           onSearchChange={setSearch}
@@ -239,7 +239,7 @@ export default function MediaPage() {
         />
 
         {/* Footer pagination */}
-        <div className="flex items-center justify-between border-t border-[#4D4635]/30 pt-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-t border-[#4D4635]/30 pt-4">
           <span className="text-[10px] text-[#D0C5AF]/40">
             {items.length === 0
               ? 'Không có ảnh nào'

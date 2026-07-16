@@ -16,7 +16,7 @@ export default function CollectionsPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
         <div>
           <h1 className="font-heading text-2xl font-bold text-[#EAE1D4] tracking-tight">Collections</h1>
           <p className="text-sm text-[#D0C5AF]/60 mt-1">Organize products into collections — {collections.length} total</p>
@@ -60,7 +60,7 @@ export default function CollectionsPage() {
                 </div>
               </div>
 
-              <div className="flex items-center justify-between mt-3 pt-3 border-t border-[#4D4635]/20">
+              <div className="flex items-center justify-between mt-3 pt-3 border-t border-[#4D4635]/20 gap-2">
                 <span className="text-[10px] text-[#D0C5AF]/50">{col.products} products</span>
                 <div className="flex items-center gap-2">
                   <button className="text-[9px] text-gold/60 hover:text-gold transition-colors">Edit</button>

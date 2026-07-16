@@ -31,17 +31,17 @@ function shortenVND(amount: number) {
 
 export function RevenueChart() {
   return (
-    <div className="relative h-full flex flex-col">
+    <div className="relative h-full min-w-0 flex flex-col">
       {/* Chart Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
+      <div className="flex items-start justify-between gap-2 mb-6">
+        <div className="min-w-0">
           <h3 className="font-heading text-sm font-bold text-[#EAE1D4] tracking-[0.05em] uppercase">
             Revenue Trend
           </h3>
           <p className="text-xs text-[#D0C5AF]/50 mt-0.5">Last 7 days</p>
         </div>
-        <div className="text-right">
-          <p className="text-lg font-heading font-bold text-gold">
+        <div className="text-right shrink-0">
+          <p className="text-base sm:text-lg font-heading font-bold text-gold break-all">
             {formatVND(revenueData.reduce((sum, d) => sum + d.amount, 0))}
           </p>
           <p className="text-[10px] text-success">↑ 12.5% vs last week</p>
@@ -49,7 +49,7 @@ export function RevenueChart() {
       </div>
 
       {/* Bar Chart */}
-      <div className="flex-1 flex items-end gap-3 pb-1">
+      <div className="flex-1 flex items-end gap-2 sm:gap-3 pb-1 min-h-[180px] sm:min-h-[240px]">
         {revenueData.map((item, i) => {
           const heightPercent = (item.amount / maxRevenue) * 100;
           return (

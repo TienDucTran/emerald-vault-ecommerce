@@ -52,9 +52,9 @@ export function StatCard({
       </div>
 
       {/* Value */}
-      <div className="relative z-10">
-        <div className="flex items-end gap-3">
-          <span className="text-3xl font-heading font-bold text-[#EAE1D4] tracking-tight">
+      <div className="relative z-10 min-w-0">
+        <div className="flex flex-wrap items-end gap-x-3 gap-y-1">
+          <span className="text-2xl sm:text-3xl font-heading font-bold text-[#EAE1D4] tracking-tight break-all">
             {value}
           </span>
           {trend && (

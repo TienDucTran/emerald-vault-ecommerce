@@ -1200,12 +1200,13 @@ export function ProductForm({
               onChange={(e) => setField('image_url', e.target.value)}
               onBlur={() => setTouched((s) => new Set(s).add('image_url'))}
               placeholder="https://… hoặc /images/products/abc.jpg"
-              className={cn(inputClassFor('image_url'), 'flex-1')}
+              className={cn(inputClassFor('image_url'), 'flex-1 min-w-0 basis-full sm:basis-auto')}
             />
             <LocalImagePreview
               url={localImagePreview}
               onClear={clearLocalImage}
             />
+            <div className="flex items-center gap-2 flex-wrap">
             <label
               htmlFor="f-image-file"
               className={cn(
@@ -1238,12 +1239,13 @@ export function ProductForm({
               <Library className="w-3.5 h-3.5" />
               Từ thư viện
             </button>
+            </div>
           </div>
           <ErrorLine k="image_url" />
         </div>
 
         {/* main preview card */}
-        <div className="p-4 rounded-sm flex items-center gap-4" style={glassStyle}>
+        <div className="p-4 rounded-sm flex flex-col sm:flex-row sm:items-center gap-4" style={glassStyle}>
           {formData.image_url || localImagePreview ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -1275,7 +1277,7 @@ export function ProductForm({
           </label>
           <div className="space-y-2">
             {formData.gallery.map((g, i) => (
-              <div key={i} className="flex items-center gap-2">
+              <div key={i} className="flex flex-wrap sm:flex-nowrap items-center gap-2">
                 <input
                   type="text"
                   value={g}
@@ -1467,11 +1469,11 @@ export function ProductForm({
 
       {/* FOOTER STICKY ---------------------------------------------- */}
       <div
-        className="sticky bottom-0 z-10 -mx-8 px-8 py-4 flex items-center justify-between gap-4 border-t border-gold/30"
+        className="sticky bottom-0 z-10 -mx-4 md:-mx-6 lg:-mx-8 px-4 md:px-6 lg:px-8 py-4 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3 border-t border-gold/30"
         style={glassStrong}
       >
         <p className="text-xs text-text-muted/50">Các trường có dấu * là bắt buộc.</p>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           {mode === 'create' ? (
             <>
               {formData.slug && (

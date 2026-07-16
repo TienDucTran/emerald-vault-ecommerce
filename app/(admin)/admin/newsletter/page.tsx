@@ -15,7 +15,7 @@ export default function NewsletterPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
         <div>
           <h1 className="font-heading text-2xl font-bold text-[#EAE1D4] tracking-tight">Newsletter</h1>
           <p className="text-sm text-[#D0C5AF]/60 mt-1">Manage email subscribers — {subscribers.filter(s => s.active).length} active</p>
@@ -29,7 +29,7 @@ export default function NewsletterPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
         <div className="p-4 rounded-sm" style={{ background: 'rgba(18, 36, 28, 0.6)', backdropFilter: 'blur(6px)', border: '1px solid rgba(241, 229, 172, 0.1)' }}>
           <p className="text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">Total</p>
           <p className="text-xl font-heading font-bold text-[#EAE1D4] mt-1">{subscribers.length}</p>
@@ -58,7 +58,7 @@ export default function NewsletterPage() {
         }}
       >
         <div className="overflow-x-auto">
-          <table className="w-full">
+          <table className="w-full min-w-[520px]">
             <thead>
               <tr className="border-b border-[#4D4635]">
                 <th className="text-left px-6 py-4 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">Email</th>

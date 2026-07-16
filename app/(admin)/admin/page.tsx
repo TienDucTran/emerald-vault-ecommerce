@@ -22,7 +22,7 @@ export default function DashboardPage() {
   return (
     <div className="space-y-8 animate-fade-in">
       {/* Header Section — matches Figma node 31:4 */}
-      <div className="flex items-end justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
         <div>
           <h1 className="font-heading text-2xl font-bold text-[#EAE1D4] tracking-tight">
             Dashboard
@@ -109,7 +109,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Revenue Trend — spans 2 cols, matches Figma node 31:68 */}
         <div
-          className="lg:col-span-2 p-8 rounded-sm min-h-[400px]"
+          className="lg:col-span-2 p-4 sm:p-6 lg:p-8 rounded-sm min-h-[320px] md:min-h-[400px] min-w-0"
           style={{
             background: 'rgba(18, 36, 28, 0.6)',
             backdropFilter: 'blur(6px)',
@@ -121,7 +121,7 @@ export default function DashboardPage() {
 
         {/* Sales by Tier — matches Figma node 31:116 */}
         <div
-          className="p-8 rounded-sm"
+          className="p-4 sm:p-6 lg:p-8 rounded-sm min-w-0"
           style={{
             background: 'rgba(18, 36, 28, 0.6)',
             backdropFilter: 'blur(6px)',
@@ -161,20 +161,20 @@ export default function DashboardPage() {
 
       {/* Footer / System Health — matches Figma node 31:312 */}
       <div
-        className="flex items-center justify-between py-8 border-t border-[#4D4635]"
+        className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 py-6 sm:py-8 border-t border-[#4D4635]"
       >
-        <div className="flex items-center gap-6">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-6 min-w-0">
           <div className="flex items-center gap-3">
             <div className="w-2 h-2 rounded-full bg-success animate-pulse" />
             <span className="text-xs text-[#D0C5AF]/60">All systems operational</span>
           </div>
-          <div className="flex items-center gap-4 text-[10px] text-[#D0C5AF]/30">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-[#D0C5AF]/30">
             <span>Uptime: 99.9%</span>
             <span>Response: 45ms</span>
             <span>DB: Healthy</span>
           </div>
         </div>
-        <div className="text-right">
+        <div className="text-left sm:text-right">
           <p className="text-[10px] text-[#D0C5AF]/30" suppressHydrationWarning>
             Last updated: {now ?? '--:--:--'}
           </p>

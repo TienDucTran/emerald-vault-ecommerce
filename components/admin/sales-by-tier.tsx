@@ -9,7 +9,7 @@ const tierData = [
 
 export function SalesByTier() {
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full min-w-0">
       <div className="mb-6">
         <h3 className="font-heading text-sm font-bold text-[#EAE1D4] tracking-[0.05em] uppercase">
           Sales by Tier

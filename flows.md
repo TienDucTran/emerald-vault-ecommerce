@@ -77,6 +77,9 @@ MOMO_ACCESS_KEY=
 MOMO_SECRET_KEY=
 MOMO_REDIRECT_URL=https://emerald-vault.vn/momo/return
 MOMO_IPN_URL=https://emerald-vault.vn/api/momo/ipn
+# GA4 Data API (cho /admin/analytics)
+GA4_PROPERTY_ID=                  # dạng số, lấy từ GA4 Admin
+GA4_SERVICE_ACCOUNT_JSON=         # inline JSON (khuyến nghị Vercel) — hoặc GOOGLE_APPLICATION_CREDENTIALS=path
 ```
 
 ---
@@ -340,7 +343,7 @@ app/
 
 ### 3.2. Admin routes
 
-> **Status**: 🟡 shell + auth done, products CRUD real data (session này). ❌ orders detail, ❌ collections edit, ❌ chat, ❌ xac-nhan-email. 7 page còn mock.
+> **Status**: 🟡 shell + auth done, products CRUD real data (session này). ✅ analytics page real (GA4 Data API + orders). ❌ orders detail, ❌ collections edit, ❌ chat, ❌ xac-nhan-email. 6 page còn mock.
 ```
 app/
 └── (admin)/
@@ -357,13 +360,13 @@ app/
         ├── orders/
         │   ├── page.tsx          # LIST (filter, status update, export CSV)
         │   └── [id]/page.tsx     # CHI TIẾT + cập nhật trạng thái
-        ├── analytics/page.tsx    # Embed GA4 Looker Studio
+        ├── analytics/page.tsx    # ✅ REAL — GA4 Data API + orders từ Supabase
         └── settings/page.tsx     # Site config, shipping fee, v.v.
 ```
 
 ### 3.3. API routes
 
-> **Status**: 🟡 10/12 customer API done. /api/admin/collections thiếu POST/PATCH/DELETE. Path `/api/admin/bulk-import` đã đổi thành `/api/admin/products/bulk`. ❌ /api/chat.
+> **Status**: 🟡 10/12 customer API done. /api/admin/collections thiếu POST/PATCH/DELETE. Path `/api/admin/bulk-import` đã đổi thành `/api/admin/products/bulk`. ✅ `/api/admin/analytics` (GA4 + orders). ❌ /api/chat.
 ```
 app/api/
 ├── lock-item/route.ts            # POST — gọi RPC lock_item
@@ -376,7 +379,8 @@ app/api/
 │   └── ipn/route.ts              # POST — nhận IPN từ MoMo (server-to-server)
 └── admin/
     ├── bulk-import/route.ts      # POST — admin only
-    └── collections/route.ts      # POST/PATCH/DELETE — admin only
+    ├── collections/route.ts      # POST/PATCH/DELETE — admin only
+    └── analytics/route.ts        # ✅ GET ?days=N — tổng hợp GA4 + orders cho /admin/analytics
 ```
 
 ---
@@ -721,6 +725,7 @@ export function verifyIpnSignature(body: MoMoIpnBody, secretKey: string) {
 ## 9. LUỒNG 5 — GA4 EVENTS
 
 > **Status**: 🟡 Consent default-deny + banner done. ❌ `<GoogleAnalytics/>` chưa mount. ❌ 8 events chưa fire. ❌ `useJewelryAnalytics` hook chưa có.
+> ✅ `/admin/analytics` page đã dùng **GA4 Data API** (server-side, service account) + orders từ Supabase — xem §9.1.
 
 | Event | Trigger | Params quan trọng |
 |---|---|---|
@@ -754,6 +759,71 @@ const send = (name: string, params: Record<string, unknown>) => {
   });`}
 </Script>
 {/* <ConsentBanner/> → khi user click "Chấp nhận" → gtag('consent','update',{analytics_storage:'granted'}) */}
+```
+
+---
+
+## 9.1. LUỒNG 5b — ADMIN ANALYTICS (GA4 DATA API + ORDERS)
+
+> **Status**: ✅ done. Trang `/admin/analytics` dùng số liệu thật từ GA4 Data API (server-side, service account) + orders từ Supabase.
+
+### Kiến trúc
+```
+[Browser /admin/analytics]
+        │
+        │  GET /api/admin/analytics?days=7
+        ▼
+[Route Handler — Node runtime, requireAdmin]
+        │
+        ├─► [lib/analytics/ga4.ts]  BetaAnalyticsDataClient
+        │      service account: GA4_SERVICE_ACCOUNT_JSON | GOOGLE_APPLICATION_CREDENTIALS
+        │      property: GA4_PROPERTY_ID
+        │      queries: runReport, runRealtimeReport
+        │      metrics: sessions, eventCount, conversions, newUsers, totalUsers,
+        │               bounceRate, activeUsers, dailySessions, countrySessions
+        │
+        └─► [lib/analytics/orders.ts]  supabaseAdmin (service_role)
+               queries: getOrderStats, getTopProductsByRevenue, getDailyRevenue
+               filter: payment_status = 'PAID' trong range
+        │
+        ▼
+[Response JSON]  →  [Page render] 4 KPI card + funnel + traffic + top products + daily chart
+```
+
+### Env cần thêm
+```bash
+GA4_PROPERTY_ID=123456789              # dạng số, GA4 Admin → Property column
+GA4_SERVICE_ACCOUNT_JSON='{...}'       # inline JSON (Vercel-friendly)
+# hoặc
+GOOGLE_APPLICATION_CREDENTIALS=/path/to/sa.json  # dev local
+```
+
+### Setup service account (1 lần)
+1. Google Cloud Console → IAM & Admin → Service Accounts → Create.
+2. Grant role: **Viewer** (chỉ đọc data).
+3. Tạo key JSON → copy nội dung dán vào `GA4_SERVICE_ACCOUNT_JSON` (escape newline nếu cần).
+4. GA4 Admin → Property → Property Access Management → Add service account email với role **Viewer**.
+
+### Caching / rate-limit
+- Hiện không cache — mỗi lần load page = 1 batch Promise.all.
+- Nếu traffic cao, thêm `unstable_cache` (Next.js) hoặc Upstash Redis TTL 60s.
+- GA4 Data API quota: 250K tokens/project/ngày (free).
+
+### Graceful degradation
+- Nếu thiếu `GA4_PROPERTY_ID` hoặc service account → `isGA4Configured() = false`.
+- API vẫn trả 200, `data.ga4.configured = false`, các field GA4 = `null`.
+- Page hiển thị banner warning + KPI cards GA4 = "—", orders vẫn render bình thường.
+
+### Files
+```
+lib/analytics/
+├── ga4.ts           # BetaAnalyticsDataClient singleton + isGA4Configured()
+├── queries.ts       # typed wrappers: getSessions, getEventCount, getKeyEvents,
+│                    #   getNewUsers, getBounceRate, getActiveUsers30m,
+│                    #   getSessionsByDay, getSessionsByCountry, pctDelta
+└── orders.ts        # getOrderStats, getTopProductsByRevenue, getDailyRevenue
+app/api/admin/analytics/route.ts   # GET ?days=7 — combine GA4 + orders
+app/(admin)/admin/analytics/page.tsx  # client page, fetch + render + delta %
 ```
 
 ---

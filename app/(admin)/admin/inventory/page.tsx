@@ -33,7 +33,7 @@ export default function InventoryPage() {
     <div className="space-y-6 animate-fade-in">
       {/* Sub-header Tabs — matches Figma node 35:200 */}
       <div
-        className="flex items-center justify-between px-6 py-0 rounded-sm"
+        className="flex items-center justify-between gap-3 px-4 sm:px-6 py-0 rounded-sm overflow-x-auto"
         style={{
           background: 'rgba(13, 17, 23, 0.8)',
           backdropFilter: 'blur(6px)',
@@ -73,7 +73,7 @@ export default function InventoryPage() {
       </div>
 
       {/* Page Header & Actions — matches Figma node 35:5 */}
-      <div className="flex items-end justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
         <div>
           <h1 className="font-heading text-2xl font-bold text-[#EAE1D4] tracking-tight">Inventory</h1>
           <p className="text-sm text-[#D0C5AF]/60 mt-1">Track stock levels and active locks across all products</p>
@@ -142,7 +142,7 @@ export default function InventoryPage() {
         }}
       >
         <div className="overflow-x-auto">
-          <table className="w-full">
+          <table className="w-full min-w-[820px]">
             <thead>
               <tr className="border-b border-[rgba(77,70,53,0.3)]">
                 <th className="text-left px-6 py-4 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">SKU</th>
@@ -209,7 +209,7 @@ export default function InventoryPage() {
 
         {/* Pagination — matches Figma node 35:180 */}
         <div
-          className="flex items-center justify-between px-6 py-4"
+          className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-4 sm:px-6 py-4"
           style={{
             background: '#1F1B13',
             borderTop: '1px solid rgba(77, 70, 53, 0.3)',
