@@ -500,7 +500,7 @@ export default function ProductsPage() {
                       <td className="px-6 py-4">
                         {/* TODO: row body click → /admin/products/[id] (detail page not yet built) */}
                         <Link
-                          href={`/admin/products/${product.id}`}
+                          href={`/admin/products/${product.id}/edit`}
                           className="flex items-center gap-3"
                         >
                           {product.image_url ? (

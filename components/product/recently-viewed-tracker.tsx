@@ -22,6 +22,9 @@ interface RecentlyViewedTrackerProps {
  *  1. Ghi nhận lượt xem vào localStorage (recently viewed).
  *  2. Fire GA4 `view_item` event.
  *
+ * Lưu cả `status` (AVAILABLE/SOLD_OUT/RESERVED) để RecentlyViewedLocal
+ * render đúng overlay vintage stamp.
+ *
  * Không render UI, chỉ side-effect.
  */
 export function RecentlyViewedTracker({ product }: RecentlyViewedTrackerProps) {

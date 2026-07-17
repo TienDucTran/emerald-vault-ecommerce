@@ -153,3 +153,37 @@ export async function getOptionalCustomer(): Promise<RequireCustomerResult | nul
     return null;
   }
 }
+
+/**
+ * Lấy user + role hiện tại, KHÔNG filter theo role.
+ * Trả null nếu không có user.
+ *
+ * Dùng cho các page cần phân nhánh theo role (vd. /thanh-toan hiện fallback
+ * nếu role === 'admin' thay vì redirect /403).
+ */
+export type CurrentUserContext =
+  | { user: User; role: 'customer' | 'admin' | string; profile: ProfileRow }
+  | null;
+
+export async function getCurrentUser(): Promise<CurrentUserContext> {
+  try {
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return null;
+
+    const { data: profile, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', user.id)
+      .maybeSingle<ProfileRow>();
+
+    if (error || !profile) return null;
+
+    return { user, role: profile.role, profile };
+  } catch (err) {
+    console.warn('[getCurrentUser] Unexpected error:', err);
+    return null;
+  }
+}

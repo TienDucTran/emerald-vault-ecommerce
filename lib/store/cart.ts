@@ -10,6 +10,8 @@ export type CartItem = {
   lockId: string | null;
   lockedAt: number;
   expiresAt: number;
+  /** Epoch ms khi user bấm "Tiến hành thanh toán" cho item này (optional — older items không có) */
+  checkoutStartedAt?: number;
 };
 
 type CartState = {
@@ -30,6 +32,20 @@ type CartState = {
   isExpired: (productId: string) => boolean;
   getTotal: () => number;
   getTimeLeft: (productId: string) => number;
+
+  /** Đánh dấu các item đã bắt đầu checkout (set checkoutStartedAt = Date.now()).
+   *  Server dùng cờ này để biết có thể re-use lock thay vì tạo lock mới. */
+  markCheckoutStarted: (productIds: string[]) => void;
+
+  /** Trả về expiresAt nhỏ nhất trong tất cả items còn hạn (weakest-link).
+   *  Null nếu không có item nào active. */
+  getMinExpiresAt: () => number | null;
+
+  /** Trả về items còn hạn, sắp xếp theo expiresAt tăng dần (sắp hết hạn trước). */
+  getActiveItemsSorted: () => CartItem[];
+
+  /** Trả về tất cả items đã hết hạn (component tự dedup qua local state). */
+  getExpiredItems: () => CartItem[];
 };
 
 const LOCK_DURATION_MS = 10 * 60 * 1000;
@@ -119,6 +135,39 @@ export const useCartStore = create<CartState>()(
         const item = get().items.find((i) => i.product.id === productId);
         if (!item) return 0;
         return Math.max(0, item.expiresAt - Date.now());
+      },
+
+      markCheckoutStarted: (productIds) => {
+        if (productIds.length === 0) return;
+        const ids = new Set(productIds);
+        const now = Date.now();
+        set((state) => ({
+          items: state.items.map((i) =>
+            ids.has(i.product.id) ? { ...i, checkoutStartedAt: now } : i
+          ),
+        }));
+      },
+
+      getMinExpiresAt: () => {
+        const now = Date.now();
+        const activeExpires = get()
+          .items.filter((i) => now < i.expiresAt)
+          .map((i) => i.expiresAt);
+        if (activeExpires.length === 0) return null;
+        return Math.min(...activeExpires);
+      },
+
+      getActiveItemsSorted: () => {
+        const now = Date.now();
+        return get()
+          .items.filter((i) => now < i.expiresAt)
+          .slice()
+          .sort((a, b) => a.expiresAt - b.expiresAt);
+      },
+
+      getExpiredItems: () => {
+        const now = Date.now();
+        return get().items.filter((i) => now >= i.expiresAt);
       },
     }),
     {

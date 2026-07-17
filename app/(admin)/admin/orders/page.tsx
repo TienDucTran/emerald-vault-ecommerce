@@ -1,22 +1,52 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { Badge } from '@/components/ui/badge';
+import { formatVND } from '@/lib/utils';
+import { toast } from '@/lib/toast/toast-store';
+import type {
+  OrderStatus,
+  PaymentStatus,
+  PaymentMethod,
+} from '@/lib/supabase/types';
 
-const orders = [
-  { code: '#EV-2026-001', customer: 'Nguyễn Thị Hương', phone: '0901 234 567', items: 2, total: '₫4,850,000', payment: 'COD', status: 'NEW', date: '2026-07-15', time: '2 min ago' },
-  { code: '#EV-2026-002', customer: 'Trần Văn Minh', phone: '0912 345 678', items: 1, total: '₫12,800,000', payment: 'MOMO', status: 'CONFIRMED', date: '2026-07-15', time: '15 min ago' },
-  { code: '#EV-2026-003', customer: 'Lê Thị Mai', phone: '0908 765 432', items: 3, total: '₫7,600,000', payment: 'COD', status: 'SHIPPING', date: '2026-07-15', time: '1 hour ago' },
-  { code: '#EV-2026-004', customer: 'Phạm Hoàng Anh', phone: '0933 456 789', items: 1, total: '₫3,600,000', payment: 'MOMO', status: 'NEW', date: '2026-07-14', time: '2 hours ago' },
-  { code: '#EV-2026-005', customer: 'Đặng Thị Thu', phone: '0977 654 321', items: 2, total: '₫24,500,000', payment: 'MOMO', status: 'DONE', date: '2026-07-14', time: '3 hours ago' },
-  { code: '#EV-2026-006', customer: 'Hoàng Văn Nam', phone: '0966 789 012', items: 1, total: '₫5,200,000', payment: 'COD', status: 'CANCELLED', date: '2026-07-14', time: '5 hours ago' },
-  { code: '#EV-2026-007', customer: 'Vũ Thị Lan', phone: '0944 567 890', items: 4, total: '₫15,300,000', payment: 'MOMO', status: 'SHIPPING', date: '2026-07-13', time: '1 day ago' },
-  { code: '#EV-2026-008', customer: 'Ngô Văn Hải', phone: '0903 210 987', items: 1, total: '₫1,800,000', payment: 'COD', status: 'DONE', date: '2026-07-13', time: '1 day ago' },
-  { code: '#EV-2026-009', customer: 'Bùi Thị Hoa', phone: '0919 876 543', items: 2, total: '₫9,400,000', payment: 'MOMO', status: 'CONFIRMED', date: '2026-07-12', time: '2 days ago' },
-  { code: '#EV-2026-010', customer: 'Đỗ Văn Tùng', phone: '0978 123 456', items: 1, total: '₫32,000,000', payment: 'MOMO', status: 'DONE', date: '2026-07-11', time: '3 days ago' },
+type OrderRow = {
+  id: string;
+  code: string;
+  customer_name: string;
+  customer_phone: string;
+  total_amount: number;
+  payment_method: PaymentMethod;
+  payment_status: PaymentStatus;
+  status: OrderStatus;
+  created_at: string;
+  items_count: number;
+};
+
+type ListResponse = {
+  orders: OrderRow[];
+  total: number;
+  page: number;
+  limit: number;
+};
+
+const ORDER_STATUSES: OrderStatus[] = [
+  'NEW',
+  'CONFIRMED',
+  'SHIPPING',
+  'DONE',
+  'CANCELLED',
 ];
+const PAYMENT_STATUSES: PaymentStatus[] = [
+  'PENDING',
+  'PAID',
+  'FAILED',
+  'REFUNDED',
+];
+const PAYMENT_METHODS: PaymentMethod[] = ['MOMO', 'COD', 'BANK_TRANSFER'];
 
-const statusColors: Record<string, string> = {
+const ORDER_STATUS_BADGE: Record<OrderStatus, string> = {
   NEW: 'text-info border-info/30 bg-info/10',
   CONFIRMED: 'text-warning border-warning/30 bg-warning/10',
   SHIPPING: 'text-gold border-gold/30 bg-gold/10',
@@ -24,29 +54,142 @@ const statusColors: Record<string, string> = {
   CANCELLED: 'text-error border-error/30 bg-error/10',
 };
 
-const paymentColors: Record<string, string> = {
-  MOMO: 'text-purple-400 border-purple-400/30 bg-purple-400/10',
-  COD: 'text-[#D0C5AF]/70 border-[#4D4635]/30 bg-transparent',
+const PAYMENT_METHOD_LABEL: Record<PaymentMethod, string> = {
+  MOMO: 'MoMo',
+  COD: 'COD',
+  BANK_TRANSFER: 'Chuyển khoản',
 };
 
+const PAYMENT_STATUS_LABEL: Record<PaymentStatus, string> = {
+  PENDING: 'Chờ TT',
+  PAID: 'Đã TT',
+  FAILED: 'Lỗi',
+  REFUNDED: 'Hoàn',
+};
+
+function formatDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString('vi-VN', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return iso;
+  }
+}
+
 export default function OrdersPage() {
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const [q, setQ] = useState('');
+  const [debouncedQ, setDebouncedQ] = useState('');
+  const [status, setStatus] = useState<OrderStatus | ''>('');
+  const [paymentStatus, setPaymentStatus] = useState<PaymentStatus | ''>('');
+  const [page, setPage] = useState(1);
+  const [limit] = useState(20);
+
+  const [data, setData] = useState<ListResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Debounce search
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedQ(q.trim());
+      setPage(1);
+    }, 350);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  // Reset page on filter change
+  useEffect(() => {
+    setPage(1);
+  }, [status, paymentStatus]);
+
+  const fetchList = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams();
+      params.set('page', String(page));
+      params.set('limit', String(limit));
+      if (status) params.set('status', status);
+      if (paymentStatus) params.set('paymentStatus', paymentStatus);
+      if (debouncedQ) params.set('q', debouncedQ);
+
+      const res = await fetch(`/api/admin/orders?${params.toString()}`, {
+        cache: 'no-store',
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setError(json?.message ?? `Lỗi ${res.status}`);
+        setData(null);
+        return;
+      }
+      setData(json as ListResponse);
+    } catch (e) {
+      setError((e as Error).message ?? 'Lỗi mạng');
+      setData(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [page, limit, status, paymentStatus, debouncedQ]);
+
+  useEffect(() => {
+    fetchList();
+  }, [fetchList]);
+
+  const totalPages = useMemo(() => {
+    if (!data) return 1;
+    return Math.max(1, Math.ceil(data.total / data.limit));
+  }, [data]);
+
+  const handleExport = () => {
+    const params = new URLSearchParams();
+    if (status) params.set('status', status);
+    if (paymentStatus) params.set('paymentStatus', paymentStatus);
+    if (debouncedQ) params.set('q', debouncedQ);
+    const qs = params.toString();
+    const url = `/api/admin/orders/export${qs ? `?${qs}` : ''}`;
+    try {
+      window.open(url, '_blank');
+    } catch {
+      window.location.href = url;
+    }
+  };
 
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
         <div>
-          <h1 className="font-heading text-2xl font-bold text-[#EAE1D4] tracking-tight">Orders</h1>
-          <p className="text-sm text-[#D0C5AF]/60 mt-1">Track and manage all orders — {orders.length} total</p>
+          <h1 className="font-heading text-2xl font-bold text-[#EAE1D4] tracking-tight">
+            Orders
+          </h1>
+          <p className="text-sm text-[#D0C5AF]/60 mt-1">
+            Quản lý đơn hàng
+            {data ? ` — ${data.total} đơn` : ''}
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <button
+            onClick={handleExport}
             className="px-4 py-2 rounded-sm text-xs font-heading tracking-[0.1em] uppercase border border-[rgba(242,202,80,0.2)] text-gold/80 hover:text-gold transition-colors"
             style={{ background: 'rgba(18, 36, 28, 0.6)', backdropFilter: 'blur(6px)' }}
           >
-            📤 Export CSV
+            Xuất CSV
+          </button>
+          <button
+            onClick={() => {
+              fetchList();
+              toast.info('Đã làm mới');
+            }}
+            disabled={loading}
+            className="px-4 py-2 rounded-sm text-xs font-heading tracking-[0.1em] uppercase border border-gold/30 text-gold hover:bg-gold/10 transition-colors disabled:opacity-50"
+            style={{ background: 'rgba(18, 36, 28, 0.6)', backdropFilter: 'blur(6px)' }}
+          >
+            {loading ? 'Đang tải...' : 'Làm mới'}
           </button>
         </div>
       </div>
@@ -62,39 +205,57 @@ export default function OrdersPage() {
       >
         <input
           type="text"
-          placeholder="Search order code or phone..."
-          className="flex-1 min-w-[180px] px-4 py-2 bg-[#1F1B13] border border-[#4D4635] rounded-sm text-xs text-[#D0C5AF] placeholder-[#D0C5AF]/30 focus:outline-none focus:border-gold/40"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Tìm theo mã đơn, tên hoặc SĐT..."
+          className="flex-1 min-w-[200px] px-4 py-2 bg-[#1F1B13] border border-[#4D4635] rounded-sm text-xs text-[#D0C5AF] placeholder-[#D0C5AF]/30 focus:outline-none focus:border-gold/40"
         />
-        <select className="px-3 py-2 bg-[#1F1B13] border border-[#4D4635] rounded-sm text-xs text-[#D0C5AF]/70 focus:outline-none focus:border-gold/40">
-          <option value="">All Status</option>
-          <option>NEW</option>
-          <option>CONFIRMED</option>
-          <option>SHIPPING</option>
-          <option>DONE</option>
-          <option>CANCELLED</option>
-        </select>
-        <select className="px-3 py-2 bg-[#1F1B13] border border-[#4D4635] rounded-sm text-xs text-[#D0C5AF]/70 focus:outline-none focus:border-gold/40">
-          <option value="">All Payment</option>
-          <option>MOMO</option>
-          <option>COD</option>
-        </select>
-        <input
-          type="date"
-          value={dateFrom}
-          onChange={(e) => setDateFrom(e.target.value)}
+        <select
+          value={status}
+          onChange={(e) => setStatus(e.target.value as OrderStatus | '')}
           className="px-3 py-2 bg-[#1F1B13] border border-[#4D4635] rounded-sm text-xs text-[#D0C5AF]/70 focus:outline-none focus:border-gold/40"
-        />
-        <span className="text-[10px] text-[#D0C5AF]/30">—</span>
-        <input
-          type="date"
-          value={dateTo}
-          onChange={(e) => setDateTo(e.target.value)}
+        >
+          <option value="">Tất cả trạng thái</option>
+          {ORDER_STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+        <select
+          value={paymentStatus}
+          onChange={(e) => setPaymentStatus(e.target.value as PaymentStatus | '')}
           className="px-3 py-2 bg-[#1F1B13] border border-[#4D4635] rounded-sm text-xs text-[#D0C5AF]/70 focus:outline-none focus:border-gold/40"
-        />
-        <button className="px-4 py-2 text-[10px] text-gold/60 hover:text-gold font-heading tracking-[0.1em] uppercase transition-colors">
-          Clear
+        >
+          <option value="">Tất cả thanh toán</option>
+          {PAYMENT_STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {PAYMENT_STATUS_LABEL[s]} ({s})
+            </option>
+          ))}
+        </select>
+        <button
+          onClick={() => {
+            setQ('');
+            setStatus('');
+            setPaymentStatus('');
+            setPage(1);
+          }}
+          className="px-4 py-2 text-[10px] text-gold/60 hover:text-gold font-heading tracking-[0.1em] uppercase transition-colors"
+        >
+          Xoá lọc
         </button>
       </div>
+
+      {/* Error banner */}
+      {error && (
+        <div
+          className="p-4 rounded-sm border border-error/30 text-error text-sm"
+          style={{ background: 'rgba(18, 36, 28, 0.6)' }}
+        >
+          {error}
+        </div>
+      )}
 
       {/* Table */}
       <div
@@ -109,68 +270,153 @@ export default function OrdersPage() {
           <table className="w-full min-w-[860px]">
             <thead>
               <tr className="border-b border-[#4D4635]">
-                <th className="text-left px-6 py-4 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">Order Code</th>
-                <th className="text-left px-6 py-4 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">Customer</th>
-                <th className="text-left px-6 py-4 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">Phone</th>
-                <th className="text-left px-6 py-4 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">Items</th>
-                <th className="text-left px-6 py-4 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">Total</th>
-                <th className="text-left px-6 py-4 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">Payment</th>
-                <th className="text-left px-6 py-4 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">Status</th>
-                <th className="text-left px-6 py-4 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">Date</th>
+                <th className="text-left px-6 py-4 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">
+                  Mã đơn
+                </th>
+                <th className="text-left px-6 py-4 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">
+                  Khách hàng
+                </th>
+                <th className="text-left px-6 py-4 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">
+                  SĐT
+                </th>
+                <th className="text-right px-6 py-4 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">
+                  Tổng tiền
+                </th>
+                <th className="text-left px-6 py-4 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">
+                  Thanh toán
+                </th>
+                <th className="text-left px-6 py-4 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">
+                  Trạng thái
+                </th>
+                <th className="text-left px-6 py-4 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">
+                  Ngày tạo
+                </th>
+                <th className="text-right px-6 py-4 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody>
-              {orders.map((order) => (
-                <tr
-                  key={order.code}
-                  className="border-b border-[#4D4635]/10 hover:bg-[rgba(56,52,43,0.1)] transition-colors cursor-pointer"
-                >
-                  <td className="px-6 py-4">
-                    <Link href={`/admin/orders/${order.code.replace('#', '')}`} className="text-xs text-gold font-heading hover:text-gold/80">
-                      {order.code}
-                    </Link>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className="text-xs text-[#D0C5AF]">{order.customer}</span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className="text-xs text-[#D0C5AF]/70">{order.phone}</span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className="text-xs text-[#D0C5AF]/70">{order.items}</span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className="text-xs text-[#EAE1D4] font-medium">{order.total}</span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`inline-block px-2 py-0.5 text-[10px] font-medium rounded border ${paymentColors[order.payment] || ''}`}>
-                      {order.payment}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`inline-block px-2 py-0.5 text-[10px] font-medium rounded border ${statusColors[order.status] || ''}`}>
-                      {order.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div>
-                      <span className="text-[10px] text-[#D0C5AF]/40 block">{order.date}</span>
-                      <span className="text-[9px] text-[#D0C5AF]/30">{order.time}</span>
-                    </div>
+              {loading ? (
+                Array.from({ length: 6 }).map((_, i) => (
+                  <tr
+                    key={`sk-${i}`}
+                    className="border-b border-[#4D4635]/10"
+                  >
+                    {Array.from({ length: 8 }).map((__, j) => (
+                      <td key={j} className="px-6 py-4">
+                        <div
+                          className="h-3 rounded animate-pulse"
+                          style={{ background: 'rgba(77, 70, 53, 0.25)' }}
+                        />
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              ) : data && data.orders.length > 0 ? (
+                data.orders.map((o) => (
+                  <tr
+                    key={o.id}
+                    className="border-b border-[#4D4635]/10 hover:bg-[rgba(56,52,43,0.1)] transition-colors"
+                  >
+                    <td className="px-6 py-4">
+                      <Link
+                        href={`/admin/orders/${o.id}`}
+                        className="text-xs text-gold font-heading hover:text-gold/80"
+                      >
+                        {o.code}
+                      </Link>
+                      <div className="text-[10px] text-[#D0C5AF]/40 mt-0.5">
+                        {o.items_count} sp
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className="text-xs text-[#D0C5AF]">
+                        {o.customer_name}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className="text-xs text-[#D0C5AF]/70">
+                        {o.customer_phone}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <span className="text-xs text-[#EAE1D4] font-medium whitespace-nowrap">
+                        {formatVND(o.total_amount)}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex flex-col gap-1">
+                        <Badge variant="gold" className="w-fit">
+                          {PAYMENT_METHOD_LABEL[o.payment_method]}
+                        </Badge>
+                        <span className="text-[10px] text-[#D0C5AF]/50">
+                          {PAYMENT_STATUS_LABEL[o.payment_status]} ·{' '}
+                          {o.payment_status}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span
+                        className={`inline-block px-2 py-0.5 text-[10px] font-medium rounded border ${ORDER_STATUS_BADGE[o.status]}`}
+                      >
+                        {o.status}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className="text-[10px] text-[#D0C5AF]/50">
+                        {formatDate(o.created_at)}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <Link
+                        href={`/admin/orders/${o.id}`}
+                        className="text-[10px] text-gold hover:text-gold/80 font-heading tracking-[0.1em] uppercase"
+                      >
+                        Xem chi tiết →
+                      </Link>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td
+                    colSpan={8}
+                    className="px-6 py-16 text-center text-sm text-[#D0C5AF]/40"
+                  >
+                    Chưa có đơn hàng nào
                   </td>
                 </tr>
-              ))}
+              )}
             </tbody>
           </table>
         </div>
 
         {/* Pagination */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-4 sm:px-6 py-4 border-t border-[#4D4635]/30">
-          <span className="text-[10px] text-[#D0C5AF]/40">Showing 1-10 of 10 orders</span>
+          <span className="text-[10px] text-[#D0C5AF]/40">
+            {data
+              ? `Trang ${data.page}/${totalPages} · ${data.total} đơn`
+              : '—'}
+          </span>
           <div className="flex items-center gap-2">
-            <button className="px-3 py-1 text-[10px] text-[#D0C5AF]/50 border border-[#4D4635]/30 rounded hover:text-gold transition-colors" disabled>← Prev</button>
-            <button className="px-3 py-1 text-[10px] bg-gold/20 text-gold border border-gold/40 rounded">1</button>
-            <button className="px-3 py-1 text-[10px] text-[#D0C5AF]/50 border border-[#4D4635]/30 rounded hover:text-gold transition-colors" disabled>Next →</button>
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={loading || page <= 1}
+              className="px-3 py-1 text-[10px] text-[#D0C5AF]/50 border border-[#4D4635]/30 rounded hover:text-gold hover:border-gold/40 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              ← Prev
+            </button>
+            <span className="px-3 py-1 text-[10px] bg-gold/20 text-gold border border-gold/40 rounded">
+              {page}
+            </span>
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={loading || page >= totalPages}
+              className="px-3 py-1 text-[10px] text-[#D0C5AF]/50 border border-[#4D4635]/30 rounded hover:text-gold hover:border-gold/40 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              Next →
+            </button>
           </div>
         </div>
       </div>

@@ -131,6 +131,28 @@ export async function POST(req: Request) {
     await ordersDb
       .update({ payment_status: 'FAILED', updated_at: ipnAt })
       .eq('id', order.id);
+
+    // Release inventory_locks ACTIVE → RELEASED for this order
+    const { error: lockRelErr } = await supabase
+      .from('inventory_locks')
+      .update({ status: 'RELEASED', released_at: ipnAt })
+      .eq('order_id', order.id)
+      .eq('status', 'ACTIVE');
+    if (lockRelErr) {
+      console.error('[momo/ipn] inventory_locks release error:', lockRelErr);
+    }
+
+    // Restore products from RESERVED → AVAILABLE via RPC (only RESERVED → AVAILABLE, never touches SOLD_OUT)
+    const { error: relResErr } = await (supabase.rpc as any)(
+      'release_product_reservation',
+      { p_order_id: order.id }
+    );
+    if (relResErr) {
+      console.error(
+        '[momo/ipn] release_product_reservation failed:',
+        relResErr.message
+      );
+    }
   }
 
   return new NextResponse(null, { status: 204 });

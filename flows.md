@@ -4,26 +4,29 @@
 
 ---
 
-## 0. TRẠNG THÁI TỔNG THỂ (auto-generated, cập nhật 2026-07-16)
+## 0. TRẠNG THÁI TỔNG THỂ (auto-generated, cập nhật 2026-07-17 — Sprint "Login + Admin Block")
 
 > Báo cáo tổng hợp từ audit codebase. Tổng ~150 mục trong 18 sections của file này.
 > Chi tiết đầy đủ + danh sách job pending theo priority xem **[§19. STATUS — JOB PENDING](#19-status--job-pending)** ở cuối file.
 
 | Trạng thái | Số lượng | % |
 |---|---|---|
-| ✅ DONE | ~62 | 41% |
-| 🟡 PARTIAL | ~32 | 21% |
-| ❌ NOT STARTED | ~56 | 38% |
+| ✅ DONE | ~88 | 59% |
+| 🟡 PARTIAL | ~22 | 15% |
+| ❌ NOT STARTED | ~40 | 26% |
 
-**Customer flow** (mua hàng, thanh toán, tài khoản): gần như end-to-end, chạy được.
-**Admin products CRUD + bulk import**: xong thật (real data, session này).
-**Admin orders/collections/dashboard/inventory/payments/settings/newsletter**: còn mock data.
+**Customer flow** (mua hàng, thanh toán, tài khoản): gần như end-to-end, chạy được — **đã có VietQR làm payment chính (MVP)**.
+**Admin products CRUD + bulk import**: xong thật (real data).
+**Admin dashboard + orders + collections + newsletter**: ✅ real data (sprint "Unblock vận hành" 2026-07-17).
+**VietQR flow** (migration 0008 + customer + admin): ✅ done (sprint "VietQR + Unblock" 2026-07-17).
+**Login + Admin Block** (sprint 2026-07-17): ✅ done — fix race condition kẹt loading, admin block mua hàng, customer_id sync theo email.
+
 **3 gap lớn nhất**:
-1. ❌ **AI Chatbot §15** — 0% dòng code
-2. ❌ **MoMo env chưa populate** — `/api/momo/create` đang trả 503
-3. ❌ **Còn lại admin pages real data** — 7 page còn mock
+1. ❌ **MoMo env chưa populate** — Phase 2 (khi có MST, cần làm theo `docs/momo-sandbox-setup.md` 8 bước ~20 phút). Hiện tại VietQR đã cover MVP payment.
+2. ❌ **AI Chatbot §15** — vẫn 0%
+3. 🟡 **End-user account §18** — auth pages + account dashboard **gần xong** (4 auth page + 5 APIs + 1 migration 0011 + UI guard), còn tab nội dung (đơn/địa chỉ/yêu thích/đánh giá) là polish Phase 2.
 
-**Top 3 quick-win (< 2h)**: populate MoMo env → ~~mount GA4 + hook~~ ✅ done → ~~migration pg_cron `release_expired_locks`~~ ✅ done.
+**Top 3 quick-win (< 2h)**: ~~populate MoMo env~~ (defer Phase 2) → setup VietQR env (`BANK_CODE` + `BANK_ACCOUNT_NUMBER` + `BANK_ACCOUNT_NAME`) → ~~mount GA4 + hook~~ ✅ done → ~~migration pg_cron `release_expired_locks`~~ ✅ done → **apply migration 0011** (`link_my_guest_orders` + backfill customer_id) → **add `customer_id` column to orders** (chưa làm — xem §2.4).
 
 ---
 
@@ -163,13 +166,23 @@ CREATE INDEX idx_locks_client         ON inventory_locks(client_id);
 
 ### 2.4. Bảng `orders` + `order_items`
 ```sql
-CREATE TYPE order_status_enum AS ENUM ('NEW', 'CONFIRMED', 'SHIPPING', 'DONE', 'CANCELLED');
+CREATE TYPE order_status_enum AS ENUM (
+  'NEW',              -- COD mới tạo
+  'WAITING_PAYMENT',  -- BANK_TRANSFER: QR đã tạo, chờ user CK
+  'WAITING_CONFIRM',  -- BANK_TRANSFER: user đã báo CK, chờ admin verify
+  'CONFIRMED',        -- Đã xác nhận (COD: khi giao / BANK: admin confirm / MoMo: IPN success)
+  'SHIPPING',
+  'DONE',
+  'CANCELLED'
+);
 CREATE TYPE payment_method_enum AS ENUM ('MOMO', 'COD', 'BANK_TRANSFER');
 CREATE TYPE payment_status_enum AS ENUM ('PENDING', 'PAID', 'FAILED', 'REFUNDED');
 
 CREATE TABLE orders (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   code VARCHAR(40) UNIQUE NOT NULL,             -- 'EV-20260713-0001'
+  -- Customer link (sprint "Login + Admin Block" 2026-07-17)
+  customer_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,  -- set khi user login đặt hàng; NULL = guest
   customer_name VARCHAR(120) NOT NULL,
   customer_phone VARCHAR(20) NOT NULL,
   customer_email VARCHAR(120),
@@ -185,6 +198,16 @@ CREATE TABLE orders (
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- RLS: customer chỉ đọc được orders của mình (auth.uid() = customer_id)
+-- Admin đọc/ghi tất cả qua service_role.
+-- Guest checkout: customer_id = NULL, customer_email = email khách nhập
+--   → sau khi user đăng ký/đăng nhập cùng email, gọi RPC link_my_guest_orders() để backfill.
+CREATE INDEX idx_orders_code     ON orders(code);
+CREATE INDEX idx_orders_phone    ON orders(customer_phone);
+CREATE INDEX idx_orders_email    ON orders(customer_email);  -- dùng cho backfill theo email
+CREATE INDEX idx_orders_customer ON orders(customer_id);     -- dùng cho /tai-khoan/don-hang
+CREATE INDEX idx_orders_status   ON orders(status, created_at DESC);
 
 CREATE TABLE order_items (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -307,6 +330,59 @@ END;
 $$;
 ```
 
+### 2.8. Bảng `bank_transfers` (migration 0008 — VietQR flow)
+
+> **Status**: ✅ done 2026-07-17 — lưu trữ thông tin QR + bill cho mỗi đơn BANK_TRANSFER. 1:1 với `orders` (mỗi order BANK chỉ có 1 bank_transfer row).
+
+```sql
+CREATE TABLE bank_transfers (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  -- QR info
+  qr_image_url TEXT NOT NULL,                -- URL từ vietqr.io (FREE, không cần API key)
+  bank_code VARCHAR(10) NOT NULL,            -- 'VCB' | 'TCB' | 'MB' | ... (xem lib/bank/types.ts)
+  bank_bin VARCHAR(10) NOT NULL,             -- BIN ngân hàng (vd: '970436' cho VCB)
+  account_number VARCHAR(20) NOT NULL,
+  account_name VARCHAR(120) NOT NULL,        -- Uppercase, không dấu
+  amount NUMERIC(12,0) NOT NULL,             -- Số tiền cần CK (= order.total)
+  transfer_content VARCHAR(100) NOT NULL,    -- Nội dung CK (= orderCode, để admin đối chiếu)
+  qr_expires_at TIMESTAMPTZ,                 -- NOW() + 24h (countdown cho user)
+  -- Workflow timestamps
+  user_confirmed_at TIMESTAMPTZ,             -- User bấm "Tôi đã chuyển" → status WAITING_CONFIRM
+  bill_image_url TEXT,                       -- User upload bill CK lên bucket 'payment-bills'
+  bill_uploaded_at TIMESTAMPTZ,
+  admin_confirmed_at TIMESTAMPTZ,            -- Admin verify → status CONFIRMED + PAID
+  admin_note TEXT,                           -- Ghi chú của admin (vd: "Đã nhận 24/07, ship 25/07")
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_bank_transfers_order ON bank_transfers(order_id);
+
+-- RLS: service_role only (admin qua API, user qua API verify order ownership)
+ALTER TABLE bank_transfers ENABLE ROW LEVEL SECURITY;
+-- Public không đọc trực tiếp; admin qua service_role; user qua API check order.customer_phone
+```
+
+**Storage bucket `payment-bills`** (tạo cùng migration 0008):
+- Public read (admin xem được qua URL trực tiếp)
+- Auth write (user upload qua API `POST /api/orders/[code]/bank-proof`)
+- Max 5MB, chỉ nhận `image/jpeg | image/png | image/webp`
+
+**State machine**:
+```
+[QR created] ──user "Tôi đã chuyển"──► [user_confirmed_at set, order.status = WAITING_CONFIRM]
+       │
+       └─user upload bill──► [bill_image_url set, order.status = WAITING_CONFIRM]
+                                                                              │
+                                                                              ▼
+                                                          admin verify ──► [admin_confirmed_at set,
+                                                                               order.status = CONFIRMED,
+                                                                               order.payment_status = PAID,
+                                                                               locks = CONVERTED,
+                                                                               products = SOLD_OUT]
+```
+
 ---
 
 ## 3. SƠ ĐỒ TRANG (SITEMAP / PAGES)
@@ -343,30 +419,31 @@ app/
 
 ### 3.2. Admin routes
 
-> **Status**: 🟡 shell + auth done, products CRUD real data (session này). ✅ analytics page real (GA4 Data API + orders). ❌ orders detail, ❌ collections edit, ❌ chat, ❌ xac-nhan-email. 6 page còn mock.
+> **Status**: 🟡 → ✅ real data: dashboard, orders list/detail, collections CRUD, newsletter. ✅ analytics page real (GA4 Data API + orders). ❌ inventory page còn mock, ❌ payments page còn mock, ❌ settings page còn mock, ❌ AI Chatbot §15.
 ```
 app/
 └── (admin)/
     └── dashboard/
         ├── layout.tsx            # Sidebar + auth gate
-        ├── page.tsx              # TỔNG QUAN (revenue, count, alerts)
-        ├── products/
-        │   ├── page.tsx          # LIST (filter, search, edit, archive)
-        │   ├── new/page.tsx      # TẠO MỚI (single form)
-        │   └── bulk-upload/page.tsx  # BULK UPLOAD (xlsx/csv + table)
+        ├── page.tsx              # ✅ REAL — KPIs + recent orders + chart + alerts
+        ├── products/             # (đã real: list + new + edit + bulk-upload)
         ├── collections/
-        │   ├── page.tsx          # LIST + CRUD
-        │   └── [id]/page.tsx     # EDIT
+        │   ├── page.tsx          # ✅ REAL — list + reorder
+        │   ├── new/page.tsx      # ✅ NEW — create form
+        │   └── [id]/page.tsx     # ✅ REAL — edit form
         ├── orders/
-        │   ├── page.tsx          # LIST (filter, status update, export CSV)
-        │   └── [id]/page.tsx     # CHI TIẾT + cập nhật trạng thái
-        ├── analytics/page.tsx    # ✅ REAL — GA4 Data API + orders từ Supabase
-        └── settings/page.tsx     # Site config, shipping fee, v.v.
+        │   ├── page.tsx          # ✅ REAL — list + filter + export
+        │   └── [id]/page.tsx     # ✅ REAL — detail + status update
+        ├── analytics/page.tsx    # ✅ REAL
+        ├── newsletter/page.tsx   # ✅ REAL — list + export
+        ├── inventory/page.tsx    # ❌ MOCK (P2)
+        ├── payments/page.tsx     # ❌ MOCK (P2)
+        └── settings/page.tsx     # ❌ MOCK (P2)
 ```
 
 ### 3.3. API routes
 
-> **Status**: 🟡 10/12 customer API done. /api/admin/collections thiếu POST/PATCH/DELETE. Path `/api/admin/bulk-import` đã đổi thành `/api/admin/products/bulk`. ✅ `/api/admin/analytics` (GA4 + orders). ❌ /api/chat.
+> **Status**: 🟡 customer API 10/12 done. Admin: ✅ dashboard, orders (list/detail/export), collections (CRUD + reorder), newsletter, analytics. ❌ /api/chat (chatbot §15).
 ```
 app/api/
 ├── lock-item/route.ts            # POST — gọi RPC lock_item
@@ -379,8 +456,22 @@ app/api/
 │   └── ipn/route.ts              # POST — nhận IPN từ MoMo (server-to-server)
 └── admin/
     ├── bulk-import/route.ts      # POST — admin only
-    ├── collections/route.ts      # POST/PATCH/DELETE — admin only
-    └── analytics/route.ts        # ✅ GET ?days=N — tổng hợp GA4 + orders cho /admin/analytics
+    ├── collections/
+    │   ├── route.ts              # GET (lite) + POST — admin only
+    │   ├── list/route.ts         # GET (rich, paginated) — admin only
+    │   ├── [id]/route.ts         # GET + PATCH + DELETE
+    │   └── reorder/route.ts      # POST batch update display_order
+    ├── orders/
+    │   ├── route.ts              # GET (list + filter)
+    │   ├── [id]/route.ts         # GET + PATCH (status)
+    │   └── export/route.ts       # GET CSV
+    ├── dashboard/route.ts        # GET — overview KPIs + recent
+    ├── newsletter/
+    │   ├── route.ts              # GET + DELETE
+    │   └── export/route.ts       # GET CSV
+    ├── analytics/route.ts        # ✅ GET ?days=N
+    ├── media/                    # (Phase 1-2: list + delete, Phase 3-4 pending)
+    └── uploads/route.ts          # POST multipart — admin upload image
 ```
 
 ---
@@ -550,18 +641,23 @@ lib/
 
 ---
 
-## 7. LUỒNG 3 — CHECKOUT + THANH TOÁN MOMO
+## 7. LUỒNG 3 — CHECKOUT + THANH TOÁN (3 PHƯƠNG THỨC)
 
-> **Status**: 🟡 Create + IPN + signature verify done. ❌ MoMo env chưa populate (503). ❌ GA4 begin_checkout/purchase chưa fire. ❌ cron cancel PENDING > 30min.
+> **Status**: ✅ COD + VietQR động + manual confirm + upload bill (MVP). 🟡 MoMo API + signature + IPN + idempotency done, chờ populate env (Phase 2 khi có MST). ❌ cron cancel PENDING > 30min.
+
+**3 phương thức thanh toán hỗ trợ**:
+- **COD** (cash on delivery) — chuyển khoản khi nhận hàng, đơn giản nhất.
+- **BANK_TRANSFER** (VietQR động) — phương thức chính cho MVP, FREE không cần MST. Xem §7.1.1.
+- **MOMO** (captureWallet) — Phase 2, khi có MST doanh nghiệp.
 
 ### 7.1. Checkout form
 ```
 [User ở /gio-hang → click "Đặt hàng"]
-        │
+         │
         ▼
 [/thanh-toan/page.tsx — Client Component]
    <CustomerForm/> (tên, SĐT, email, tỉnh/quận, địa chỉ, ghi chú)
-   <PaymentMethodSelector/> (radio: MoMo / COD)
+   <PaymentMethodSelector/> (radio: Chuyển khoản ngân hàng [VietQR] / MoMo [Phase 2] / COD)
    <OrderSummary/> (subtotal, ship, total)
         │
         ▼
@@ -610,6 +706,78 @@ lib/
             → user thanh toán trên MoMo app/web
             → MoMo redirect về MOMO_REDIRECT_URL/?orderId=...&resultCode=...
 ```
+
+### 7.1.1. VietQR flow (BANK_TRANSFER — phương thức chính MVP)
+
+> **Status**: ✅ done 2026-07-17 — `lib/bank/{types,vietqr,config}.ts` + migration 0008 + customer flow + admin flow. **FREE**, không cần MST/đăng ký kinh doanh, dùng được tài khoản cá nhân. Dùng [vietqr.io](https://vietqr.io) API (FREE, không cần API key) generate URL QR động từ BIN + STK + amount + content.
+
+```
+[User chọn "Chuyển khoản ngân hàng" ở /thanh-toan]
+       │
+       ▼
+[POST /api/orders  { items, customer, payment: 'BANK_TRANSFER' }]
+   → validate getBankConfig().isConfigured (return 503 nếu false — admin chưa set BANK_* env)
+   → tạo order status = 'WAITING_PAYMENT' (KHÔNG convert locks/products ngay)
+   → set inventory_locks.status = 'CONVERTED' (vì user đã chọn mua — locks hold là chính thức)
+   → tạo bank_transfers row với:
+      - qr_image_url = vietqr.io URL (template: https://img.vietqr.io/image/{bank_bin}-{account_no}-compact.png?addInfo={content}&amount={amount}&accountName={name})
+      - qr_expires_at = NOW() + 24h
+      - transfer_content = orderCode (admin dùng để đối chiếu khi nhận tiền)
+   → trả { orderCode, redirectUrl: '/don-hang/[code]/thanh-toan' }
+       │
+       ▼
+[Client redirect /don-hang/[code]/thanh-toan]
+   → hiển thị QR + countdown 24h + STK + số tiền + nội dung CK (= orderCode)
+   → 2 nút:
+      - "Tôi đã chuyển" → POST /api/orders/[code]/confirm-paid
+      - "Upload bill" → POST /api/orders/[code]/bank-proof (multipart, image)
+   → copy-to-clipboard cho STK, số tiền, nội dung CK
+       │
+       ├─► User bấm "Tôi đã chuyển"
+       │     → POST /api/orders/[code]/confirm-paid
+       │     → bank_transfers.user_confirmed_at = NOW()
+       │     → orders.status = 'WAITING_CONFIRM'
+       │     → toast "Đã ghi nhận, admin sẽ xác nhận trong ít phút"
+       │     → page hiển thị "Đang chờ admin xác nhận..."
+       │
+       └─► User upload bill
+             → POST /api/orders/[code]/bank-proof (multipart FormData với file 'bill')
+             → validate order.customer_phone (so với input) — chống upload hộ
+             → validate file: jpeg/png/webp, max 5MB
+             → upload lên bucket 'payment-bills' qua supabaseAdmin
+             → bank_transfers.bill_image_url = publicUrl
+             → bank_transfers.bill_uploaded_at = NOW()
+             → nếu chưa có user_confirmed_at → set = NOW() + status WAITING_CONFIRM
+             → toast "Đã upload bill CK, admin sẽ xác nhận sớm"
+       │
+       ▼
+[Admin vào /admin/orders/[code] → thấy card "Thanh toán ngân hàng"]
+   → timeline 3 mốc: QR tạo | User confirm (với timestamp) | Admin confirm
+   → bill thumbnail (nếu có) — click để mở full size
+   → nút "Xác nhận đã nhận tiền" → mở confirm-bank-dialog
+       │
+       ▼
+[PATCH /api/admin/orders/[id]  { action: 'confirm_bank_payment', adminNote }]
+   → bank_transfers.admin_confirmed_at = NOW()
+   → bank_transfers.admin_note = input.adminNote
+   → orders.status = 'CONFIRMED', payment_status = 'PAID'
+   → set inventory_locks.status = 'CONVERTED' (cho product của order)
+   → set products.status = 'SOLD_OUT'
+   → dashboard KPI `pendingBankConfirmations` giảm 1
+   → toast "Đã xác nhận thanh toán"
+```
+
+**Lưu ý bảo mật**:
+- API `/api/orders/[code]/*` (customer) yêu cầu verify `customer_phone` để chống user khác thao tác.
+- API `/api/admin/orders/[id]/*` (admin) yêu cầu `requireAdmin()`.
+- File bill: validate MIME type + size ở cả client và server.
+- Không log STK, số tiền, hoặc nội dung CK ra console.
+
+**Edge case**:
+- User click "Tôi đã chuyển" 2 lần → idempotent (UPDATE WHERE user_confirmed_at IS NULL).
+- User upload bill 2 lần → replace bill_image_url.
+- QR hết hạn 24h nhưng user chưa CK → page hiển thị "Đã hết hạn, vui lòng liên hệ admin" + disable 2 nút.
+- Admin click "Xác nhận" 2 lần → idempotent (UPDATE WHERE admin_confirmed_at IS NULL).
 
 ### 7.2. Return URL (user redirect về từ MoMo)
 ```
@@ -688,6 +856,12 @@ export function verifyIpnSignature(body: MoMoIpnBody, secretKey: string) {
 - IPN có thể về nhiều lần → check status đã SUCCESS thì skip.
 - Cron job dọn `PENDING` orders > 30 phút (status = 'CANCELLED').
 
+**VietQR (BANK_TRANSFER)**: Không cần idempotency phức tạp như MoMo — QR đã có sẵn `amount` + `transfer_content` (= orderCode) embed sẵn, nên:
+- User click "Tôi đã chuyển" 2 lần → UPDATE WHERE `user_confirmed_at IS NULL` (idempotent).
+- User upload bill 2 lần → replace `bill_image_url` (idempotent, last-write-wins).
+- Admin verify 2 lần → UPDATE WHERE `admin_confirmed_at IS NULL` (idempotent).
+- Việc đối chiếu tiền thật làm **thủ công**: admin xem `bill_image_url` + check app ngân hàng với `transfer_content = orderCode`.
+
 ---
 
 ## 8. LUỒNG 4 — TRA CỨU ĐƠN HÀNG (GUEST)
@@ -724,7 +898,7 @@ export function verifyIpnSignature(body: MoMoIpnBody, secretKey: string) {
 
 ## 9. LUỒNG 5 — GA4 EVENTS
 
-> **Status**: 🟡 Consent default-deny + banner done. ❌ `<GoogleAnalytics/>` chưa mount. ❌ 8 events chưa fire. ❌ `useJewelryAnalytics` hook chưa có.
+> **Status**: ✅ done — Consent default-deny + banner + `<GoogleAnalytics/>` mount + 8 events wired (view_item, lock_item_success, lock_item_timeout, begin_checkout, add_payment_info, purchase, view_collection + add_to_cart legacy).
 > ✅ `/admin/analytics` page đã dùng **GA4 Data API** (server-side, service account) + orders từ Supabase — xem §9.1.
 
 | Event | Trigger | Params quan trọng |
@@ -831,6 +1005,7 @@ app/(admin)/admin/analytics/page.tsx  # client page, fetch + render + delta %
 ## 10. LUỒNG 6 — AUTH & PHÂN QUYỀN
 
 > **Status**: ✅ done — middleware + /admin/login + /403. require-user đổi tên thành require-customer.
+> 🆕 Sprint "Login + Admin Block" (2026-07-17): fix race condition kẹt loading, admin block mua hàng, customer_id sync theo email — xem §10.1, §10.2, §10.3.
 
 ```
 [Request tới /dashboard/* hoặc /api/admin/*]
@@ -847,6 +1022,83 @@ app/(admin)/admin/analytics/page.tsx  # client page, fetch + render + delta %
 - Admin đăng nhập bằng email/password (Supabase Auth).
 - End-user (khách mua) KHÔNG cần đăng ký → guest checkout.
 - Trang `/login` riêng cho admin (đường dẫn `/admin/login` để khách không thấy).
+
+### 10.1. 🆕 Customer login flow — fix race condition kẹt loading (sprint 2026-07-17)
+
+> **Vấn đề đã sửa**: Sau khi signIn thành công, `router.push(nextParam)` được gọi ngay → browser gửi request RSC với cookie session **chưa commit xong** → middleware/Server nhận `!user` → redirect ngược `/login` → component remount → loop vô tận → spinner "Đang kiểm tra phiên đăng nhập..." quay mãi.
+
+```
+[User mở /tai-khoan/dang-nhap?next=/tai-khoan/ho-so]
+        │
+        ▼
+[useEffect mount]
+   supabase.auth.getUser()
+   ├─ có user → router.replace(next) + setCheckingSession(false) [fallback]
+   └─ không    → setCheckingSession(false) → render form
+        │
+        ▼
+[User submit form]
+   await supabase.auth.signInWithPassword(...)
+   ├─ error   → setError + setLoading(false) → return
+   └─ success → waitForSession(2000ms) — poll getSession() mỗi 100ms
+                  ├─ session ready → setLoading(false) → router.push(next) → router.refresh()
+                  └─ timeout 2s    → setError('Không thể xác nhận phiên...') + setLoading(false)
+```
+
+**Files**:
+- `app/(store)/tai-khoan/dang-nhap/page.tsx` — thêm `waitForSession()` helper + `setLoading(false)` ở success + fallback `setCheckingSession(false)` trong effect.
+
+**Edge case**:
+- Cookie bị chặn (extension privacy) → timeout 2s → báo lỗi rõ, không kẹt vĩnh viễn.
+- User spam click submit → button vẫn disabled (loading=true cho tới khi timeout/redirect).
+- Reload giữa chừng → effect check `getUser()` lại, nếu đã login thì replace; không loop.
+
+### 10.2. 🆕 Admin block mua hàng (sprint 2026-07-17)
+
+> **Vấn đề**: Trước đó `/thanh-toan` và `/api/orders` không check role → admin có thể đặt hàng → order bị "mồ côi" (admin không thể xem trong `/tai-khoan/*` vì `requireCustomer` throw 403).
+
+**Defense in depth — 3 lớp**:
+
+| Layer | File | Hành vi |
+|---|---|---|
+| 1. **Page guard** | `app/(store)/thanh-toan/page.tsx` | Server Component check `getCurrentUser().role === 'admin'` → render `<AdminCheckoutBlocked />` (fallback page giải thích + link về `/admin` / `/` / `/tai-khoan/dang-xuat`). **KHÔNG** redirect /403 (UX kém). |
+| 2. **API guard** | `app/api/orders/route.ts` | Đầu route: `createServerClient` (cookie-bound) + `auth.getUser()` + check `profile.role === 'admin'` → return `403 { error: 'NOT_CUSTOMER', message: '...' }`. Cũng set `customer_id` ở đây nếu user login. |
+| 3. **UI guard** | `app/(store)/gio-hang/page.tsx` | Client detect role sau mount → disable button "Tiến hành thanh toán" + show warning box (icon `ShieldAlert`) + đổi text thành "Admin không thể đặt hàng". |
+
+**Helper mới**: `getCurrentUser()` trong `lib/auth/require-customer.ts` — trả `{ user, role, profile } | null`, **không filter role** (khác với `requireCustomer()` chỉ chấp nhận role='customer').
+
+**Admin UX** khi vào `/thanh-toan`:
+- Thấy page với icon `ShieldAlert` vàng
+- Giải thích: "Đơn hàng sẽ bị mồ côi — admin không thể xem lại trong /tai-khoan/don-hang"
+- 2 button: "Về Admin Panel" (gold) + "Về trang chủ" (ghost)
+- Link nhỏ: "Cần đăng xuất admin? → Đăng xuất"
+
+### 10.3. 🆕 Customer ID sync theo email (sprint 2026-07-17)
+
+> **Vấn đề**: Trước đó API `/api/orders` **không set `customer_id`** (luôn NULL) → RLS `orders_self_read` (auth.uid() = customer_id) fail → `/tai-khoan/don-hang` luôn trả 0 orders.
+
+**Fix**:
+
+| Action | Cách |
+|---|---|
+| **Orders mới (user login)** | API `/api/orders` set `customer_id = auth.uid()` ngay khi insert. |
+| **Orders cũ (guest)** | Migration 0011: RPC `link_my_guest_orders()` match theo `customer_email = auth.users.email`, set `customer_id = auth.uid()`. Gọi từ client sau login/signup. |
+| **Backfill tự động** | Migration 0011 có `DO $$ ... $$` block lặp qua tất cả auth.users, update orders có email khớp. Log `[0011] BACKFILL DONE: N orders linked`. |
+
+**Files**:
+- `app/api/orders/route.ts` — set `customer_id: currentUserId` trong INSERT.
+- `supabase/migrations/0011_link_orders_by_email.sql` — mở rộng `link_guest_orders_to_user` (match email thay vì phone) + tạo mới `link_my_guest_orders` RPC + backfill auto.
+- `lib/auth/require-customer.ts` — thêm `getCurrentUser()` helper.
+
+**Migration 0011 cần apply**:
+1. Mở Supabase Dashboard → SQL Editor.
+2. Paste nội dung file `supabase/migrations/0011_link_orders_by_email.sql`.
+3. Run → sẽ thấy log `[0011] Linked X orders for user ...` và `[0011] BACKFILL DONE: N total orders linked to users`.
+4. Verify: `SELECT id, code, customer_id, customer_email FROM orders WHERE customer_id IS NOT NULL;` → phải có orders linked.
+
+**Trade-off**:
+- Match theo email (khuyến nghị) > match theo SĐT (rủi ro 2 user cùng SĐT test).
+- Email customer nhập lúc guest checkout phải khớp email đăng ký → nếu user đăng ký email khác, đơn cũ vẫn NULL. Acceptable cho MVP.
 
 ---
 
@@ -934,6 +1186,14 @@ NEXT_PUBLIC_SITE_URL=http://localhost:3000
 
 SUPABASE_SERVICE_ROLE_KEY=
 
+# === Bank QR (VietQR — FREE, không cần MST) ===
+# Dùng tài khoản cá nhân được. Xem danh sách BANK_CODE ở lib/bank/types.ts
+BANK_CODE=VCB                      # Mã ngân hàng (vd: VCB, TCB, MB, ACB, ...)
+BANK_ACCOUNT_NUMBER=1234567890     # Số tài khoản nhận tiền
+BANK_ACCOUNT_NAME=NGUYEN VAN A     # Uppercase, không dấu (vd: NGUYEN VAN A)
+
+# === MoMo (Phase 2 — khi có MST doanh nghiệp) ===
+# Xem docs/momo-sandbox-setup.md 8 bước. Hiện để trống, không block MVP.
 MOMO_PARTNER_CODE=
 MOMO_ACCESS_KEY=
 MOMO_SECRET_KEY=
@@ -2431,7 +2691,7 @@ Logic: với matcher mới, **chỉ cần user tồn tại** (không check role)
 | I6 | §3.2 | **Admin Payments page real data** | `app/(admin)/dashboard/payments/page.tsx` + `app/api/admin/payments/route.ts` | 1.5h | Real `payment_transactions` + retry IPN button. |
 | I7 | §3.2 | **Admin Settings persistence** | `app/(admin)/dashboard/settings/page.tsx` + `app/api/admin/settings/route.ts` + new `site_settings` table | 2h | KV-style: shipping_fee, contact info, social URLs. Form hiện không save. |
 | I8 | §16.4 | **`newsletter_subscribers` table + public subscribe API + admin page wire** | migration + `app/api/newsletter/subscribe/route.ts` + wire `app/(admin)/dashboard/newsletter/page.tsx` | 1.5h | Capture email pre-launch. |
-| I9 | §18.3 | **Auto-link guest orders on signup** | `app/api/auth/*` signup handler | 30m | Sau `signUp`, gọi `link_guest_orders_to_user(user.id, phone)`. |
+| I9 | §18.3 | **Auto-link guest orders on signup** ✅ DONE | `app/api/auth/*` signup handler + migration 0011 | 30m | Sau `signUp`, gọi `link_my_guest_orders()` (RPC match theo email). Migration 0011 mở rộng `link_guest_orders_to_user` set `customer_id` thay vì chỉ update email. Backfill tự động cho orders cũ khi apply migration. |
 | I10 | §18.4 | **`/tai-khoan/xac-nhan-email` page** | `app/(store)/tai-khoan/xac-nhan-email/page.tsx` | 30m | Post-signup confirmation. |
 | I11 | §18.4 | **`/tai-khoan/don-hang/[code]`** | `app/(store)/tai-khoan/don-hang/[code]/page.tsx` | 2h | Account-side order detail (per spec §18.6). |
 | I12 | §13 | **Env validation (zod) at startup** | `lib/env.ts` + import trong `app/layout.tsx` | 1h | Validate toàn bộ env, crash early nếu misconfig. |
@@ -2479,18 +2739,20 @@ Logic: với matcher mới, **chỉ cần user tồn tại** (không check role)
 
 ### 19.6. Quick-win đề xuất (xếp theo impact)
 
-| # | Job | Impact | Effort |
-|---|---|---|---|
-| 1 | Populate `MOMO_*` env + sandbox test | Unblocks payment | 1h |
-| 2 | Mount `<GoogleAnalytics/>` + set `NEXT_PUBLIC_GA_ID` ✅ DONE | Bắt đầu tracking data | 30m |
-| 3 | `useJewelryAnalytics` hook + call ở PDP/hold/return ✅ DONE | Funnel visibility | 1–2h |
-| 4 | Migration `00XX_pg_cron_release_locks.sql` ✅ DONE | Lock tự expire | 30m |
-| 5 | Wire admin Orders page real data | Admin operate được | 2h |
-| 6 | Wire admin Order detail `[id]` | Hoàn thiện admin loop | 1–2h |
-| 7 | Add `POST/PATCH/DELETE /api/admin/collections` + wire page | Quản lý collection | 2h |
-| 8 | `newsletter_subscribers` table + public subscribe API + footer form | Capture email pre-launch | 1h |
-| 9 | `/xac-nhan-email` page + auto-link guest orders on signup | Account flow polish | 30m |
-| 10 | 5 UI primitives còn thiếu | Unblock nhiều job khác | 2–3h |
+| # | Job | Impact | Effort | Status |
+|---|---|---|---|---|
+| 1 | Populate `MOMO_*` env + sandbox test | Unblocks payment | 1h | ❌ Phase 2 |
+| 2 | Mount `<GoogleAnalytics/>` + set `NEXT_PUBLIC_GA_ID` | Bắt đầu tracking data | 30m | ✅ DONE |
+| 3 | `useJewelryAnalytics` hook + call ở PDP/hold/return | Funnel visibility | 1–2h | ✅ DONE |
+| 4 | Migration `00XX_pg_cron_release_locks.sql` | Lock tự expire | 30m | ✅ DONE |
+| 5 | Wire admin Orders page real data | Admin operate được | 2h | ✅ DONE |
+| 6 | Wire admin Order detail `[id]` | Hoàn thiện admin loop | 1–2h | ✅ DONE |
+| 7 | Add `POST/PATCH/DELETE /api/admin/collections` + wire page | Quản lý collection | 2h | ✅ DONE |
+| 8 | `newsletter_subscribers` table + public subscribe API + footer form | Capture email pre-launch | 1h | ✅ DONE |
+| 9 | `/xac-nhan-email` page + auto-link guest orders on signup | Account flow polish | 30m | 🟡 PARTIAL (auto-link done, /xac-nhan-email page pending) |
+| 10 | 5 UI primitives còn thiếu | Unblock nhiều job khác | 2–3h | 🟡 PARTIAL |
+| 11 | **🆕 Fix login kẹt loading + Admin block mua hàng** | UX critical | 1h | ✅ DONE 2026-07-17 |
+| 12 | **🆕 Apply migration 0011 (customer_id backfill theo email)** | `/tai-khoan/don-hang` thấy đơn | 5m | ❌ PENDING (file sẵn, cần apply) |
 
 **Top 3 ưu tiên cao nhất** cho launch: #1 (payment), #2+#3 (analytics), #4 (lock expiry). Xong 3 cái này → launch v1.
 
@@ -2502,6 +2764,11 @@ Logic: với matcher mới, **chỉ cần user tồn tại** (không check role)
 4. `DRAFT` enum value (spec §17.6) chưa migrate. Cần migration `ALTER TYPE product_status_enum ADD VALUE 'DRAFT'`.
 5. Một số component bị rename/inline: `product-meta` → `product-info-panel`, `product-accordion` → `details-accordion`, `components/chatbot/*` → `components/home/chatbot/ChatbotBubble` (1 stub file, không tách 7 file).
 6. Env trong `.env` thiếu: `NEXT_PUBLIC_GA_ID`, `MOMO_*` (5), `GOOGLE_AI_API_KEY`, `GROQ_API_KEY`, `OPENAI_API_KEY`, `AI_PRIMARY`, `EMBED_PRIMARY`, `UPSTASH_REDIS_*`, `SENTRY_DSN`, `ADMIN_UPLOADS_BUCKET`, `NEXT_PUBLIC_SITE_URL`.
+7. **🆕 Sprint "Login + Admin Block" 2026-07-17**:
+   - `orders.customer_id` UUID REFERENCES auth.users(id) — thêm vào §2.4 (chưa apply DB migration, cần `ALTER TABLE orders ADD COLUMN customer_id UUID REFERENCES auth.users(id) ON DELETE SET NULL` + 2 index `idx_orders_email`, `idx_orders_customer`).
+   - `link_guest_orders_to_user` đổi signature: bỏ tham số `p_phone`, match theo `customer_email = auth.users.email` thay vì phone (an toàn hơn).
+   - `getCurrentUser()` helper mới trong `lib/auth/require-customer.ts` (khác với `requireCustomer()` chỉ chấp nhận role='customer').
+   - `/thanh-toan` page có fallback `<AdminCheckoutBlocked />` (không redirect /403).
 
 ### 19.8. Quy tắc cập nhật
 

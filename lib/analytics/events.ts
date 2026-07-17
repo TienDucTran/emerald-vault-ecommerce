@@ -172,9 +172,20 @@ export function buildLockTimeoutEvent(
 /* -------------------------------------------------------------------------- */
 
 export interface BeginCheckoutParams {
-  product: Pick<
+  /**
+   * Single product (legacy) — dùng khi chỉ có 1 sản phẩm.
+   * Khi có nhiều sản phẩm, truyền `products: [...]` để GA4 nhận đầy đủ items[].
+   */
+  product?: Pick<
     Product,
     'id' | 'title' | 'category' | 'material' | 'quality_tier' | 'price'
+  >;
+  /** Danh sách sản phẩm trong giỏ (ưu tiên hơn `product` nếu truyền cả hai). */
+  products?: Array<
+    Pick<
+      Product,
+      'id' | 'title' | 'category' | 'material' | 'quality_tier' | 'price'
+    >
   >;
   shippingFee?: number;
   currency?: string;
@@ -183,13 +194,20 @@ export interface BeginCheckoutParams {
 export function buildBeginCheckoutEvent(
   params: BeginCheckoutParams
 ): { name: string; params: Record<string, unknown> } {
-  const { product, shippingFee = 0, currency = CURRENCY } = params;
+  const { product, products, shippingFee = 0, currency = CURRENCY } = params;
+  const items = (products && products.length > 0
+    ? products
+    : product
+    ? [product]
+    : []
+  ).map((p, i) => toAnalyticsItem(p, i));
+  const value = items.reduce((sum, it) => sum + it.price * it.quantity, 0) + shippingFee;
   return {
     name: 'begin_checkout',
     params: {
       currency,
-      value: product.price + shippingFee,
-      items: [toAnalyticsItem(product, 0)],
+      value,
+      items,
       coupon: '',
       shipping: shippingFee,
     },

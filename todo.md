@@ -1,6 +1,6 @@
 # TODO — CẦN CHỈNH SỬA & BỔ SUNG
 
-> Cập nhật lần cuối: 2026-07-13 — đã chốt **Payment = MoMo** (theo docs official). Cậu trúc UI/component đã tham chiếu trong `flows.md` §3-4.
+> Cập nhật lần cuối: 2026-07-17 — Sprint "VietQR + Unblock" xong: payment chính cho MVP (VietQR động + manual confirm + upload bill), migration 0008, customer/admin flow, dashboard KPI.
 
 ---
 
@@ -17,8 +17,21 @@
 - [x] **Google Stitch (stitch.withgoogle.com)**: tool AI generate UI từ prompt. Vai trò: tạo nhanh mockup dark theme để paste vào Figma làm inspiration. Không dùng để generate code sản xuất (vì output generic).
 - [x] **Storage upload pipeline**: client-side resize → webp + Supabase Storage bucket + admin upload API. Chi tiết xem flows.md §2.2 + mục X. bên dưới.
 - [x] **Media Library Phase 1 (read-only)**: list + search + sort + detail drawer. Phase 2/3/4 đang pending. Xem mục X. bên dưới.
-- [x] **GA4 analytics — fire real events**: `lib/analytics/events.ts` (8 pure event builders) + `hooks/use-jewelry-analytics.ts` (typed hook, consent-gated qua `localStorage[ev_cookie_consent]`) + `<GoogleAnalytics/>` mount trong `app/(store)/layout.tsx` (chỉ store route group, admin tự loại trừ). Đã wire 6/8 event: view_item, lock_item_success, lock_item_timeout, begin_checkout, add_payment_info, purchase, view_collection. Cần set `NEXT_PUBLIC_GA_ID` thật trong `.env` để bắt đầu nhận data.
+- [x] **GA4 analytics — fire real events** (2026-07-17): `lib/analytics/events.ts` (8 pure event builders) + `hooks/use-jewelry-analytics.ts` (typed hook, consent-gated qua `localStorage[ev_cookie_consent]`) + `<GoogleAnalytics/>` mount trong `app/(store)/layout.tsx`. Đã wire 8/8 event: view_item, lock_item_success, lock_item_timeout, begin_checkout, add_payment_info, purchase, view_collection, add_to_cart. Cần set `NEXT_PUBLIC_GA_ID` thật trong `.env` để bắt đầu nhận data.
 - [x] **pg_cron**: migration `supabase/migrations/0010_pg_cron_jobs.sql` (extension + 2 RPC + 2 cron schedule). Cần enable pg_cron trên Supabase Dashboard trước khi apply.
+- [x] **Admin Dashboard Overview real data** (2026-07-17): `/admin` với 4 KPI cards + revenue chart + recent orders + alerts. API `/api/admin/dashboard` parallel query. Server Component + revalidate=30s.
+- [x] **Admin Orders real data** (2026-07-17): list với filter/search/export + detail page + status update dialog + transitions (NEW→CONFIRMED→SHIPPING→DONE, NEW→CANCELLED). API `/api/admin/orders/**` (list, detail, export CSV).
+- [x] **Admin Collections CRUD real data** (2026-07-17): list + create/edit/delete + reorder. API `/api/admin/collections/**` (route, list, [id], reorder). Form với hero_gallery, story_text, launch_at, SEO fields.
+- [x] **Admin Newsletter real data** (2026-07-17): list với search/filter + export CSV + delete. API `/api/admin/newsletter/**` (route, export).
+- [x] **Migration 0006 newsletter_subscribers** (2026-07-17): bảng + RLS + indexes.
+- [x] **Migration 0007 collections_enrich** (2026-07-17): launch_at, story_text, hero_gallery, meta_title/description, updated_at trigger.
+- [x] **MoMo sandbox setup guide** (2026-07-17): `docs/momo-sandbox-setup.md` 8 bước đăng ký + troubleshooting.
+- [x] **VietQR + Manual confirm + Upload bill flow** (2026-07-17): Phương thức payment chính cho MVP, không cần MST. Lib `lib/bank/{types,vietqr,config}.ts` + migration 0008 + customer flow (QR page + 2 API) + admin flow (verify dialog + dashboard alert). Dùng [vietqr.io](https://vietqr.io) FREE generate QR động.
+- [x] **Migration 0008_bank_payment** (2026-07-17): bảng `bank_transfers` + enum values `WAITING_PAYMENT`/`WAITING_CONFIRM` + bucket `payment-bills` + RLS.
+- [x] **VietQR lib** (2026-07-17): `lib/bank/vietqr.ts` generate URL từ vietqr.io (FREE, không cần API key). `lib/bank/config.ts` load `BANK_CODE`/`BANK_ACCOUNT_NUMBER`/`BANK_ACCOUNT_NAME` từ env.
+- [x] **Bank config env** (2026-07-17): `BANK_CODE` + `BANK_ACCOUNT_NUMBER` + `BANK_ACCOUNT_NAME` trong `.env.example`. Hỗ trợ tài khoản cá nhân, không cần đăng ký kinh doanh.
+- [x] **Admin bank verify UI** (2026-07-17): card "Thanh toán ngân hàng" trong `/admin/orders/[id]` với timeline + bill thumbnail + nút xác nhận + dashboard alert `pendingBankConfirmations`.
+- [x] **Customer bank payment page** (2026-07-17): `/don-hang/[code]/thanh-toan` với QR động 24h countdown + Copy buttons (STK, số tiền, nội dung) + 2 action (confirm + upload bill).
 - [ ] **Cleanup 39 pre-existing TypeScript errors** — chi tiết 6 nhóm root cause + file + effort ở `docs/ts-errors-cleanup.md` (Effort 2-3h, không block `next build`). Đã fix 3 errors (cart.ts:97, media-picker.tsx:348, server.ts:17,19) trong session 2026-07-16; 39 còn lại là pre-existing.
 
 ---
@@ -26,15 +39,15 @@
 ## 🔴 P0 — BẮT BUỘC (block code nếu chưa xong)
 
 ### A. Database & Migration
-- [ ] Tạo file `supabase/migrations/0001_initial_schema.sql` (chứa toàn bộ schema §2)
-- [ ] Tạo file `supabase/migrations/0002_rpc_functions.sql` (lock_item, confirm_payment, release_expired_locks) — ĐÃ GỘP: `lock_item` + `confirm_payment` ở `0001_initial_schema.sql`; `release_expired_locks` ở `0010_pg_cron_jobs.sql`.
-- [ ] Tạo file `supabase/migrations/0003_rls_policies.sql` (RLS cho từng bảng)
+- [x] Tạo file `supabase/migrations/0001_initial_schema.sql` (chứa toàn bộ schema §2)
+- [x] Tạo file `supabase/migrations/0002_rpc_functions.sql` (lock_item, confirm_payment, release_expired_locks) — ĐÃ GỘP: `lock_item` + `confirm_payment` ở `0001_initial_schema.sql`; `release_expired_locks` ở `0010_pg_cron_jobs.sql`.
+- [x] Tạo file `supabase/migrations/0003_rls_policies.sql` (RLS cho từng bảng)
 - [ ] Tạo file `supabase/seed.sql` (3-5 sản phẩm demo + 1 collection)
 - [x] Bật extension `pg_cron` trên Supabase dashboard — MIGRATION READY: `supabase/migrations/0010_pg_cron_jobs.sql` chứa `CREATE EXTENSION pg_cron` + 2 RPC + 2 cron schedule. Cần enable extension trên Dashboard trước khi apply (xem comment trong file). Sau khi apply: `SELECT * FROM cron.job;` để verify.
-- [ ] Tạo storage bucket `jewelry-images` (public, max 5MB, .webp)
-- [ ] Trigger `handle_new_user()` cho profile auto-create
-- [ ] Migration `0006_newsletter.sql` — bảng newsletter_subscribers
-- [ ] Migration `0007_collections_enrich.sql` — thêm launch_at, story_text, hero_gallery, meta_title, meta_description
+- [x] Tạo storage bucket `jewelry-images` (public, max 5MB, .webp)
+- [x] Trigger `handle_new_user()` cho profile auto-create
+- [x] Migration `0006_newsletter_subscribers.sql` — bảng newsletter_subscribers ✅ DONE 2026-07-17
+- [x] Migration `0007_collections_enrich.sql` ✅ DONE 2026-07-17
 - [ ] Migration `0008_reviews.sql` — bảng product_reviews (P2)
 
 ### B. Auth & Middleware
@@ -44,15 +57,18 @@
 - [ ] Trang `/403` (retro style)
 - [ ] Bootstrap admin đầu tiên: insert profile với `role='admin'`
 
-### C. MoMo Payment
-- [ ] `lib/momo/signature.ts` — buildRequestSignature + verifyIpnSignature (HMAC-SHA256)
-- [ ] `lib/momo/client.ts` — createPayment() gọi `https://test-payment.momo.vn/v2/gateway/api/create`
-- [ ] `lib/momo/types.ts` — TypeScript types cho MoMo request/response/IPN
-- [ ] `app/api/momo/create/route.ts` — tạo payment URL, idempotent theo `momo_request_id`
-- [ ] `app/api/momo/ipn/route.ts` — verify signature, update DB, return 204
-- [ ] `/momo/return/page.tsx` — polling `/api/orders/[code]/status` rồi redirect
-- [ ] Test với MoMo sandbox (TÀI KHOẢN TEST ở `developers.momo.vn/v3/vi/docs/payment/onboarding/test-instructions/`)
-- [ ] Production switch: đổi base URL từ `test-payment` → `payment.momo.vn` (sau khi MoMo duyệt live)
+### C. MoMo Payment [Phase 2 — khi có MST]
+
+> ⚠️ **VietQR đã cover MVP payment (sprint 2026-07-17)**, MoMo là nice-to-have. Đợi có MST doanh nghiệp mới activate. Code đã viết (API + signature + IPN), chỉ thiếu populate env.
+
+- [ ] **[Phase 2]** `lib/momo/signature.ts` — buildRequestSignature + verifyIpnSignature (HMAC-SHA256)
+- [ ] **[Phase 2]** `lib/momo/client.ts` — createPayment() gọi `https://test-payment.momo.vn/v2/gateway/api/create`
+- [ ] **[Phase 2]** `lib/momo/types.ts` — TypeScript types cho MoMo request/response/IPN
+- [ ] **[Phase 2]** `app/api/momo/create/route.ts` — tạo payment URL, idempotent theo `momo_request_id`
+- [ ] **[Phase 2]** `app/api/momo/ipn/route.ts` — verify signature, update DB, return 204
+- [ ] **[Phase 2]** `/momo/return/page.tsx` — polling `/api/orders/[code]/status` rồi redirect
+- [ ] **[Phase 2]** Test với MoMo sandbox (TÀI KHOẢN TEST ở `developers.momo.vn/v3/vi/docs/payment/onboarding/test-instructions/`)
+- [ ] **[Phase 2]** Production switch: đổi base URL từ `test-payment` → `payment.momo.vn` (sau khi MoMo duyệt live)
 
 ### D. Cấu hình kỹ thuật
 - [ ] `next.config.js` thêm `images.remotePatterns` cho Supabase + `formats: ['avif','webp']`
@@ -128,14 +144,26 @@
 - [ ] `next-sitemap` hoặc manual sitemap
 
 ### I. Admin Dashboard
-- [ ] `app/(admin)/dashboard/layout.tsx` — sidebar + auth gate
-- [ ] `app/(admin)/dashboard/page.tsx` — overview: revenue, counts, recent orders
-- [ ] `app/(admin)/dashboard/products/page.tsx` — list (filter, search, edit, archive)
-- [ ] `app/(admin)/dashboard/products/new/page.tsx` — form tạo mới
-- [ ] `app/(admin)/dashboard/products/bulk-upload/page.tsx` — SheetJS + table
-- [ ] `app/(admin)/dashboard/collections/page.tsx` + `[id]/page.tsx` — CRUD
-- [ ] `app/(admin)/dashboard/orders/page.tsx` + `[id]/page.tsx` — list, status update
-- [ ] `app/api/admin/bulk-import/route.ts` — middleware check role
+- [x] `app/(admin)/dashboard/layout.tsx` — sidebar + auth gate
+- [x] `app/(admin)/dashboard/page.tsx` — overview: revenue, counts, recent orders ✅ REAL 2026-07-17
+- [x] `app/(admin)/dashboard/products/page.tsx` — list (filter, search, edit, archive) — REAL
+- [x] `app/(admin)/dashboard/products/new/page.tsx` — form tạo mới — REAL
+- [x] `app/(admin)/dashboard/products/bulk-upload/page.tsx` — SheetJS + table — REAL
+- [x] `app/(admin)/dashboard/collections/page.tsx` + `new/page.tsx` + `[id]/page.tsx` — CRUD ✅ REAL 2026-07-17
+- [x] `app/(admin)/dashboard/orders/page.tsx` + `[id]/page.tsx` — list, status update ✅ REAL 2026-07-17
+- [x] `app/(admin)/dashboard/newsletter/page.tsx` — list subscribers, export CSV ✅ REAL 2026-07-17
+- [x] `app/api/admin/bulk-import/route.ts` — middleware check role — REAL
+- [x] `app/(admin)/dashboard/analytics/page.tsx` — GA4 + orders — REAL
+- [x] `app/(admin)/dashboard/media/page.tsx` — Media Library Phase 1-2 — REAL
+- [ ] `app/(admin)/dashboard/inventory/page.tsx` — MOCK (P2)
+- [ ] `app/(admin)/dashboard/payments/page.tsx` — MOCK (P2)
+- [ ] `app/(admin)/dashboard/settings/page.tsx` — MOCK (P2)
+
+### E. Quick-win tiếp theo (sprint sau)
+- [ ] **Populate MoMo env** (30 phút) — theo `docs/momo-sandbox-setup.md` 8 bước → unblock `/api/momo/create` 503
+- [ ] **Apply migrations 0006 + 0007** lên Supabase (5 phút) — `supabase db push` hoặc paste SQL vào Dashboard
+- [ ] **Test admin dashboard/orders/collections/newsletter** end-to-end (30 phút)
+- [ ] **Apply migration 0010_pg_cron_jobs** (nếu chưa) — enable pg_cron trên Dashboard trước
 
 ### J. Rate-limit & Security
 - [ ] Upstash Redis setup (hoặc Vercel KV)
@@ -277,6 +305,19 @@
 
 ---
 
+## 🟡 P1 — PAYMENT PHASE 2 (mới)
+
+> VietQR (sprint 2026-07-17) đã cover MVP payment. Phase 2 chỉ cần kích hoạt MoMo + (optional) thêm payment provider khác.
+
+### E. Payment Phase 2
+- [ ] Khi có MST doanh nghiệp: đăng ký **MoMo Business** → populate 5 env `MOMO_*` theo `docs/momo-sandbox-setup.md` → switch từ sandbox → production endpoint
+- [ ] Smoke test end-to-end: tạo đơn MoMo → thanh toán thật → verify IPN → check `orders.status = CONFIRMED`
+- [ ] **[Optional]** Thêm **VNPay** nếu khách yêu cầu (chi phí tương đương MoMo, cần MST)
+- [ ] **[Optional]** Thêm **ZaloPay** nếu muốn đa dạng payment (cần đăng ký Zalo OA)
+- [ ] Auto-reconcile với SMS ngân hàng (Phase 3+ — cần parser + cron check)
+
+---
+
 ## 🟣 P1 — AI CHATBOT (mới — xem chi tiết `flows.md` §15)
 
 ### N. Schema & Vector
@@ -319,6 +360,13 @@
 
 ## ❓ CÒN CẦN USER QUYẾT ĐỊNH (không block code nhưng cần xác nhận trước khi launch)
 
+### Câu hỏi về Payment (mới — 2026-07-17)
+- [ ] **Có cần thêm VNPay/ZaloPay?** (MVP: **KHÔNG**, VietQR + MoMo là đủ. Cân nhắc thêm khi >100 đơn/tháng)
+- [ ] **Có cần auto-reconcile với SMS ngân hàng?** (Phase 3+ — parser SMS + cron check. MVP: admin verify thủ công qua bill + app)
+- [ ] **QR expiry hiện 24h — có cần adjust?** (Khuyến nghị: **giữ 24h**, user có thể liên hệ admin nếu quá hạn → admin gen QR mới tay)
+- [ ] **Tài khoản nhận tiền: cá nhân hay doanh nghiệp?** (VietQR chấp nhận cả 2. Nếu là cá nhân thì không cần MST; nếu DN thì chuẩn bị MST để dùng MoMo)
+
+### Câu hỏi chung
 - [ ] **Số lượng ảnh / sản phẩm**: 1 ảnh chính + gallery tối đa 5 ảnh? (khuyến nghị)
 - [ ] **Có cần biến thể sản phẩm** (size, màu)? — MVP gợi ý: **KHÔNG** vì đồ si độc bản
 - [ ] **Miền deploy**: `.vn` hay `.com`? (gợi ý: `emerald-vault.vn`)

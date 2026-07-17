@@ -3,7 +3,7 @@
 export type QualityTier = 'SSS' | 'SS' | 'S';
 export type ProductCategory = 'NHAN' | 'DAY_CHUYEN' | 'BONG_TAI' | 'VONG_TAY' | 'MAT_DAY';
 export type Material = 'BAC_925' | 'MA_VANG_18K' | 'MA_VANG_24K' | 'VANG_18K' | 'KIM_CUONG';
-export type ProductStatus = 'AVAILABLE' | 'SOLD_OUT';
+export type ProductStatus = 'AVAILABLE' | 'SOLD_OUT' | 'RESERVED';
 export type OrderStatus = 'NEW' | 'CONFIRMED' | 'SHIPPING' | 'DONE' | 'CANCELLED';
 export type PaymentMethod = 'MOMO' | 'COD' | 'BANK_TRANSFER';
 export type PaymentStatus = 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';

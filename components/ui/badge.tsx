@@ -11,7 +11,7 @@ const tierStyles: Record<Tier, string> = {
 
 export interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
   tier?: Tier;
-  variant?: 'default' | 'outline' | 'gold' | 'success' | 'sold-out';
+  variant?: 'default' | 'outline' | 'gold' | 'success' | 'sold-out' | 'reserved';
 }
 
 export function Badge({ className, tier, variant = 'default', ...props }: BadgeProps) {
@@ -34,6 +34,10 @@ export function Badge({ className, tier, variant = 'default', ...props }: BadgeP
     gold: 'bg-gold/15 text-gold border border-gold/40',
     success: 'bg-success/15 text-success border border-success/40',
     'sold-out': 'bg-error/15 text-error border border-error/40',
+    // @deprecated Dùng ProductUnavailableOverlay cho SOLD_OUT / RESERVED.
+    // Variant này vẫn export để không break external code, nhưng không khuyến nghị
+    // sử dụng trong UI mới. Xem components/product/product-unavailable-overlay.tsx.
+    reserved: 'bg-warning/15 text-warning border border-warning/40',
   };
 
   return (

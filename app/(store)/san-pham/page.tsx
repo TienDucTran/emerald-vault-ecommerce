@@ -7,7 +7,7 @@ import { SortDropdown } from '@/components/product/sort-dropdown';
 import { ActiveFilters } from '@/components/product/active-filters';
 import { MobileProductsView } from '@/components/product/mobile/mobile-products-view';
 import { CATEGORY_LABELS, MATERIAL_LABELS } from '@/lib/utils';
-import { searchProducts } from '@/lib/supabase/queries/products';
+import { getFilterCounts, searchProducts, type FilterCounts } from '@/lib/supabase/queries/products';
 import { getPublishedCollections } from '@/lib/supabase/queries/collections';
 import { toCollection, toProduct } from '@/lib/adapters/supabase-to-app';
 import { safeList, safeSearch } from '@/lib/data/safe-fetch';
@@ -33,6 +33,7 @@ interface Props {
     sort?: string;
     min?: string;
     max?: string;
+    available?: string;
   };
 }
 
@@ -128,9 +129,10 @@ export default async function ProductsPage({ searchParams }: Props) {
   const trimmedKeyword = searchParams.keyword?.trim() || undefined;
 
   const sort = mapSort(searchParams.sort);
+  const onlyAvailable = searchParams.available !== '0';
 
   // Lấy products theo filter hiện tại + tổng available (không filter) để tính count
-  const [filteredRes, allRes, collectionsRes] = await Promise.all([
+  const [filteredRes, allRes, allRes2, collectionsRes] = await Promise.all([
     safeSearch(() => searchProducts({
       ...(trimmedKeyword ? { keyword: trimmedKeyword } : {}),
       category,
@@ -139,17 +141,31 @@ export default async function ProductsPage({ searchParams }: Props) {
       minPrice: Number.isFinite(minPrice) && (minPrice as number) >= 0 ? minPrice : undefined,
       maxPrice: Number.isFinite(maxPrice) && (maxPrice as number) >= 0 ? maxPrice : undefined,
       sort,
+      onlyAvailable,
       page: 1,
       pageSize: 100,
     })),
     safeSearch(() => searchProducts({ onlyAvailable: true, sort: 'newest', page: 1, pageSize: 100 })),
+    onlyAvailable
+      ? Promise.resolve({ data: { data: [], total: 0 }, error: null })
+      : safeSearch(() => searchProducts({ onlyAvailable: false, sort: 'newest', page: 1, pageSize: 100 })),
     safeList(() => getPublishedCollections()),
   ]);
+
+  // Filter counts (badge (N) bên cạnh mỗi option) — chạy song song ở trên là không cần thiết
+  // vì nó đã thuộc 1 query riêng. Để đơn giản và an toàn, dùng try/catch trực tiếp.
+  let filterCounts: FilterCounts | null = null;
+  try {
+    filterCounts = await getFilterCounts({ onlyAvailable });
+  } catch (e) {
+    console.error('[products] getFilterCounts failed:', e);
+  }
 
   const products = filteredRes.data.data.map(toProduct);
   const allProducts = allRes.data.data.map(toProduct);
   const filteredTotal = filteredRes.data.total;
   const availableTotal = allRes.data.total;
+  const grandTotal = onlyAvailable ? availableTotal : (allRes2.data.total || availableTotal);
 
   // Featured collections để quick-jump khi không filter
   const publishedCollections = collectionsRes.data.map(toCollection);
@@ -227,7 +243,7 @@ export default async function ProductsPage({ searchParams }: Props) {
             {/* Sidebar */}
             <div className="hidden lg:block">
               <Suspense fallback={<div className="h-96 animate-pulse rounded-lg bg-surface" />}>
-                <FilterSidebar priceRange={priceRange} activeCount={activeCount} />
+                <FilterSidebar priceRange={priceRange} activeCount={activeCount} counts={filterCounts} />
               </Suspense>
             </div>
 
@@ -238,7 +254,7 @@ export default async function ProductsPage({ searchParams }: Props) {
                 <p className="text-sm text-text-muted">
                   Hiển thị{' '}
                   <strong className="text-text-base">
-                    {filteredTotal}/{availableTotal}
+                    {filteredTotal}/{grandTotal}
                   </strong>{' '}
                   sản phẩm
                 </p>
@@ -282,7 +298,7 @@ export default async function ProductsPage({ searchParams }: Props) {
       {/* ───────── Mobile (<lg) ───────── */}
       <MobileProductsView
         products={products}
-        totalAvailable={availableTotal}
+        totalAvailable={grandTotal}
         priceRange={priceRange}
         pageTitle={pageMeta.title}
         pageEyebrow={pageMeta.eyebrow}

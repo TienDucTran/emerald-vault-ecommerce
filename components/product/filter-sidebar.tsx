@@ -5,13 +5,14 @@ import { useCallback, useState } from 'react';
 import { ChevronDown, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { CATEGORY_LABELS, MATERIAL_LABELS } from '@/lib/utils';
+import type { FilterCounts } from '@/lib/supabase/queries/products';
 
 type FilterValue = string | undefined;
 
 interface CheckboxGroupProps {
   title: string;
   paramKey: 'category' | 'material' | 'tier';
-  options: { value: string; label: string }[];
+  options: { value: string; label: string; count?: number }[];
   selected: FilterValue;
   delay?: number;
 }
@@ -51,7 +52,7 @@ function CheckboxGroup({ title, paramKey, options, selected, delay = 0 }: Checkb
                 type="button"
                 onClick={() => onChange(opt.value)}
                 className={cn(
-                  'flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors',
+                  'flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm transition-colors',
                   isActive
                     ? 'bg-gold/10 font-medium text-gold'
                     : 'text-text-base hover:bg-gold/5 hover:text-gold'
@@ -81,11 +82,67 @@ function CheckboxGroup({ title, paramKey, options, selected, delay = 0 }: Checkb
                   </span>
                   {opt.label}
                 </span>
+                {typeof opt.count === 'number' && (
+                  <span className="text-xs tabular-nums text-text-muted">
+                    ({opt.count})
+                  </span>
+                )}
               </button>
             </li>
           );
         })}
       </ul>
+    </div>
+  );
+}
+
+function AvailableToggle({ delay = 0 }: { delay?: number }) {
+  const router = useRouter();
+  const params = useSearchParams();
+  // Default: onlyAvailable = true (show only AVAILABLE)
+  // ?available=0 means show all (AVAILABLE + RESERVED)
+  const showAll = params.get('available') === '0';
+
+  const toggle = () => {
+    const next = new URLSearchParams(params.toString());
+    if (showAll) {
+      next.delete('available');
+    } else {
+      next.set('available', '0');
+    }
+    const qs = next.toString();
+    router.push(qs ? `/san-pham?${qs}` : '/san-pham', { scroll: false });
+  };
+
+  return (
+    <div
+      className="border-b border-gold/10 py-4 motion-safe:animate-fadeInUp"
+      style={{ animationDelay: `${delay}ms`, animationFillMode: 'backwards' }}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <span className="font-heading text-sm font-semibold uppercase tracking-wider text-gold">
+          Chỉ xem hàng còn
+        </span>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={!showAll}
+          onClick={toggle}
+          className={cn(
+            'relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors',
+            showAll
+              ? 'border-gold/60 bg-gold/20'
+              : 'border-gold bg-gold'
+          )}
+        >
+          <span
+            className={cn(
+              'inline-block h-4 w-4 transform rounded-full bg-gold transition-transform',
+              showAll ? 'translate-x-1' : 'translate-x-6'
+            )}
+          />
+        </button>
+      </div>
     </div>
   );
 }
@@ -170,9 +227,10 @@ function PriceRange({ min, max, currentMin, currentMax, delay = 0 }: PriceRangeP
 interface FilterSidebarProps {
   priceRange: { min: number; max: number };
   activeCount: number;
+  counts?: FilterCounts | null;
 }
 
-export function FilterSidebar({ priceRange, activeCount }: FilterSidebarProps) {
+export function FilterSidebar({ priceRange, activeCount, counts }: FilterSidebarProps) {
   const router = useRouter();
   const params = useSearchParams();
 
@@ -200,10 +258,16 @@ export function FilterSidebar({ priceRange, activeCount }: FilterSidebarProps) {
           )}
         </div>
 
+        <AvailableToggle delay={0} />
+
         <CheckboxGroup
           title="Danh mục"
           paramKey="category"
-          options={Object.entries(CATEGORY_LABELS).map(([value, label]) => ({ value, label }))}
+          options={Object.entries(CATEGORY_LABELS).map(([value, label]) => ({
+            value,
+            label,
+            count: counts?.category[value],
+          }))}
           selected={params.get('category') ?? undefined}
           delay={0}
         />
@@ -211,7 +275,11 @@ export function FilterSidebar({ priceRange, activeCount }: FilterSidebarProps) {
         <CheckboxGroup
           title="Chất liệu"
           paramKey="material"
-          options={Object.entries(MATERIAL_LABELS).map(([value, label]) => ({ value, label }))}
+          options={Object.entries(MATERIAL_LABELS).map(([value, label]) => ({
+            value,
+            label,
+            count: counts?.material[value],
+          }))}
           selected={params.get('material') ?? undefined}
           delay={80}
         />
@@ -220,9 +288,9 @@ export function FilterSidebar({ priceRange, activeCount }: FilterSidebarProps) {
           title="Tier chất lượng"
           paramKey="tier"
           options={[
-            { value: 'SSS', label: 'SSS — Mới nguyên seal' },
-            { value: 'SS', label: 'SS — Trên 95%' },
-            { value: 'S', label: 'S — Trên 90%' },
+            { value: 'SSS', label: 'SSS — Mới nguyên seal', count: counts?.tier['SSS'] },
+            { value: 'SS', label: 'SS — Trên 95%', count: counts?.tier['SS'] },
+            { value: 'S', label: 'S — Trên 90%', count: counts?.tier['S'] },
           ]}
           selected={params.get('tier') ?? undefined}
           delay={160}

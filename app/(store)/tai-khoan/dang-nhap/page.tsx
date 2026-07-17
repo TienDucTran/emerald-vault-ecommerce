@@ -24,21 +24,47 @@ function LoginForm() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const supabase = createClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (cancelled) return;
-      if (user) {
-        router.replace(nextParam);
-        return;
+      try {
+        const supabase = createClient();
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (cancelled) return;
+        if (user) {
+          router.replace(nextParam);
+          // FALLBACK: dù router.replace fail (vd: cùng URL), vẫn tắt spinner
+          // để tránh kẹt vĩnh viễn ở "Đang kiểm tra phiên đăng nhập..."
+          setCheckingSession(false);
+          return;
+        }
+        setCheckingSession(false);
+      } catch {
+        if (!cancelled) setCheckingSession(false);
       }
-      setCheckingSession(false);
     })();
     return () => {
       cancelled = true;
     };
   }, [router, nextParam]);
+
+  /**
+   * Đợi session được commit hoàn toàn trước khi navigate.
+   * Tránh race condition: signIn thành công nhưng cookie chưa sync
+   * → router.push gửi request RSC với cookie cũ → middleware redirect ngược.
+   *
+   * Fallback timeout 2s: nếu session vẫn null (cookie write bị block,
+   * browser extension chặn, etc) → báo lỗi để user retry thay vì kẹt.
+   */
+  async function waitForSession(timeoutMs = 2000): Promise<boolean> {
+    const supabase = createClient();
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) return true;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return false;
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -67,7 +93,19 @@ function LoginForm() {
         setLoading(false);
         return;
       }
+
+      // Đợi session được commit (cookie set xong) trước khi navigate
+      const sessionReady = await waitForSession(2000);
+      if (!sessionReady) {
+        setError('Không thể xác nhận phiên đăng nhập. Vui lòng thử lại hoặc kiểm tra trình duyệt (cookie blocker).');
+        setLoading(false);
+        return;
+      }
+
       setPassword('');
+      // QUAN TRỌNG: setLoading(false) trước navigate, để nếu navigate
+      // bị chặn/bounce ngược, nút không bị kẹt "Đang xử lý..."
+      setLoading(false);
       router.push(nextParam);
       router.refresh();
     } catch {

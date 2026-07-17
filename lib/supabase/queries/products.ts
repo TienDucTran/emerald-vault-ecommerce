@@ -171,7 +171,12 @@ export async function searchProducts(params: SearchParams = {}) {
   if (params.collectionId)   q = q.eq('collection_id', params.collectionId);
   if (params.minPrice)       q = q.gte('price', params.minPrice);
   if (params.maxPrice)       q = q.lte('price', params.maxPrice);
-  if (onlyAvailable)         q = q.eq('status', 'AVAILABLE');
+  if (onlyAvailable) {
+    q = q.eq('status', 'AVAILABLE');
+  } else {
+    // Include RESERVED too (but never SOLD_OUT)
+    q = q.neq('status', 'SOLD_OUT');
+  }
 
   // Sort
   if (sort === 'newest')          q = q.order('created_at', { ascending: false });
@@ -186,6 +191,57 @@ export async function searchProducts(params: SearchParams = {}) {
   const { data, error, count } = await q;
   if (error) throw error;
   return { data: (data ?? []) as ProductBasic[], total: count ?? 0, page, pageSize };
+}
+
+/**
+ * Counts per filter dimension (category / material / tier).
+ * - `onlyAvailable: true`  → count chỉ AVAILABLE (khi "Chỉ xem hàng còn" BẬT).
+ * - `onlyAvailable: false` → count AVAILABLE + RESERVED (khi "Chỉ xem hàng còn" TẮT).
+ *   SOLD_OUT luôn bị loại (terminal).
+ * Counts độc lập giữa các dimension (không áp filter khác khi tính count).
+ * Dùng in-memory vì catalog nhỏ (~50–200 sp). Khi scale lên, chuyển sang RPC GROUP BY.
+ */
+export interface FilterCounts {
+  category: Record<string, number>;
+  material: Record<string, number>;
+  tier: Record<string, number>;
+  /** Tổng AVAILABLE (dùng làm mẫu số "Y" khi `onlyAvailable: true`). */
+  availableTotal: number;
+  /** Tổng AVAILABLE + RESERVED (dùng làm mẫu số "Y" khi `onlyAvailable: false`). */
+  grandTotal: number;
+}
+
+export async function getFilterCounts(opts: { onlyAvailable: boolean }): Promise<FilterCounts> {
+  const supabase = createClient();
+  // Lấy tối thiểu field cần thiết để group. 1 query duy nhất.
+  // SOLD_OUT bị loại ngay tại DB (terminal, không bao giờ tính).
+  const { data, error } = await supabase
+    .from('products')
+    .select('category, material, quality_tier, status')
+    .neq('status', 'SOLD_OUT');
+
+  if (error) throw error;
+
+  const rows = (data ?? []) as { category: string; material: string; quality_tier: string; status: string }[];
+  const availableRows = rows.filter((r) => r.status === 'AVAILABLE');
+
+  const counts: FilterCounts = {
+    category: {},
+    material: {},
+    tier: {},
+    availableTotal: availableRows.length,
+    grandTotal: rows.length,
+  };
+
+  const source = opts.onlyAvailable ? availableRows : rows;
+
+  for (const row of source) {
+    counts.category[row.category] = (counts.category[row.category] ?? 0) + 1;
+    counts.material[row.material] = (counts.material[row.material] ?? 0) + 1;
+    counts.tier[row.quality_tier] = (counts.tier[row.quality_tier] ?? 0) + 1;
+  }
+
+  return counts;
 }
 
 /** Chi tiết 1 sản phẩm (kèm specs) */

@@ -1,16 +1,18 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2 } from 'lucide-react';
+import { Loader2, AlertTriangle } from 'lucide-react';
 import { useCartStore } from '@/lib/store/cart';
 import { useAnonymousId } from '@/hooks/use-anonymous-id';
+import { createClient } from '@/lib/supabase/client';
 
 export type PaymentOption = 'MOMO' | 'COD' | 'BANK_TRANSFER';
 
 interface CheckoutFormProps {
   payment: PaymentOption;
   onPaymentChange: (option: PaymentOption) => void;
+  isBankConfigured: boolean;
 }
 
 const PAYMENT_OPTIONS: {
@@ -35,7 +37,7 @@ const PAYMENT_OPTIONS: {
   {
     id: 'BANK_TRANSFER',
     title: 'Chuyển khoản ngân hàng',
-    desc: 'Chuyển khoản qua tài khoản ngân hàng nội địa',
+    desc: 'Quét QR • Xác nhận trong vài giờ',
     icon: 'VCB',
   },
 ];
@@ -65,8 +67,10 @@ const ORDER_ERROR_MAP: Record<string, string> = {
   PRODUCT_SOLD_OUT: 'Món này vừa được sưu tầm rồi.',
   PRODUCT_NOT_FOUND: 'Sản phẩm không tồn tại.',
   PRODUCT_LOCKED_BY_OTHER: 'Có người khác đang giữ món này. Thử lại sau vài phút nhé.',
+  PRODUCT_RESERVED: 'Món này đang được người khác thanh toán. Vui lòng thử lại sau ít phút.',
   MOMO_NOT_CONFIGURED: 'Hệ thống MoMo chưa được cấu hình. Vui lòng chọn COD.',
   MOMO_FAILED: 'Không thể tạo thanh toán MoMo. Vui lòng thử lại hoặc chọn COD.',
+  BANK_NOT_CONFIGURED: 'Ngân hàng chưa được cấu hình. Vui lòng chọn phương thức khác.',
   ORDER_FAILED: 'Đặt hàng thất bại. Vui lòng thử lại.',
   NETWORK_ERROR: 'Mất kết nối mạng. Vui lòng thử lại.',
 };
@@ -75,12 +79,13 @@ function translateOrderError(code: string): string {
   return ORDER_ERROR_MAP[code] ?? `Đặt hàng thất bại (${code}).`;
 }
 
-export function CheckoutForm({ payment, onPaymentChange }: CheckoutFormProps) {
+export function CheckoutForm({ payment, onPaymentChange, isBankConfigured }: CheckoutFormProps) {
   const router = useRouter();
   const clientId = useAnonymousId();
-  const activeItem = useCartStore((s) =>
-    s.items.find((i) => Date.now() < i.expiresAt)
+  const activeItems = useCartStore((s) =>
+    s.items.filter((i) => Date.now() < i.expiresAt)
   );
+  const activeItem = activeItems[0] ?? null; // backward-compat cho UI cũ
 
   // FIX: B-3.4, C2 — controlled form state
   const [name, setName] = useState('');
@@ -92,6 +97,120 @@ export function CheckoutForm({ payment, onPaymentChange }: CheckoutFormProps) {
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [profileLoaded, setProfileLoaded] = useState(false);
+  const [invalidItems, setInvalidItems] = useState<
+    { productId: string; title: string; reason: string }[]
+  >([]);
+  const validateRanRef = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadProfile = async () => {
+      try {
+        const supabase = createClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          return;
+        }
+
+        const [{ data: profile }, { data: defaultAddress }] = await Promise.all([
+          supabase
+            .from('profiles')
+            .select('full_name, phone')
+            .eq('id', user.id)
+            .maybeSingle(),
+          supabase
+            .from('addresses')
+            .select('recipient_name, recipient_phone, address_line, province, district, ward')
+            .eq('user_id', user.id)
+            .eq('is_default', true)
+            .maybeSingle(),
+        ]);
+
+        if (cancelled) return;
+
+        const profileName = (profile?.full_name ?? '').toString().trim();
+        const profilePhone = (profile?.phone ?? '').toString().trim();
+        const addressName = (defaultAddress?.recipient_name ?? '').toString().trim();
+        const addressPhone = (defaultAddress?.recipient_phone ?? '').toString().trim();
+
+        setName((prev) => prev || profileName || addressName);
+        setPhone((prev) => prev || profilePhone || addressPhone);
+        setEmail((prev) => prev || (user.email ?? ''));
+
+        if (defaultAddress) {
+          const addressLine = (defaultAddress.address_line ?? '').toString();
+          const provinceVal = (defaultAddress.province ?? '').toString();
+          const districtVal = (defaultAddress.district ?? '').toString();
+          setAddress((prev) => prev || addressLine);
+          setProvince((prev) => prev || provinceVal);
+          setDistrict((prev) => prev || districtVal);
+        }
+      } catch (err) {
+        console.error('Failed to auto-fill checkout form from profile:', err);
+      } finally {
+        if (!cancelled) {
+          setProfileLoaded(true);
+        }
+      }
+    };
+    loadProfile();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Server-side lock validation on mount — chạy đúng 1 lần, không re-validate khi re-render.
+  useEffect(() => {
+    if (validateRanRef.current) return;
+    const items = useCartStore
+      .getState()
+      .items.filter((i) => Date.now() < i.expiresAt);
+    if (items.length === 0) {
+      validateRanRef.current = true;
+      return;
+    }
+    validateRanRef.current = true;
+
+    (async () => {
+      try {
+        const res = await fetch('/api/cart/validate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            items: items.map((i) => ({
+              productId: i.product.id,
+              lockId: i.lockId,
+            })),
+          }),
+        });
+        if (!res.ok) return;
+        const json = await res.json();
+        if (!json.ok || !Array.isArray(json.results)) return;
+        const invalids: { productId: string; title: string; reason: string }[] = [];
+        for (const r of json.results as Array<{
+          productId: string;
+          valid: boolean;
+          reason?: string;
+        }>) {
+          if (r.valid) continue;
+          const found = items.find((i) => i.product.id === r.productId);
+          if (!found) continue;
+          invalids.push({
+            productId: found.product.id,
+            title: found.product.title,
+            reason: r.reason ?? 'LOCK_INVALID',
+          });
+        }
+        if (invalids.length > 0) {
+          setInvalidItems(invalids);
+        }
+      } catch (err) {
+        // Network errors are non-fatal — local expiry check vẫn hoạt động.
+        console.error('cart validate failed:', err);
+      }
+    })();
+  }, []);
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -109,6 +228,10 @@ export function CheckoutForm({ payment, onPaymentChange }: CheckoutFormProps) {
       setError('Vui lòng nhập địa chỉ giao hàng.');
       return;
     }
+    if (payment === 'BANK_TRANSFER' && !isBankConfigured) {
+      setError('Ngân hàng chưa được cấu hình. Vui lòng chọn phương thức khác.');
+      return;
+    }
     if (!activeItem) {
       setError('Giỏ hàng trống hoặc đã hết thời gian giữ hàng. Vui lòng chọn lại sản phẩm.');
       return;
@@ -117,21 +240,27 @@ export function CheckoutForm({ payment, onPaymentChange }: CheckoutFormProps) {
     setError(null);
     setSubmitting(true);
     try {
-      const product = activeItem.product;
-      // 1. Tạo order
+      // 0. Đánh dấu tất cả active items đã bắt đầu checkout
+      //    → server /api/orders có thể re-use lock thay vì re-lock
+      useCartStore
+        .getState()
+        .markCheckoutStarted(activeItems.map((i) => i.product.id));
+
+      // 1. Tạo order (multi-item)
+      const orderItems = activeItems.map((i) => ({
+        productId: i.product.id,
+        price: i.product.price,
+        title: i.product.title,
+        image: i.product.image_url,
+        material: i.product.material,
+        lockId: i.lockId,
+        checkoutStartedAt: i.checkoutStartedAt ?? null,
+      }));
       const orderRes = await fetch('/api/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          items: [
-            {
-              productId: product.id,
-              price: product.price,
-              title: product.title,
-              image: product.image_url,
-              material: product.material,
-            },
-          ],
+          items: orderItems,
           customer: { name, phone, email, address, province, district, notes },
           payment,
           clientId: clientId ?? undefined,
@@ -144,6 +273,7 @@ export function CheckoutForm({ payment, onPaymentChange }: CheckoutFormProps) {
         return;
       }
       const { code, paymentMethod } = orderJson.order;
+      const redirectUrl: string | undefined = orderJson.redirectUrl;
 
       // 2. Phân luồng
       if (paymentMethod === 'MOMO') {
@@ -161,10 +291,14 @@ export function CheckoutForm({ payment, onPaymentChange }: CheckoutFormProps) {
         window.location.href = momoJson.payUrl;
         return;
       }
-      // COD / Bank transfer: sang trang đơn hàng
+      // COD / Bank transfer: sang trang đơn hàng (hoặc trang QR cho BANK_TRANSFER)
       // Clear cart local
       useCartStore.getState().clear();
-      router.push(`/don-hang/${code}?phone=${encodeURIComponent(phone)}`);
+      if (redirectUrl) {
+        router.push(`${redirectUrl}?phone=${encodeURIComponent(phone)}`);
+      } else {
+        router.push(`/don-hang/${code}?phone=${encodeURIComponent(phone)}`);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'NETWORK_ERROR');
     } finally {
@@ -174,6 +308,27 @@ export function CheckoutForm({ payment, onPaymentChange }: CheckoutFormProps) {
 
   return (
     <form className="flex flex-col gap-10" onSubmit={handleSubmit} noValidate>
+      {invalidItems.length > 0 && (
+        <div
+          role="alert"
+          className="flex flex-col gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-300"
+        >
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            <span className="font-heading text-xs font-bold uppercase tracking-wider">
+              Một số sản phẩm đã hết thời gian giữ kho
+            </span>
+          </div>
+          <ul className="ml-6 list-disc text-xs text-amber-200/90">
+            {invalidItems.map((it) => (
+              <li key={it.productId}>
+                Món {it.title} đã hết thời gian giữ kho hoặc có người khác đang
+                giữ. Vui lòng quay lại giỏ hàng.
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {/* — Section 01: Customer Information — */}
       <section className="rounded-md border border-gold/10 bg-surface-emerald/40 p-8">
         {/* Header */}
@@ -183,6 +338,12 @@ export function CheckoutForm({ payment, onPaymentChange }: CheckoutFormProps) {
             Thông Tin Khách Hàng
           </h2>
         </div>
+
+        {activeItems.length === 0 && (
+          <div className="mb-6 rounded-md border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-300">
+            Tất cả sản phẩm đã hết thời gian giữ kho. Vui lòng quay lại giỏ hàng để giữ lại.
+          </div>
+        )}
 
         {/* Form fields */}
         <div className="flex flex-col gap-3">
@@ -310,13 +471,19 @@ export function CheckoutForm({ payment, onPaymentChange }: CheckoutFormProps) {
         <div className="flex flex-col gap-4">
           {PAYMENT_OPTIONS.map((option) => {
             const isSelected = payment === option.id;
+            const isBankUnavailable = option.id === 'BANK_TRANSFER' && !isBankConfigured;
+            const isDisabled = isBankUnavailable;
             return (
               <label
                 key={option.id}
-                className={`flex cursor-pointer items-center justify-between rounded-md border p-5 transition-all ${
-                  isSelected
-                    ? 'border-gold/40 bg-gold/5'
-                    : 'border-gold/20 bg-background/20 hover:border-gold/30'
+                className={`flex items-center justify-between rounded-md border p-5 transition-all ${
+                  isDisabled
+                    ? 'cursor-not-allowed border-gold/10 bg-background/10 opacity-50'
+                    : `cursor-pointer ${
+                        isSelected
+                          ? 'border-gold/40 bg-gold/5'
+                          : 'border-gold/20 bg-background/20 hover:border-gold/30'
+                      }`
                 }`}
               >
                 <div className="flex items-center gap-4">
@@ -351,6 +518,11 @@ export function CheckoutForm({ payment, onPaymentChange }: CheckoutFormProps) {
                   <div className="flex flex-col">
                     <span className="font-sans text-base font-semibold text-text-base">
                       {option.title}
+                      {isBankUnavailable && (
+                        <span className="ml-2 text-xs font-normal text-text-muted">
+                          (Chưa khả dụng)
+                        </span>
+                      )}
                     </span>
                     <span className="text-xs text-text-muted">{option.desc}</span>
                   </div>
@@ -362,6 +534,7 @@ export function CheckoutForm({ payment, onPaymentChange }: CheckoutFormProps) {
                   name="payment"
                   value={option.id}
                   checked={isSelected}
+                  disabled={isDisabled}
                   onChange={() => onPaymentChange(option.id)}
                   className="sr-only"
                 />
@@ -374,7 +547,7 @@ export function CheckoutForm({ payment, onPaymentChange }: CheckoutFormProps) {
       {/* — Submit button — */}
       <button
         type="submit"
-        disabled={submitting}
+        disabled={submitting || activeItems.length === 0}
         className="flex w-full items-center justify-center gap-2 bg-gold py-4 font-heading text-xs font-bold uppercase tracking-[0.1em] text-background transition-all hover:bg-gold-champagne hover:shadow-gold-glow disabled:cursor-not-allowed disabled:opacity-60"
       >
         {submitting ? (

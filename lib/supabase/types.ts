@@ -167,6 +167,16 @@ export interface ReviewRow {
   updated_at: string;
 }
 
+export interface NewsletterSubscriberRow {
+  id: string;
+  email: string;
+  full_name: string | null;
+  source: string | null;
+  is_active: boolean;
+  subscribed_at: string;
+  unsubscribed_at: string | null;
+}
+
 // PostgREST-style Database type
 export type Database = {
   public: {
@@ -186,6 +196,8 @@ export type Database = {
       addresses:           { Row: AddressRow;         Insert: Partial<Omit<AddressRow, 'id' | 'created_at' | 'updated_at'>>  & { user_id: string; recipient_name: string; recipient_phone: string; address_line: string; province: string; district: string }; Update: Partial<Omit<AddressRow, 'id' | 'user_id' | 'created_at' | 'updated_at'>> };
       wishlist_items:      { Row: WishlistItemRow;    Insert: Omit<WishlistItemRow, 'id' | 'created_at'>; Update: never };
       product_reviews:     { Row: ReviewRow;          Insert: Partial<Omit<ReviewRow, 'id' | 'created_at' | 'updated_at' | 'is_approved'>>  & { product_id: string; customer_name: string; rating: number; content: string; user_id: string }; Update: Partial<Pick<ReviewRow, 'title' | 'content' | 'rating'>> };
+      // Migration 0006 — newsletter subscribers
+      newsletter_subscribers: { Row: NewsletterSubscriberRow; Insert: Partial<Omit<NewsletterSubscriberRow, 'id' | 'subscribed_at'>> & { email: string }; Update: Partial<Pick<NewsletterSubscriberRow, 'is_active' | 'full_name' | 'source'>> };
     };
     Views: { [_ in never]: never };
     Functions: {

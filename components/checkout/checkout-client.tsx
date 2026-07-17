@@ -25,6 +25,7 @@ export interface CheckoutItem {
 
 interface CheckoutClientProps {
   item: CheckoutItem;
+  isBankConfigured: boolean;
 }
 
 function toCheckoutItem(cartItem: {
@@ -51,33 +52,48 @@ function toCheckoutItem(cartItem: {
   };
 }
 
-export function CheckoutClient({ item }: CheckoutClientProps) {
+export function CheckoutClient({ item, isBankConfigured }: CheckoutClientProps) {
   const [payment, setPayment] = useState<PaymentOption>('MOMO');
   const analytics = useJewelryAnalytics();
   // Fire begin_checkout đúng 1 lần khi displayItem sẵn sàng.
   const beginFiredRef = useRef(false);
 
-  const activeCartItem = useCartStore((s) =>
-    s.items.find((i) => Date.now() < i.expiresAt)
-  );
+  // Tick mỗi giây để `minExpiresAt` + `itemCount` được recompute theo thời gian thực
+  // (cart store chỉ emit khi items[] thay đổi, không tick theo đồng hồ).
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const interval = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(interval);
+  }, []);
 
-  const displayItem = activeCartItem
-    ? toCheckoutItem(activeCartItem)
-    : item;
+  const activeItems = useCartStore((s) =>
+    s.items.filter((i) => Date.now() < i.expiresAt)
+  );
+  const itemCount = activeItems.length;
+  const minExpiresAt =
+    activeItems.length > 0
+      ? Math.min(...activeItems.map((i) => i.expiresAt))
+      : null;
+
+  const allCheckoutItems: CheckoutItem[] =
+    activeItems.length > 0
+      ? activeItems.map(toCheckoutItem)
+      : [item];
+  const displayItem = allCheckoutItems[0];
 
   // GA4: begin_checkout — fire 1 lần khi user vào trang thanh toán.
   useEffect(() => {
     if (beginFiredRef.current) return;
     beginFiredRef.current = true;
     analytics.beginCheckout({
-      product: {
-        id: displayItem.id,
-        title: displayItem.title,
-        category: displayItem.category,
-        material: displayItem.material,
-        quality_tier: displayItem.tier,
-        price: displayItem.price,
-      },
+      products: allCheckoutItems.map((i) => ({
+        id: i.id,
+        title: i.title,
+        category: i.category,
+        material: i.material,
+        quality_tier: i.tier,
+        price: i.price,
+      })),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -100,9 +116,19 @@ export function CheckoutClient({ item }: CheckoutClientProps) {
 
   return (
     <>
-      <CheckoutForm payment={payment} onPaymentChange={setPayment} />
+      <CheckoutForm
+        payment={payment}
+        onPaymentChange={setPayment}
+        isBankConfigured={isBankConfigured}
+      />
       <div className="lg:sticky lg:top-24 lg:self-start">
-        <CheckoutSummary item={displayItem} payment={payment} />
+        <CheckoutSummary
+          item={displayItem}
+          items={allCheckoutItems}
+          payment={payment}
+          minExpiresAt={minExpiresAt}
+          itemCount={itemCount}
+        />
       </div>
     </>
   );

@@ -44,6 +44,7 @@ export async function POST(req: Request) {
     const code =
       msg.includes('PRODUCT_NOT_FOUND') ? 404
       : msg.includes('PRODUCT_SOLD_OUT') ? 410
+      : msg.includes('PRODUCT_RESERVED') ? 409
       : msg.includes('PRODUCT_LOCKED_BY_OTHER') ? 409
       : 500;
     return NextResponse.json({ ok: false, error: msg }, { status: code });

@@ -13,6 +13,16 @@ export type RecentlyViewedItem = {
   price: number;
   material: string;
   quality_tier: string;
+  /**
+   * Status snapshot lúc user xem (AVAILABLE | SOLD_OUT | RESERVED).
+   * Dùng để render overlay vintage stamp trong RecentlyViewedLocal.
+   *
+   * Lưu ý: status có thể stale (user xem lúc AVAILABLE, sau đó admin SOLD_OUT
+   * → recently viewed vẫn show AVAILABLE). Acceptable cho UX recently-viewed —
+   * user click vào PDP sẽ thấy status mới nhất. Nếu cần fresh, fetch lại từ DB
+   * qua `/api/products/brief` batch, nhưng tốn 1 round-trip.
+   */
+  status: 'AVAILABLE' | 'SOLD_OUT' | 'RESERVED' | string;
   viewedAt: number;
 };
 
@@ -35,6 +45,9 @@ function readStorage(): RecentlyViewedItem[] {
         typeof x.price === 'number' &&
         typeof x.material === 'string' &&
         typeof x.quality_tier === 'string' &&
+        // Backward compat: nếu localStorage cũ chưa có status → fallback 'AVAILABLE'
+        // (tránh crash khi user upgrade code mà vẫn còn data cũ)
+        (x.status === undefined || typeof x.status === 'string') &&
         typeof x.viewedAt === 'number'
     );
   } catch {
@@ -61,7 +74,13 @@ export function useRecentlyViewed() {
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
-    setItems(readStorage());
+    const stored = readStorage();
+    // Backfill status = 'AVAILABLE' cho item localStorage cũ (trước khi feature này được thêm)
+    const normalized = stored.map((x) => ({
+      ...x,
+      status: x.status ?? 'AVAILABLE',
+    }));
+    setItems(normalized);
     setHydrated(true);
 
     const onStorage = (e: StorageEvent) => {

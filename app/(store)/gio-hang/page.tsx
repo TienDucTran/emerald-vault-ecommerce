@@ -2,11 +2,12 @@
 
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
-import { ShoppingBag, ArrowRight, Trash2, Clock } from 'lucide-react';
+import { ShoppingBag, ArrowRight, Trash2, Clock, ShieldAlert } from 'lucide-react';
 import { useCartStore } from '@/lib/store/cart';
 import { formatCountdown } from '@/hooks/use-countdown';
 import { useJewelryAnalytics } from '@/hooks/use-jewelry-analytics';
 import { formatVND } from '@/lib/utils';
+import { createClient } from '@/lib/supabase/client';
 
 const LOCK_DURATION_MS = 10 * 60 * 1000; // 10 phút — đồng bộ với lib/constants
 
@@ -16,6 +17,8 @@ export default function CartPage() {
   const analytics = useJewelryAnalytics();
   const [tick, setTick] = useState(0);
   const [mounted, setMounted] = useState(false);
+  // 'admin' | 'customer' | 'guest' | null (= loading)
+  const [userRole, setUserRole] = useState<'admin' | 'customer' | 'guest' | null>(null);
 
   // Track items đã expire để gọi unlock-item 1 lần
   const expiredNotifiedRef = useRef<Set<string>>(new Set());
@@ -23,6 +26,34 @@ export default function CartPage() {
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Detect role user: admin → block checkout UX, customer → allow, guest → allow
+  useEffect(() => {
+    if (!mounted) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const supabase = createClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (cancelled || !user) {
+          if (!cancelled) setUserRole('guest');
+          return;
+        }
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', user.id)
+          .maybeSingle();
+        if (cancelled) return;
+        setUserRole((profile?.role as 'admin' | 'customer') ?? 'guest');
+      } catch {
+        if (!cancelled) setUserRole('guest');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mounted]);
 
   useEffect(() => {
     if (!mounted) return;
@@ -78,6 +109,9 @@ export default function CartPage() {
   const activeItems = items.filter((i) => Date.now() < i.expiresAt);
   const expiredItems = items.filter((i) => Date.now() >= i.expiresAt);
   const total = activeItems.reduce((sum, i) => sum + i.product.price, 0);
+  const isAdmin = userRole === 'admin';
+  // Disable checkout button nếu admin (dù URL /thanh-toan cũng bị server-side guard)
+  const canCheckout = activeItems.length > 0 && !isAdmin;
 
   if (items.length === 0) {
     return (
@@ -108,6 +142,16 @@ export default function CartPage() {
 
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1fr_360px]">
         <div className="flex flex-col gap-4">
+          {expiredItems.length > 0 && activeItems.length > 0 && (
+            <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200">
+              Có {expiredItems.length} món đã hết thời gian giữ và sẽ bị bỏ qua khi thanh toán. Bạn có thể xoá chúng khỏi giỏ hoặc thử giữ lại.
+            </div>
+          )}
+          {expiredItems.length > 0 && activeItems.length === 0 && (
+            <div className="rounded-md border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-300">
+              Tất cả {expiredItems.length} món đã hết thời gian giữ. Vui lòng quay lại trang sản phẩm và bấm &ldquo;Giữ hàng 10 phút&rdquo; lại.
+            </div>
+          )}
           {activeItems.map((item) => {
             const timeLeft = Math.max(0, item.expiresAt - Date.now());
             return (
@@ -202,16 +246,48 @@ export default function CartPage() {
               <span>Tổng cộng</span>
               <span className="text-gold">{formatVND(total)}</span>
             </div>
+
+            {isAdmin && (
+              <div className="mb-3 flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 p-3 text-[11px] leading-relaxed text-warning">
+                <ShieldAlert className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                <div>
+                  <p className="font-heading tracking-[0.1em] uppercase">
+                    Tài khoản admin
+                  </p>
+                  <p className="mt-1 text-warning/80">
+                    Tài khoản quản trị viên không thể đặt hàng qua kênh khách hàng.
+                    Vui lòng dùng tài khoản khách hoặc{' '}
+                    <Link
+                      href="/tai-khoan/dang-xuat"
+                      className="underline underline-offset-2 hover:text-warning"
+                    >
+                      đăng xuất
+                    </Link>
+                    .
+                  </p>
+                </div>
+              </div>
+            )}
+
             <Link
               href="/thanh-toan"
+              aria-disabled={!canCheckout}
+              tabIndex={canCheckout ? 0 : -1}
+              onClick={(e) => {
+                if (!canCheckout) e.preventDefault();
+              }}
               className={`flex w-full items-center justify-center gap-2 rounded-md px-6 py-3 text-sm font-semibold transition-shadow ${
-                activeItems.length === 0
-                  ? 'pointer-events-none bg-surface-emerald text-text-muted'
+                !canCheckout
+                  ? 'pointer-events-none cursor-not-allowed bg-surface-emerald text-text-muted'
                   : 'bg-gradient-gold text-background hover:shadow-gold-glow-lg'
               }`}
             >
-              Tiến hành thanh toán
-              <ArrowRight className="h-4 w-4" />
+              {isAdmin
+                ? 'Admin không thể đặt hàng'
+                : activeItems.length === 0
+                  ? 'Chưa có món nào đang giữ'
+                  : 'Tiến hành thanh toán'}
+              {!isAdmin && <ArrowRight className="h-4 w-4" />}
             </Link>
           </div>
         </div>

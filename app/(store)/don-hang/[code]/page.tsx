@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { Loader2, Search, Package, Clock, Truck, CheckCircle2, XCircle } from 'lucide-react';
+import { Loader2, Search, Package, Clock, Truck, CheckCircle2, XCircle, Wallet, ArrowRight } from 'lucide-react';
 import { formatVND } from '@/lib/utils';
 import { useJewelryAnalytics } from '@/hooks/use-jewelry-analytics';
 import type {
@@ -185,6 +185,48 @@ export default function OrderLookupPage() {
 
       {order && st && (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_360px]">
+          <div className="flex flex-col gap-4 lg:col-span-2">
+            {/* Bank transfer banner */}
+            {order.payment_method === 'BANK_TRANSFER' &&
+              (order.status === 'WAITING_PAYMENT' || order.status === 'WAITING_CONFIRM') && (
+                <div
+                  className={`flex flex-col items-start gap-3 rounded-lg border p-5 sm:flex-row sm:items-center sm:justify-between ${
+                    order.status === 'WAITING_PAYMENT'
+                      ? 'border-gold/30 bg-gold/5'
+                      : 'border-amber-400/30 bg-amber-400/10'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    {order.status === 'WAITING_CONFIRM' ? (
+                      <Loader2 className="h-5 w-5 animate-spin text-amber-300" />
+                    ) : (
+                      <Wallet className="h-5 w-5 text-gold" />
+                    )}
+                    <div>
+                      <p className="font-heading text-base font-semibold text-text-base">
+                        {order.status === 'WAITING_PAYMENT'
+                          ? 'Đơn hàng chờ thanh toán'
+                          : 'Đã ghi nhận thanh toán, đang chờ admin xác nhận'}
+                      </p>
+                      <p className="text-xs text-text-muted">
+                        {order.status === 'WAITING_PAYMENT'
+                          ? 'Vui lòng quét QR hoặc CK theo thông tin bên dưới.'
+                          : 'Admin sẽ xác nhận trong ít phút. Bạn có thể tiếp tục theo dõi tại đây.'}
+                      </p>
+                    </div>
+                  </div>
+                  {order.status === 'WAITING_PAYMENT' && (
+                    <Link
+                      href={`/don-hang/${order.code}/thanh-toan?phone=${encodeURIComponent(phone)}`}
+                      className="inline-flex items-center gap-2 rounded bg-gold px-4 py-2 text-sm font-semibold text-background transition-colors hover:bg-gold-champagne"
+                    >
+                      Thanh toán ngay
+                      <ArrowRight className="h-4 w-4" />
+                    </Link>
+                  )}
+                </div>
+              )}
+
           <div className="flex flex-col gap-4">
             {/* Items */}
             {order.order_items.map((it) => (
@@ -243,10 +285,14 @@ export default function OrderLookupPage() {
                   className={`font-semibold ${
                     order.payment_status === 'PAID' ? 'text-green-400'
                     : order.payment_status === 'FAILED' ? 'text-red-400'
+                    : order.payment_status === 'PENDING' && order.payment_method === 'BANK_TRANSFER'
+                      ? 'text-gold'
                     : 'text-amber-400'
                   }`}
                 >
-                  {PAYMENT_STATUS_MAP[order.payment_status] ?? order.payment_status}
+                  {order.payment_method === 'BANK_TRANSFER' && order.payment_status === 'PENDING'
+                    ? 'Chờ CK'
+                    : PAYMENT_STATUS_MAP[order.payment_status] ?? order.payment_status}
                 </span>
               </div>
             </div>
@@ -286,6 +332,7 @@ export default function OrderLookupPage() {
               )}
             </div>
           </div>
+        </div>
         </div>
       )}
     </div>
