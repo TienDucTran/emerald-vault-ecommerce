@@ -11,6 +11,7 @@ import {
   ShoppingBag,
   CreditCard,
   Mail,
+  Bot,
   BarChart3,
   Settings,
   ChevronLeft,
@@ -31,6 +32,7 @@ const ICONS: Record<string, LucideIcon> = {
   ShoppingBag,
   CreditCard,
   Mail,
+  Bot,
   BarChart3,
   Settings,
 };

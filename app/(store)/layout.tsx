@@ -6,7 +6,7 @@ import { AnnouncementBar } from '@/components/layout/announcement-bar';
 import { Navbar } from '@/components/layout/navbar';
 import { Footer } from '@/components/layout/footer';
 import { MobileBottomNav } from '@/components/home/mobile/mobile-bottom-nav';
-import { MobileChatbotBubble } from '@/components/home/mobile/mobile-chatbot-bubble';
+import { ChatWidget } from '@/components/chatbot/chat-widget';
 import { ConsentBanner } from '@/components/analytics/consent-banner';
 import { OrganizationJsonLd } from '@/components/seo/json-ld-organization';
 import { Toaster } from '@/components/ui/toast';
@@ -89,7 +89,7 @@ gtag('consent', 'default', { ad_storage: 'denied', analytics_storage: 'denied', 
         </div>
         {/* Mobile bottom nav + chatbot */}
         <MobileBottomNav />
-        <MobileChatbotBubble />
+        <ChatWidget />
         <ConsentBanner />
         <Toaster />
         {/* GA4 — chỉ mount khi NEXT_PUBLIC_GA_ID đã set; nếu trống (dev mới setup)

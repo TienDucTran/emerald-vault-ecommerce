@@ -16,6 +16,7 @@ export const adminNavItems: readonly AdminNavItem[] = [
   { id: 'orders', label: 'Orders', href: '/admin/orders', icon: 'ShoppingBag' },
   { id: 'payments', label: 'Payments', href: '/admin/payments', icon: 'CreditCard' },
   { id: 'newsletter', label: 'Newsletter', href: '/admin/newsletter', icon: 'Mail' },
+  { id: 'chatbot', label: 'Chatbot', href: '/admin/chatbot', icon: 'Bot' },
   { id: 'analytics', label: 'Analytics', href: '/admin/analytics', icon: 'BarChart3' },
   { id: 'settings', label: 'Settings', href: '/admin/settings', icon: 'Settings' },
 ] as const;
