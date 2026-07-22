@@ -6,6 +6,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { authErrorResponse, requireAdmin } from '@/lib/auth/require-admin';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { invalidateKnowledgeCache } from '@/lib/chatbot/cache-invalidation';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -76,6 +77,8 @@ export async function POST(req: Request) {
     if (error) {
       return NextResponse.json({ error: 'DB_ERROR', message: error.message }, { status: 500 });
     }
+    // Invalidate cache để chatbot thấy knowledge mới ngay
+    invalidateKnowledgeCache();
     return NextResponse.json({ ok: true, id: data.id });
   } catch (e) {
     return authErrorResponse(e);
@@ -99,6 +102,8 @@ export async function PUT(req: Request) {
     if (error) {
       return NextResponse.json({ error: 'DB_ERROR', message: error.message }, { status: 500 });
     }
+    // Invalidate cache để chatbot thấy knowledge đã cập nhật
+    invalidateKnowledgeCache();
     return NextResponse.json({ ok: true });
   } catch (e) {
     return authErrorResponse(e);
@@ -118,6 +123,8 @@ export async function DELETE(req: Request) {
     if (error) {
       return NextResponse.json({ error: 'DB_ERROR', message: error.message }, { status: 500 });
     }
+    // Invalidate cache để chatbot không trả về knowledge đã xoá
+    invalidateKnowledgeCache();
     return NextResponse.json({ ok: true });
   } catch (e) {
     return authErrorResponse(e);

@@ -14,6 +14,7 @@ import { z } from 'zod';
 import { authErrorResponse, requireAdmin } from '@/lib/auth/require-admin';
 import { slugify } from '@/lib/utils';
 import type { CollectionRow } from '@/lib/supabase/types';
+import { invalidateCollectionCache } from '@/lib/chatbot/cache-invalidation';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -191,6 +192,9 @@ export async function PATCH(req: Request, ctx: RouteCtx) {
       );
     }
 
+    // Invalidate cache để chatbot thấy collection đã cập nhật
+    invalidateCollectionCache();
+
     return NextResponse.json({ ok: true, data: updated });
   } catch (err) {
     return authErrorResponse(err, 'admin/collections/id');
@@ -232,6 +236,9 @@ export async function DELETE(_req: Request, ctx: RouteCtx) {
         { status: 500 }
       );
     }
+
+    // Invalidate cache để chatbot không trả về collection đã xoá
+    invalidateCollectionCache();
 
     return NextResponse.json({ ok: true });
   } catch (err) {

@@ -84,7 +84,7 @@ export async function GET(req: Request) {
       );
     }
 
-    const orderIds = (data ?? []).map((o) => o.id);
+    const orderIds = ((data ?? []) as Array<{ id: string }>).map((o) => o.id);
     let itemsCountMap = new Map<string, number>();
     if (orderIds.length > 0) {
       const { data: items, error: itemsErr } = await admin
@@ -103,7 +103,7 @@ export async function GET(req: Request) {
       }
     }
 
-    const orders: OrderListItem[] = (data ?? []).map((o) => ({
+    const orders: OrderListItem[] = ((data ?? []) as any).map((o: any) => ({
       id: o.id,
       code: o.code,
       customer_name: o.customer_name,

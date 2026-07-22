@@ -135,7 +135,7 @@ export function ProductGallery({ product }: ProductGalleryProps) {
 
           {/* Unavailable overlay — vintage stamp style */}
           {isUnavailable && (
-            <ProductUnavailableOverlay status={product.status} />
+            <ProductUnavailableOverlay status={product.status as 'SOLD_OUT' | 'RESERVED'} />
           )}
         </div>
       </div>

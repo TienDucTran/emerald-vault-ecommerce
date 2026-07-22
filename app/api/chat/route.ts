@@ -4,7 +4,7 @@ import { NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { getCurrentUser } from '@/lib/auth/require-customer';
-import { getChatModelChain, setActiveProvider } from '@/lib/chatbot/client';
+import { getChatModelChain, setActiveProvider, markProviderRateLimited, isProviderAvailable, getCooldownInfo } from '@/lib/chatbot/client';
 import { SYSTEM_PROMPT } from '@/lib/chatbot/system-prompt';
 import { allTools } from '@/lib/chatbot/tools';
 import { getChatConfig } from '@/lib/chatbot/config';
@@ -115,7 +115,17 @@ export async function POST(request: NextRequest) {
     }
 
     type ChatRow = { role: string; content: string };
-    // 7) Sliding window: last 10 messages from DB (anti-tampering)
+
+    // Khai báo regex/timeout ở đầu function (sau khi đã chắc chắn `extractText` cũng ở scope
+    // này). Cẩn thận thứ tự declaration: các const dùng trong `orderedFiltered.filter(...)` ở
+    // dòng ~188 phải được khai báo TRƯỚC khi filter chạy.
+    const TOOL_CALL_BUG_RE = /tool call|tool_use|validation|schema|getKnowledge/i;
+    const TOOL_CALL_LEAK_RE = /function\s*=\s*\w+\s*>\s*[\{<]/i;
+    const FUNCTION_TAG_RE = /<\/?function\s*>/i;
+    const STREAM_TIMEOUT_MS = 25_000;
+    const RATE_LIMIT_RE = /rate limit|429|tokens per minute|\btpm\b|quota|too many requests|try again in/i;
+
+    // 7) Sliding window: last messages from DB (anti-tampering)
     // Nếu incoming messages chỉ có 1 (first turn), tin tưởng client và dùng trực tiếp,
     // bỏ qua DB history để tránh corrupted data từ session cũ.
     const isFirstTurn = messages.length === 1;
@@ -138,20 +148,24 @@ export async function POST(request: NextRequest) {
       })) as ChatRow[];
       console.log(`[api/chat] first turn — using client messages directly (${orderedHistory.length})`);
     } else {
+      // Chỉ giữ 1 turn trước (user + assistant) để tránh echo duplicate response trong multi-turn.
+      // Lý do: nếu load nhiều turn cũ, context có nhiều câu trả lời tương tự → model dễ generate
+      // lại toàn bộ lịch sử thay vì chỉ trả lời câu hiện tại. Giới hạn 2 message (1 user + 1 assistant)
+      // là đủ để model hiểu ngữ cảnh mà không bị "echo leak" từ các turn cũ.
       const { data: history, error: histErr } = await supabaseAdmin
         .from('chat_messages')
         .select('role, content')
         .eq('session_id', sessionId)
         .order('created_at', { ascending: false })
-        .limit(10);
+        .limit(2); // chỉ giữ 1 turn trước (user + assistant) để tránh echo
       if (histErr) {
         console.error('[api/chat] load history failed:', histErr.message);
       }
       orderedHistory = ((history ?? []) as ChatRow[]).reverse();
-      console.log(`[api/chat] multi-turn — loaded ${orderedHistory.length} from DB`);
+      console.log(`[api/chat] multi-turn — loaded ${orderedHistory.length} from DB (limit=2, anti-echo)`);
     }
+    // (type ChatRow defined above)
 
-    type ChatRow = { role: string; content: string };
     // AI SDK v6 yêu cầu `content` là array of parts (ModelMessage format), không phải string thuần.
     // Convert từ format DB {role, content: string} sang {role, content: [{type:'text', text}]}.
     // Nếu content là JSON string (do client lưu UIMessage với content là array), unwrap text từ parts.
@@ -177,12 +191,42 @@ export async function POST(request: NextRequest) {
     };
     // Filter messages: bỏ message rỗng + bỏ assistant không có text (chỉ gọi tool).
     // Groq/OpenAI reject 400 khi có 2 assistant empty content liên tiếp.
+    // Bug 2: cũng skip nếu text chỉ chứa tool-call leak pattern (function=... hoặc <function> tag).
     const orderedFiltered = orderedHistory.filter((m) => {
       const text = extractText(m.content).trim();
       if (!text) return false; // empty content
+      if (TOOL_CALL_LEAK_RE.test(text) || FUNCTION_TAG_RE.test(text)) {
+        console.warn(`[api/chat] skipping message with tool-call leak artifact (role=${m.role})`);
+        return false;
+      }
       return m.role === 'user' || m.role === 'assistant' || m.role === 'system';
     });
-    const modelMessages = orderedFiltered.map((m) => ({
+
+    // Safety net: nếu 2 assistant message liên tiếp có text overlap cao (substring match),
+    // bỏ cái sau. Phòng trường hợp DB đã lưu duplicate từ turn trước (echo bug cũ) và
+    // model regenerate lại toàn bộ. Threshold: text ngắn >= 50 chars và nằm trong text dài.
+    const deduped: ChatRow[] = [];
+    for (const m of orderedFiltered) {
+      if (m.role === 'assistant' && deduped.length > 0) {
+        const prev = deduped[deduped.length - 1];
+        if (prev.role === 'assistant') {
+          const prevText = extractText(prev.content);
+          const curText = extractText(m.content);
+          if (curText && prevText) {
+            const shorter = curText.length < prevText.length ? curText : prevText;
+            const longer = curText.length < prevText.length ? prevText : curText;
+            if (shorter.length > 50 && longer.includes(shorter)) {
+              console.warn(`[api/chat] dedupe: skipping duplicate assistant message (shorter len=${shorter.length})`);
+              continue;
+            }
+          }
+        }
+      }
+      deduped.push(m);
+    }
+    const finalMessages = deduped;
+
+    const modelMessages = finalMessages.map((m) => ({
       role: m.role as 'user' | 'assistant' | 'system',
       content: [{ type: 'text' as const, text: extractText(m.content) }],
     }));
@@ -191,6 +235,19 @@ export async function POST(request: NextRequest) {
     // 8) Stream — thử từng provider trong chain (auto-fallback khi quota/404/401)
     const chain = getChatModelChain();
     if (chain.length === 0) {
+      const cooldowns = getCooldownInfo();
+      const hasCooldowns = Object.keys(cooldowns).length > 0;
+      if (hasCooldowns) {
+        console.error('[api/chat] All providers in cooldown:', cooldowns);
+        return Response.json(
+          {
+            error: 'ALL_PROVIDERS_COOLDOWN',
+            message: 'Tất cả AI provider đang trong thời gian chờ rate limit. Vui lòng thử lại sau ít phút.',
+            cooldowns,
+          },
+          { status: 503 }
+        );
+      }
       console.error('[api/chat] No AI provider configured — check env (GROQ_API_KEY / GOOGLE_AI_API_KEY / OPENAI_API_KEY)');
       return Response.json(
         {
@@ -205,20 +262,24 @@ export async function POST(request: NextRequest) {
     const failedReasons: { provider: string; reason: string }[] = [];
     let result: any = null;
     let successProvider: string | null = null;
+    let lastStreamErrorMsg: string | null = null;
 
     for (const entry of chain) {
       tried.push(`${entry.provider}/${entry.modelName}`);
       console.log(`[api/chat] Trying ${entry.provider}/${entry.modelName}...`);
       try {
-        result = streamText({
+        const candidate = streamText({
           model: entry.instance as unknown as Parameters<typeof streamText>[0]['model'],
           system: SYSTEM_PROMPT,
-          messages: modelMessages,
+          messages: modelMessages as any,
           tools: allTools,
           stopWhen: stepCountIs(4),
           experimental_context: {
             sessionId: sessionId ?? 'unknown',
             userId: userId ?? null,
+            // Truyền provider + model đang dùng cho từng tool call (analytics)
+            provider: entry.provider,
+            model: entry.modelName,
           },
           onFinish: async ({ text, usage }) => {
             try {
@@ -239,31 +300,74 @@ export async function POST(request: NextRequest) {
               );
             }
           },
-          onError: ({ error }) => {
+          onError: ({ error }: { error: { message?: string } | Error | unknown }) => {
+            const errMsg =
+              error && typeof error === 'object' && 'message' in error
+                ? (error as { message?: string }).message
+                : String(error);
+            lastStreamErrorMsg = errMsg ?? null;
             console.error(
               `[api/chat] streamText error (${entry.provider}/${entry.modelName}):`,
-              error?.message ?? error
+              errMsg
             );
-            console.error('[api/chat] error stack:', error instanceof Error ? error.stack : 'n/a');
-            console.error('[api/chat] error details:', JSON.stringify(error, null, 2));
           },
         });
-        // Test init bằng cách gọi consumeStream (không await, chỉ check error)
-        // Nếu provider fail quota/404, error sẽ surface ở consumeStream bên dưới
+
+        // Race consumeStream với timeout 25s (maxDuration=30, chừa 5s buffer).
+        // Runtime errors (tool call schema mismatch từ Groq 70b, quota exceeded,
+        // 401/404 mid-stream, ...) sẽ surface ở đây → fallback provider tiếp theo.
+        let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+        try {
+          await Promise.race([
+            candidate.consumeStream(),
+            new Promise<never>((_, reject) => {
+              timeoutHandle = setTimeout(
+                () => reject(new Error('STREAM_TIMEOUT')),
+                STREAM_TIMEOUT_MS
+              );
+            }),
+          ]);
+        } finally {
+          if (timeoutHandle) clearTimeout(timeoutHandle);
+        }
+
+        // Bug 1: consumeStream pass ≠ text clean. Một số model (Groq, OpenRouter)
+        // khi fail tool call schema sẽ generate raw text kiểu:
+        //   "function=getKnowledge>{\"category\":\"warranty\"}<function>"
+        // và stream thẳng ra client. Phải await result.text (Promise<string>)
+        // để lấy full response, check leak pattern, rồi mới return.
+        const fullText = await candidate.text;
+        if (TOOL_CALL_LEAK_RE.test(fullText) || FUNCTION_TAG_RE.test(fullText)) {
+          throw new Error(
+            'TOOL_CALL_LEAK: model generated raw tool call text instead of API call'
+          );
+        }
+
+        // consumeStream pass + text clean = OK, lưu result và return
+        result = candidate;
         successProvider = `${entry.provider}/${entry.modelName}`;
         setActiveProvider(entry.provider, entry.modelName);
-        console.log(`[api/chat] Using ${entry.provider}/${entry.modelName} (chain: ${chain.map(e => e.provider).join(' → ')})`);
-        break;
-      } catch (streamInitErr) {
-        const reason =
-          streamInitErr instanceof Error ? streamInitErr.message : 'unknown';
-        failedReasons.push({ provider: entry.provider, reason });
-        console.error(
-          `[api/chat] ${entry.provider}/${entry.modelName} init failed:`,
-          reason
+        console.log(
+          `[api/chat] Using ${entry.provider}/${entry.modelName} (chain: ${chain.map(e => e.provider).join(' → ')})`
         );
-        // Tiếp tục provider tiếp theo
+        break;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        const candidateMsg = lastStreamErrorMsg ?? msg;
+        if (RATE_LIMIT_RE.test(candidateMsg)) {
+          markProviderRateLimited(entry.provider, candidateMsg);
+        }
+        const isToolCallBug = TOOL_CALL_BUG_RE.test(msg);
+        const tag = isToolCallBug ? 'tool call failure' : 'failed';
+        console.error(
+          `[api/chat] ${tag} on ${entry.provider}/${entry.modelName}, trying next... ${msg}`
+        );
+        failedReasons.push({
+          provider: `${entry.provider}/${entry.modelName}`,
+          reason: msg,
+        });
         result = null;
+        // Tiếp tục provider tiếp theo
       }
     }
 

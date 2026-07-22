@@ -39,11 +39,11 @@ export default function CartPage() {
           if (!cancelled) setUserRole('guest');
           return;
         }
-        const { data: profile } = await supabase
+        const { data: profile } = (await supabase
           .from('profiles')
           .select('role')
           .eq('id', user.id)
-          .maybeSingle();
+          .maybeSingle()) as { data: { role?: string } | null };
         if (cancelled) return;
         setUserRole((profile?.role as 'admin' | 'customer') ?? 'guest');
       } catch {

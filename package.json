@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "next lint",
     "admin:create": "node --env-file=.env.local scripts/create-admin.mjs",
-    "ga4:import": "node scripts/import-ga4-key.mjs"
+    "ga4:import": "node scripts/import-ga4-key.mjs",
+    "typecheck": "node -e \"require('fs').rmSync('.tsbuildinfo',{force:true});require('child_process').execSync('tsc --noEmit',{stdio:'inherit'})\"",
+    "typecheck:clean": "node -e \"require('fs').rmSync('.tsbuildinfo',{force:true});require('fs').rmSync('.next',{recursive:true,force:true});require('child_process').execSync('tsc --noEmit',{stdio:'inherit'})\""
   },
   "dependencies": {
     "@ai-sdk/google": "^3.0.95",

@@ -1,3 +1,13 @@
 {
-  "extends": "next/core-web-vitals"
+  "extends": ["next/core-web-vitals", "next"],
+  "rules": {
+    "@next/next/no-img-element": "off",
+    "react-hooks/exhaustive-deps": "warn",
+    "jsx-a11y/role-has-required-aria-props": "warn"
+  },
+  "ignorePatterns": [
+    "node_modules/",
+    ".next/",
+    "lib/supabase/types.gen.ts"
+  ]
 }

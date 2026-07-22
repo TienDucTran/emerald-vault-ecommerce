@@ -53,6 +53,8 @@ interface BankTransferRow {
 
 const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
   NEW: 'Mới',
+  WAITING_PAYMENT: 'Chờ thanh toán',
+  WAITING_CONFIRM: 'Chờ xác nhận',
   CONFIRMED: 'Đã xác nhận',
   SHIPPING: 'Đang giao',
   DONE: 'Hoàn tất',
@@ -67,6 +69,8 @@ const PAYMENT_METHOD_LABEL: Record<PaymentMethod, { label: string; icon: string 
 
 const ORDER_STATUS_BADGE: Record<OrderStatus, 'default' | 'outline' | 'gold' | 'success' | 'sold-out'> = {
   NEW: 'outline',
+  WAITING_PAYMENT: 'outline',
+  WAITING_CONFIRM: 'gold',
   CONFIRMED: 'default',
   SHIPPING: 'default',
   DONE: 'gold',
@@ -132,7 +136,7 @@ export default async function OrderDetailPage({
   }
 
   const items: OrderItemWithProduct[] = (itemsRaw ?? []).map((row) => {
-    const r = row as OrderItemWithProduct;
+    const r = row as unknown as OrderItemWithProduct;
     return {
       id: r.id,
       order_id: r.order_id,

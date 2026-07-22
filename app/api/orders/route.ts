@@ -105,7 +105,7 @@ export async function POST(req: Request) {
           getAll() {
             return cookieStore.getAll();
           },
-          setAll(toSet) {
+          setAll(toSet: { name: string; value: string; options?: Record<string, unknown> }[]) {
             // No-op: route handler không cần set cookie (chỉ đọc)
           },
         },
@@ -115,11 +115,11 @@ export async function POST(req: Request) {
     if (user) {
       currentUserId = user.id;
       // Check role: nếu admin → 403
-      const { data: profile } = await createAdminClient()
+      const { data: profile } = (await createAdminClient()
         .from('profiles')
         .select('role')
         .eq('id', user.id)
-        .maybeSingle();
+        .maybeSingle()) as { data: { role?: string } | null };
       if (profile?.role === 'admin') {
         return NextResponse.json(
           {
@@ -187,7 +187,7 @@ export async function POST(req: Request) {
   // Nếu cart gửi kèm `lockId` + `checkoutStartedAt`, server RE-USE lock hiện có
   // (bỏ qua lock_item) nếu lock còn ACTIVE + chưa hết hạn + chưa gắn order.
   // Tránh được PRODUCT_LOCKED_BY_OTHER nếu client khác grab trong lúc user điền form.
-  const locks: { productId: string; lockId: string }[] = [];
+  const locks: { productId: string; lockId: string | null }[] = [];
   const shouldLock = !!clientId; // Lock cho cả 3 payment method nếu có clientId
   if (shouldLock) {
     for (const it of items) {

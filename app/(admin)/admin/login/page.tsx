@@ -35,11 +35,11 @@ function AdminLoginForm() {
       } = await supabase.auth.getUser();
       if (cancelled) return;
       if (user) {
-        const { data: profile } = await supabase
+        const { data: profile } = (await supabase
           .from('profiles')
           .select('*')
           .eq('id', user.id)
-          .single<ProfileRow>();
+          .single()) as { data: ProfileRow | null };
         if (cancelled) return;
         if (profile?.role === 'admin') {
           router.replace(nextParam);
@@ -78,11 +78,11 @@ function AdminLoginForm() {
         return;
       }
 
-      const { data: profile, error: profileError } = await supabase
+      const { data: profile, error: profileError } = (await supabase
         .from('profiles')
         .select('*')
         .eq('id', user.id)
-        .single<ProfileRow>();
+        .single()) as { data: ProfileRow | null; error: any };
 
       if (profileError || !profile) {
         await supabase.auth.signOut();

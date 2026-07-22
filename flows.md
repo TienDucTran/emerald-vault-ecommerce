@@ -4,16 +4,16 @@
 
 ---
 
-## 0. TRẠNG THÁI TỔNG THỂ (auto-generated, cập nhật 2026-07-21 — Sprint "Chatbot Knowledge Base")
+## 0. TRẠNG THÁI TỔNG THỂ (auto-generated, cập nhật 2026-07-22 — Sprint "Tool Cache + Chat Analytics + Sidebar Widget")
 
-> Báo cáo tổng hợp từ audit codebase. Tổng ~150 mục trong 18 sections của file này.
+> Báo cáo tổng hợp từ audit codebase. Tổng ~155 mục trong 19 sections của file này.
 > Chi tiết đầy đủ + danh sách job pending theo priority xem **[§19. STATUS — JOB PENDING](#19-status--job-pending)** ở cuối file.
 
 | Trạng thái | Số lượng | % |
 |---|---|---|
-| ✅ DONE | ~92 | 61% |
+| ✅ DONE | ~99 | 64% |
 | 🟡 PARTIAL | ~20 | 13% |
-| ❌ NOT STARTED | ~38 | 26% |
+| ❌ NOT STARTED | ~36 | 23% |
 
 **Customer flow** (mua hàng, thanh toán, tài khoản): gần như end-to-end, chạy được — **đã có VietQR làm payment chính (MVP)**.
 **Admin products CRUD + bulk import**: xong thật (real data).
@@ -22,13 +22,15 @@
 **Login + Admin Block** (sprint 2026-07-17): ✅ done — fix race condition kẹt loading, admin block mua hàng, customer_id sync theo email.
 **AI Chatbot core** (sprint 2026-07-20): ✅ done — pgvector + 4 tools + streaming + 7 components.
 **AI Chatbot Knowledge Base** (sprint 2026-07-21): ✅ done — 5 bảng DB (chat_knowledge/faqs/upcoming_products/upcoming_collections/chat_promotions) + 5 tools mới + admin CRUD UI + sidebar menu + lead capture. Chatbot giờ trả lời được: chính sách shop, FAQ cứng, sản phẩm/BST sắp ra mắt, mã giảm giá đang chạy. Xem §15.17.
+**AI Chatbot Suggested Answers + Cluster Analytics** (sprint 2026-07-22 buổi sáng): ✅ done — bảng `chat_suggested_answers` + RPC `get_user_question_clusters` (gom câu hỏi thật của khách theo text-similarity) + tool `getSuggestedAnswers` (model tự gọi trước `getKnowledge` cho câu hỏi chính sách) + 2 tab mới trong `/admin/chatbot` (Phân tích: SummaryCards/Top tools/Top clusters/Failed calls với day-filter 1/7/30; Mẫu trả lời: CRUD form + list với edit/delete/publish). Multi-provider rate-limit cooldown (Groq/Or/Cb/Cf 429/STREAM_TIMEOUT → skip N giây). Xem §15.18.
+**🆕 AI Chatbot Tool Cache + Analytics + Sidebar Widget** (sprint 2026-07-22 buổi chiều): ✅ done — in-memory LRU cache + TTL cho 11/12 tools (giảm tải DB khi cùng câu hỏi lặp lại); bảng `chat_analytics` + 3 RPCs (summary/top-questions/failed-calls) tracking mỗi tool call (latency, status, error); fire-and-forget logger không block tool; widget analytics nhúng vào `AdminSidebar` (chỉ hiện khi expanded): tổng calls 24h, error rate %, top 3 tools, failed 24h badge, cache size + hit rate, auto-refresh 30s; cache invalidation hooks trong 6 admin CRUD routes (products/collections/promotions/knowledge) gọi `invalidateTool(...)` để user thấy data mới ngay; defense-in-depth CHECK constraints cho `chat_knowledge.category` + `chat_faqs.category`. Xem §15.19.
 
 **3 gap lớn nhất**:
 1. ❌ **MoMo env chưa populate** — Phase 2 (khi có MST, cần làm theo `docs/momo-sandbox-setup.md` 8 bước ~20 phút). Hiện tại VietQR đã cover MVP payment.
 2. ❌ **End-user account §18** — auth pages + account dashboard **gần xong** (4 auth page + 5 APIs + 1 migration 0011 + UI guard), còn tab nội dung (đơn/địa chỉ/yêu thích/đánh giá) là polish Phase 2.
 3. ❌ **Rate-limit + Sentry** — production hardening (xem §19.5 F1/F2).
 
-**Top 3 quick-win (< 2h)**: ~~populate MoMo env~~ (defer Phase 2) → setup VietQR env (`BANK_CODE` + `BANK_ACCOUNT_NUMBER` + `BANK_ACCOUNT_NAME`) → ~~mount GA4 + hook~~ ✅ done → ~~migration pg_cron `release_expired_locks`~~ ✅ done → **apply migration 0011** (`link_my_guest_orders` + backfill customer_id) → **add `customer_id` column to orders** (chưa làm — xem §2.4) → **apply migrations 0015-0017** (chat_knowledge + chat_faqs + upcoming + promotions + seed).
+**Top 3 quick-win (< 2h)**: ~~populate MoMo env~~ (defer Phase 2) → setup VietQR env (`BANK_CODE` + `BANK_ACCOUNT_NUMBER` + `BANK_ACCOUNT_NAME`) → ~~mount GA4 + hook~~ ✅ done → ~~migration pg_cron `release_expired_locks`~~ ✅ done → **apply migration 0011** (`link_my_guest_orders` + backfill customer_id) → **add `customer_id` column to orders** (chưa làm — xem §2.4) → ~~**apply migrations 0015-0017**~~ ✅ done → **apply migration 0018** (`chat_analytics` + CHECK constraints) → **apply migration 0019** (`chat_suggested_answers` + cluster RPC).
 
 ---
 
@@ -1770,6 +1772,459 @@ Verify: `SELECT count(*) FROM chat_knowledge;` → ≥ 10. `SELECT count(*) FROM
 | "Có nhẫn bạc 925 dưới 2 triệu không?" | Model gọi `searchProducts({material:'BAC_925', maxPrice:2000000, category:'NHAN'})` → list sản phẩm |
 | "Tìm BST mùa hè 2026" | Model gọi `getCurrentCollections()` (hiện tại) + nếu khách hỏi tương lai → `getUpcomingCollections()` |
 
+### 15.18. Suggested Answers + Cluster Analytics (sprint 2026-07-22)
+
+> **Mục tiêu**: thay thế phần "hard-code chính sách trong system prompt" bằng workflow data-driven — admin đọc câu hỏi thật của khách (cluster) → viết mẫu trả lời → model tự động gọi tool `getSuggestedAnswers` trước khi trả lời. Kèm fix production: multi-provider rate-limit cooldown (Groq/OpenRouter/Cerebras/Cloudflare 429/STREAM_TIMEOUT → skip N giây thay vì waste 25s timeout mỗi request).
+
+#### 15.18.1. Schema bổ sung (`supabase/migrations/0019_chat_suggested_answers.sql`)
+
+```sql
+CREATE TABLE chat_suggested_answers (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  category VARCHAR(30) NOT NULL,                          -- shipping/return/warranty/payment/about/contact/care/size/general/product/other
+  title VARCHAR(200) NOT NULL,                            -- tiêu đề ngắn cho admin
+  content TEXT NOT NULL,                                  -- câu trả lời mẫu
+  trigger_keywords TEXT[] DEFAULT '{}',                   -- keyword để match nhanh
+  source_question_cluster TEXT,                           -- text gốc từ cluster (trace nguồn)
+  priority INT DEFAULT 0,
+  is_published BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  CONSTRAINT chk_chat_suggested_answers_category CHECK (...11 enum...)
+);
+-- 3 index: category composite, published composite, GIN trên trigger_keywords
+-- Trigger auto-update updated_at (function trg_set_updated_at, dùng lại được cho bảng khác)
+-- RLS: service_role only
+```
+
+#### 15.18.2. RPC `get_user_question_clusters(p_days, p_limit, p_min_length)`
+
+Gom cụm câu hỏi user thật bằng text-similarity đơn giản. Pipeline normalize:
+```
+lowercase → translate (bỏ dấu tiếng Việt) → bỏ punctuation → collapse whitespace → trim
+```
+→ GROUP BY `normalized_text` → ORDER BY ask_count DESC, last_asked_at DESC. Kết quả "ship hàng" / "Ship hang" / "SHIP hàng" cluster vào cùng 1 group. Trả về `normalized_text, sample_text (raw gốc mới nhất), ask_count, unique_sessions, last_asked_at`.
+
+#### 15.18.3. Tool `getSuggestedAnswers(category?, query?, limit=3)`
+
+Trong `lib/chatbot/tools.ts`, đăng ký vào `allTools` (tổng 12 tools). Query `chat_suggested_answers` filter `is_published=true`, optional category, optional OR-filter trên `title.ilike / content.ilike / trigger_keywords.cs`. Wrap `cachedToolCall` + `logToolCall` giống các tool khác.
+
+**Routing trong system prompt** (1 dòng thêm vào `lib/chatbot/system-prompt.ts`, ngay sau `getKnowledge`):
+> "Ưu tiên gọi `getSuggestedAnswers` TRƯỚC `getKnowledge` khi khách hỏi về ship/đổi trả/bảo hành/thanh toán/liên hệ/size/care để trả lời chính xác theo ý shop."
+
+#### 15.18.4. Admin UI — 2 tab mới trong `/admin/chatbot`
+
+Cùng file `app/(admin)/admin/chatbot/page.tsx`, thêm 2 tab value vào `Tab` union: `'analytics' | 'suggested-answers'`. Tổng cộng `/admin/chatbot` giờ có 7 tabs.
+
+**Tab "Phân tích"**:
+- 4 SummaryCard: Tổng tool calls / Tổng sessions / Tổng errors / Max p95 latency (aggregate từ `getAnalyticsSummary`).
+- Bảng Top tools: tool_name, total, success% (CSS bar), avg_latency, p95.
+- **Top clusters** (data mới từ RPC `get_user_question_clusters`): mỗi cluster row hiển thị `sample_text` + badge `ask_count` + `unique_sessions` + relative time + nút **"Tạo mẫu trả lời"** → cross-tab navigation sang `suggested-answers` với form pre-fill.
+- Failed calls list (`getFailedCalls`).
+- Day filter dropdown: 1 / 7 / 30 ngày.
+
+**Tab "Mẫu trả lời"**:
+- Form tạo/sửa: category (select enum 11 giá trị), title, content, trigger_keywords (chip input), priority, is_published toggle, source_question_cluster (auto-fill khi từ cluster).
+- List có inline edit, delete (ConfirmDialog), expand content, badge "Từ câu hỏi: '<text>'" khi có `source_question_cluster`.
+- Cross-tab navigation dùng `window.dispatchEvent('chatbot-prefill')` để pass cluster data giữa 2 tab.
+
+#### 15.18.5. Admin API
+
+- `GET/POST/PUT/DELETE /api/admin/chatbot/suggested-answers` — Zod validate + `requireAdmin()`.
+- `GET /api/admin/chatbot/clusters?days&limit&minLength` — read-only, trả `{ clusters, suggestedAnswers, meta }` (parallel fetch).
+- Tất cả response shape `{ ok, data }` / `{ ok, error, message }`.
+
+#### 15.18.6. Multi-provider rate-limit cooldown (production fix)
+
+Trong `lib/chatbot/client.ts`:
+- Module state `_rateLimitCooldowns: Map<provider, cooldownUntilMs>`.
+- 3 helper: `isProviderAvailable`, `markProviderRateLimited`, `getCooldownInfo`.
+- `getChatModelChain()` skip provider đang cooldown ở cả 2 loop (CHAT_PROVIDERS env + fallbackOrder).
+
+Trong `app/api/chat/route.ts`:
+- Biến `lastStreamErrorMsg` capture message gốc từ `streamText.onError` (thường có "Rate limit reached... try again in 26.94s" mà race `consumeStream` timeout không lộ ra).
+- Catch block: check `RATE_LIMIT_RE` (regex match `rate limit|429|tokens per minute|tpm|quota|too many requests|try again in`) → gọi `markProviderRateLimited(provider, msg)`.
+- Parse "try again in X.XXs" → set cooldown chính xác (cộng buffer 2s); fallback 60s.
+- Empty chain + có cooldowns → trả `503 ALL_PROVIDERS_COOLDOWN` với payload `cooldowns: { groq: 27, ... }` thay vì `NO_PROVIDER`.
+
+#### 15.18.7. Files mới / sửa (sprint 2026-07-22)
+
+**Mới (3 file)**:
+```
+supabase/migrations/0019_chat_suggested_answers.sql
+app/api/admin/chatbot/suggested-answers/route.ts
+app/api/admin/chatbot/clusters/route.ts
+```
+
+**Sửa (3 file)**:
+```
+lib/chatbot/tools.ts                       # +1 tool getSuggestedAnswers, +1 entry allTools
+lib/chatbot/analytics.ts                   # +1 helper getUserQuestionClusters + UserQuestionClusterRow
+lib/chatbot/client.ts                      # +3 helper + skip cooldown trong getChatModelChain
+lib/chatbot/system-prompt.ts               # +1 dòng về getSuggestedAnswers
+app/api/chat/route.ts                      # +lastStreamErrorMsg + RATE_LIMIT_RE + markProviderRateLimited + ALL_PROVIDERS_COOLDOWN
+app/(admin)/admin/chatbot/page.tsx         # +2 tab (analytics, suggested-answers) + AnalyticsTab + SuggestedAnswersTab + SummaryCard
+```
+
+#### 15.18.8. Flow end-to-end (1 cycle admin)
+
+1. Khách hỏi "ship bao lâu" → insert `chat_messages` (role='user', content='ship bao lâu').
+2. Admin mở `/admin/chatbot?tab=analytics` → thấy cluster `ship bao lâu` với `ask_count=12`, `unique_sessions=10`.
+3. Click **"Tạo mẫu trả lời"** → switch sang tab `suggested-answers`, form pre-fill `title="Ship bao lâu"`, `trigger_keywords=["ship","lâu"]`, `source_question_cluster="ship bao lâu"`.
+4. Admin soạn nội dung, `is_published=true`, save → row mới trong `chat_suggested_answers`.
+5. Lần sau khách hỏi tương tự → model gọi `getSuggestedAnswers({ category: 'shipping' })` → lấy mẫu → trả lời đúng nội dung admin soạn (không cần sửa code).
+
+#### 15.18.9. Use case mở rộng
+
+| Tình huống | Behavior |
+|---|---|
+| Groq 429 với "try again in 27s" | `markProviderRateLimited('groq', msg)` → cooldown 29s. Request kế tiếp: chain bỏ qua groq, bắt đầu từ openrouter. Sau 29s groq tự động được thử lại. |
+| Tất cả provider đều cooldown | `503 ALL_PROVIDERS_COOLDOWN` với `cooldowns` map → client hiển thị retry sau vài chục giây. |
+| Admin thêm mẫu `is_published=false` | Tool filter `is_published=true` → không lộ ra ngoài. Admin có thể draft trước khi publish. |
+| Cluster có 1 ask duy nhất | Vẫn hiển thị trong dashboard (không cần threshold), admin tự quyết định có viết mẫu hay không. |
+
+#### 15.18.10. Apply migration
+
+```bash
+psql -f supabase/migrations/0019_chat_suggested_answers.sql
+# hoặc paste vào Supabase Dashboard → SQL Editor
+```
+
+Idempotent. Không cần env mới.
+
+---
+
+### 15.19. Tool Cache + Analytics Tracking + Sidebar Widget + Cache Invalidation (sprint 2026-07-22 buổi chiều)
+
+> **Mục tiêu**: giảm tải DB khi cùng câu hỏi chatbot lặp lại, tracking mỗi tool call (latency, error rate, top questions), và đưa stats realtime lên sidebar admin để vận hành viên thấy ngay tình trạng chatbot mà không cần vào trang riêng. Kèm defense-in-depth validation cho category enums và cache invalidation hooks khi admin CRUD data.
+
+#### 15.19.1. Kiến trúc 3 lớp (cache + analytics + widget)
+
+```
+[Request: app/api/chat/route.ts]
+        │
+        ▼
+[streamText() gọi 12 tools trong allTools]
+        │
+        ▼
+[lib/chatbot/tools.ts — mỗi tool wrap với 2 layer]
+        │
+        ├─► Layer 1: cachedToolCall (lib/chatbot/tool-cache.ts)
+        │     - Check in-memory Map theo key = buildCacheKey(toolName, params)
+        │     - Hit  → return cached value
+        │     - Miss → call factory + set cache với TTL
+        │     - 11/12 tools wrap (trừ captureLead)
+        │
+        └─► Layer 2: logToolCall (lib/chatbot/analytics.ts)
+              - Đo latency (Date.now() before/after)
+              - Classify result: array empty → 'empty', object có .error → 'error', else 'success'
+              - Sanitize args (redact 11 keys: phone, email, apiKey, password, ...)
+              - INSERT vào chat_analytics (fire-and-forget, .catch silent)
+              - KHÔNG await → analytics không block tool latency
+```
+
+#### 15.19.2. Schema bổ sung (`supabase/migrations/0018_chat_analytics_and_validation.sql`)
+
+```sql
+CREATE TABLE chat_analytics (
+  id BIGSERIAL PRIMARY KEY,
+  session_id UUID REFERENCES chat_sessions(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  tool_name VARCHAR(50) NOT NULL,
+  tool_args JSONB,                       -- sau khi sanitize (redacted)
+  tool_result_count INT,                 -- 0 = empty/error, >0 = success
+  tool_result_status VARCHAR(20) NOT NULL,  -- 'success' | 'empty' | 'error'
+  tool_error TEXT,
+  latency_ms INT NOT NULL,
+  provider VARCHAR(50),                  -- 'groq' / 'openrouter' / ...
+  model VARCHAR(100),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT chk_chat_analytics_status CHECK (tool_result_status IN ('success','empty','error'))
+);
+CREATE INDEX idx_chat_analytics_session ON chat_analytics(session_id);
+CREATE INDEX idx_chat_analytics_tool_name ON chat_analytics(tool_name, created_at DESC);
+CREATE INDEX idx_chat_analytics_created ON chat_analytics(created_at DESC);
+ALTER TABLE chat_analytics ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "service_role full access chat_analytics" ON chat_analytics
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+-- 3 RPC aggregation
+CREATE OR REPLACE FUNCTION get_chat_analytics_summary(p_days INT DEFAULT 7)
+  RETURNS TABLE (tool_name, total_calls, success_calls, empty_calls, error_calls,
+                 avg_latency_ms, p95_latency_ms, unique_sessions) ...;
+
+CREATE OR REPLACE FUNCTION get_top_user_questions(p_days INT DEFAULT 7, p_limit INT DEFAULT 20)
+  RETURNS TABLE (question_text, ask_count, last_asked_at) ...;
+
+CREATE OR REPLACE FUNCTION get_failed_tool_calls(p_days INT DEFAULT 7, p_limit INT DEFAULT 50)
+  RETURNS TABLE (id, tool_name, tool_args, tool_error, latency_ms, session_id, created_at) ...;
+
+-- Defense-in-depth CHECK constraints (bảo vệ nếu schema evolve)
+ALTER TABLE chat_knowledge ADD CONSTRAINT chk_chat_knowledge_category
+  CHECK (category IN ('shipping','return','warranty','payment','about','contact','care','size','general'));
+ALTER TABLE chat_faqs ADD CONSTRAINT chk_chat_faqs_category
+  CHECK (category IN ('shipping','return','warranty','payment','about','contact','care','size','general'));
+
+-- Indexes bổ sung cho performance
+CREATE INDEX idx_chat_messages_session_role ON chat_messages(session_id, role, created_at DESC);
+CREATE INDEX idx_chat_sessions_user ON chat_sessions(user_id) WHERE user_id IS NOT NULL;
+```
+
+#### 15.19.3. Tool Cache (`lib/chatbot/tool-cache.ts`)
+
+**Đặc thù serverless**: in-memory LRU (không share giữa các function instances), mỗi cold start miss toàn bộ. Chấp nhận được vì TTL ngắn.
+
+```ts
+// TTL per tool
+const TTL_BY_TOOL = {
+  getKnowledge: LONG_10m,
+  getFaq: LONG_10m,
+  searchProducts: SHORT_60s,  // data động
+  semanticSearch: SHORT_60s,
+  getProductDetail: SHORT_60s,
+  getRelatedProducts: SHORT_60s,
+  getFeaturedProducts: SHORT_60s,
+  getCurrentCollections: SHORT_60s,
+  getUpcomingProducts: SHORT_60s,
+  getUpcomingCollections: SHORT_60s,
+  getActivePromotions: SHORT_60s,
+  // captureLead: NO CACHE (mỗi call unique)
+};
+```
+
+**API**:
+- `cachedToolCall(key, factory, ttlMs?)` — get-or-compute pattern, LRU evict khi `size > 200`
+- `buildCacheKey(tool, args)` — sắp xếp key alphabet để `{a:1,b:2} === {b:2,a:1}`
+- `invalidateTool(tool)` — xóa tất cả key bắt đầu `tool:`
+- `invalidateCachePattern(pattern)` — xóa theo substring
+- `getCacheStats()` — trả `{size, hits, misses, hitRate, oldestEntryAge}`
+
+**Wrap pattern trong tools.ts**:
+```ts
+execute: async (params, options) => {
+  const ctx = extractCtx(options);  // {sessionId, userId, provider, model} từ experimental_context
+  const cacheKey = buildCacheKey('searchProducts', params);
+  return cachedToolCall(cacheKey, () => logToolCall({
+    toolName: 'searchProducts',
+    args: params,
+    ...ctx,
+    run: async () => { /* original business logic */ },
+  }), getDefaultTtl('searchProducts'));
+}
+```
+
+**Cache key cho mỗi tool** (chỉ dùng field ảnh hưởng kết quả):
+- `searchProducts`: tất cả params
+- `semanticSearch`: `query + limit` (KHÔNG cache theo vector vì vector sẽ khác nhau mỗi lần embed)
+- `getProductDetail`: `slug`
+- `getRelatedProducts`: `productId + category + material + excludeProductId + limit`
+- `getKnowledge`: `category + query + limit`
+- `getFaq`: `query + limit`
+- `getUpcomingProducts`: `category + material + limit`
+
+#### 15.19.4. Analytics Logger (`lib/chatbot/analytics.ts`)
+
+```ts
+export async function logToolCall<T>(opts: {
+  toolName, args, sessionId?, userId?, provider?, model?,
+  run: () => Promise<T>
+}): Promise<T> {
+  const start = Date.now();
+  let result: T, error: Error | null = null;
+  try { result = await opts.run(); }
+  catch (e) { error = e instanceof Error ? e : new Error(String(e)); }
+  const latency = Date.now() - start;
+  const { status, count } = error
+    ? { status: 'error', count: 0 }
+    : classifyResult(result);
+
+  // Fire-and-forget — silent fail
+  insertAnalytics({...}).catch(e => console.error('[analytics] insert failed:', e));
+
+  if (error) throw error;
+  return result;
+}
+
+function classifyResult<T>(result: T): {status, count} {
+  if (result == null) return { status: 'error', count: 0 };
+  if (Array.isArray(result)) {
+    return { status: result.length === 0 ? 'empty' : 'success', count: result.length };
+  }
+  if (typeof result === 'object' && 'error' in result) return { status: 'error', count: 0 };
+  return { status: 'success', count: 1 };
+}
+
+function sanitizeArgs(args: Record<string, unknown>): Record<string, unknown> {
+  // Redact 11 keys: contactValue, phone, email, zalo, password, token, apiKey, ...
+  // Recursive cho nested objects
+}
+```
+
+**Read APIs** (cho admin UI):
+- `getAnalyticsSummary(days)` — aggregate theo tool_name
+- `getTopQuestions(days, limit)` — top câu user hỏi nhiều
+- `getFailedCalls(days, limit)` — list error/empty calls để debug
+
+#### 15.19.5. Sidebar Widget (`components/admin/chatbot-analytics-widget.tsx`)
+
+Client component, nhúng vào `AdminSidebar` (chỉ expanded). Auto-refresh 30s.
+
+**UI structure** (glass-morphism khớp design system):
+```
+┌─────────────────────────────────────────────┐
+│ [Bot] CHATBOT              [↻] [⌄]          │
+├─────────────────────────────────────────────┤
+│                                             │
+│  1,234       0.5%                          │
+│  CALLS (24H) ERRORS   ← color: green <1%   │
+│                                yellow 1-5% │
+│                                red ≥5%      │
+│  searchProducts       1,200                 │
+│  getCurrentCollections  30                  │
+│  getKnowledge            4                  │
+│                                             │
+│  ⚠ 2 call lỗi trong 24h  (nếu > 0)         │
+│                                             │
+│  cache: 45/200       hit: 60%              │
+│                                             │
+│  [Mở rộng]                                 │
+│   Last updated: 18:00:23                    │
+│   → Xem chi tiết (JSON)                    │
+└─────────────────────────────────────────────┘
+```
+
+**Style pattern**: dùng `bg-[rgba(18,36,28,0.6)] backdrop-blur-sm border border-[#4D4635]` — khớp `glassStyle` constant trong admin shell.
+
+**Color coding error rate**:
+- `< 1%` → `text-success` (#3FB950)
+- `1-5%` → `text-[#D29922]` (vàng)
+- `≥ 5%` → `text-error` (#F85149)
+
+**Hidden khi collapsed**: `if (showCollapsedLayout) return null;` (chỉ icon, không chiếm chỗ).
+
+#### 15.19.6. Cache Invalidation Hooks (`lib/chatbot/cache-invalidation.ts`)
+
+Helper module gọi từ admin CRUD routes. Best-effort (silent fail, không block CRUD).
+
+```ts
+const PRODUCT_TOOLS = ['searchProducts', 'semanticSearch', 'getProductDetail',
+                       'getRelatedProducts', 'getFeaturedProducts'];
+const COLLECTION_TOOLS = ['getCurrentCollections', 'getUpcomingCollections'];
+const KNOWLEDGE_TOOLS = ['getKnowledge', 'getFaq'];
+const PROMOTION_TOOLS = ['getActivePromotions'];
+const UPCOMING_PRODUCT_TOOLS = ['getUpcomingProducts'];
+
+export function invalidateProductCache(): void;       // gọi sau CRUD product
+export function invalidateCollectionCache(): void;    // gọi sau CRUD collection
+export function invalidateKnowledgeCache(): void;     // gọi sau CRUD knowledge/FAQ
+export function invalidatePromotionCache(): void;     // gọi sau CRUD promotion
+export function invalidateUpcomingProductCache(): void; // gọi sau CRUD upcoming product
+export function invalidateAllChatbotCache(): void;    // nuke toàn bộ
+```
+
+**Inject matrix** (12 chỗ trong 6 files):
+
+| File | Methods | Helper |
+|---|---|---|
+| `app/api/admin/products/route.ts` | POST | `invalidateProductCache()` |
+| `app/api/admin/products/[id]/route.ts` | PATCH, DELETE | `invalidateProductCache()` |
+| `app/api/admin/collections/route.ts` | POST | `invalidateCollectionCache()` |
+| `app/api/admin/collections/[id]/route.ts` | PATCH, DELETE | `invalidateCollectionCache()` |
+| `app/api/admin/chatbot/promotions/route.ts` | POST, PUT, DELETE | `invalidatePromotionCache()` |
+| `app/api/admin/chatbot/knowledge/route.ts` | POST, PUT, DELETE | `invalidateKnowledgeCache()` |
+
+**Vị trí inject**: ngay trước `return NextResponse.json({ ok: true, ... })` trong nhánh success. KHÔNG gọi trong catch block (chỉ invalidate khi CRUD thật sự thành công).
+
+#### 15.19.7. Admin API endpoints
+
+**`GET /api/admin/chat-analytics`** — full stats cho `/admin/chatbot?tab=analytics` page:
+```json
+{
+  "summary": [...],          // từ get_chat_analytics_summary
+  "topQuestions": [...],     // từ get_top_user_questions
+  "failedCalls": [...],      // từ get_failed_tool_calls
+  "cacheStats": {...},       // từ getCacheStats()
+  "meta": { "days": 7, "limit": 20, "failedLimit": 50, "generatedAt": "..." }
+}
+```
+
+**`GET /api/admin/chat-analytics/widget`** — compact cho sidebar widget:
+```json
+{
+  "totalCalls": 1234,
+  "totalErrors": 6,
+  "errorRate": 0.005,
+  "topTools": [{ "name": "searchProducts", "calls": 1200 }, ...],
+  "failed24hCount": 2,
+  "cacheSize": 45,
+  "cacheHitRate": 0.6,
+  "meta": { "days": 1, "generatedAt": "..." }
+}
+```
+
+#### 15.19.8. Files mới / sửa (sprint 2026-07-22 buổi chiều)
+
+**Mới (7 file)**:
+```
+supabase/migrations/0018_chat_analytics_and_validation.sql
+lib/chatbot/tool-cache.ts
+lib/chatbot/analytics.ts
+lib/chatbot/cache-invalidation.ts
+components/admin/chatbot-analytics-widget.tsx
+app/api/admin/chat-analytics/route.ts
+app/api/admin/chat-analytics/widget/route.ts
+```
+
+**Sửa (8 file)**:
+```
+lib/chatbot/tools.ts                              # wrap 11/12 tools với cache + analytics
+lib/chatbot/config.ts                             # +ChatProvider, +EmbedProvider type extensions (openrouter, cerebras, cloudflare)
+lib/chatbot/client.ts                             # +3 provider (openrouter/cerebras/cloudflare), normalize Cloudflare (giữ @cf/ prefix)
+lib/chatbot/embeddings.ts                         # +OpenRouter embed fallback chain (openrouter → gemini → openai)
+app/api/chat/route.ts                             # +TOOL_CALL_LEAK_RE, +FUNCTION_TAG_RE, +STREAM_TIMEOUT, +provider/model trong experimental_context, +dedupe 2 assistant liên tiếp
+components/layout/admin-sidebar.tsx               # +ChatbotAnalyticsWidget (chỉ expanded)
+app/api/admin/products/route.ts                   # +1 invalidateProductCache
+app/api/admin/products/[id]/route.ts              # +2 invalidateProductCache (PATCH, DELETE)
+app/api/admin/collections/route.ts                # +1 invalidateCollectionCache
+app/api/admin/collections/[id]/route.ts           # +2 invalidateCollectionCache (PATCH, DELETE)
+app/api/admin/chatbot/promotions/route.ts         # +3 invalidatePromotionCache
+app/api/admin/chatbot/knowledge/route.ts          # +3 invalidateKnowledgeCache
+.env.local.example                                # +docs cho 6 free providers
+```
+
+#### 15.19.9. Flow end-to-end (1 cycle vận hành)
+
+1. Khách hỏi "có nhẫn bạc 925 không?" → `/api/chat` → streamText gọi Groq 8b-instant → model gọi `searchProducts` → tool wrap `cachedToolCall` (miss lần 1) + `logToolCall` (insert 1 row vào `chat_analytics`, latency 45ms, status=success, count=3) → trả về.
+2. User thứ 2 hỏi cùng câu → `cachedToolCall` HIT → return cached array (latency 0ms) → vẫn `logToolCall` để track total_calls (vẫn insert 1 row, status=success, count=3, latency=0).
+3. Admin thêm 1 sản phẩm mới trong `/admin/products/new` → POST `/api/admin/products` → insert OK → gọi `invalidateProductCache()` → xóa tất cả cache key bắt đầu `searchProducts:`, `semanticSearch:`, `getProductDetail:`, ... → lần hỏi tiếp theo sẽ miss → query DB mới.
+4. Admin mở `/admin` → sidebar expanded → thấy `ChatbotAnalyticsWidget` hiển thị "1,234 calls (24h), 0.5% errors" → click refresh → fetch `/api/admin/chat-analytics/widget?days=1` → widget re-render.
+5. Khi 1 tool fail (vd `getKnowledge` 404) → row mới với `tool_result_status='error'`, `tool_error='...'`, latency 50ms → admin thấy badge "2 call lỗi trong 24h" trong widget → click mở rộng → link tới `/api/admin/chat-analytics?days=7` xem JSON chi tiết.
+
+#### 15.19.10. Use case cụ thể
+
+| Tình huống | Behavior |
+|---|---|
+| 100 user hỏi cùng "có nhẫn không?" trong 5 phút | 100 calls tool, 1 DB query (99 cache hits) → giảm 99% tải DB |
+| Admin thêm sản phẩm mới | Cache invalidation tự động → user hỏi tiếp sẽ thấy sp mới ngay (không đợi TTL 60s) |
+| 1 tool call fail (network blip) | `chat_analytics` row status='error' → admin thấy badge trong widget → check `failedCalls` để debug |
+| Cold start (Vercel function mới) | Cache miss toàn bộ → chấp nhận được, lần 2+ sẽ hit |
+| Admin dùng widget lúc 3h sáng | Auto-refresh 30s không cần thao tác → thấy ngay khi có spike lỗi |
+| CHECK constraint reject migration | Nếu DB hiện có row với `category` lạ (ngoài 9 giá trị enum) → chạy trước: `SELECT DISTINCT category FROM chat_knowledge;` → UPDATE hoặc mở rộng CHECK |
+
+#### 15.19.11. Apply migration 0018
+
+```bash
+psql -f supabase/migrations/0018_chat_analytics_and_validation.sql
+# hoặc paste vào Supabase Dashboard → SQL Editor
+```
+
+Idempotent. **Trước khi chạy**, kiểm tra data hiện tại:
+```sql
+SELECT DISTINCT category FROM chat_knowledge;
+SELECT DISTINCT category FROM chat_faqs;
+```
+Nếu có giá trị ngoài 9 giá trị cho phép (`shipping/return/warranty/payment/about/contact/care/size/general`), cần UPDATE trước hoặc mở rộng danh sách trong CHECK constraint.
+
 ---
 
 ## 16. UI/UX PATTERNS TỪ LAURELLE & LILLICOCO (bổ sung vào plan)
@@ -2845,15 +3300,15 @@ Logic: với matcher mới, **chỉ cần user tồn tại** (không check role)
 
 | Trạng thái | Số lượng | % |
 |---|---|---|
-| ✅ DONE | ~95 | 63% |
+| ✅ DONE | ~99 | 64% |
 | 🟡 PARTIAL | ~18 | 12% |
-| ❌ NOT STARTED | ~37 | 25% |
+| ❌ NOT STARTED | ~36 | 24% |
 
 **Customer-facing**: gần như hoàn chỉnh (16 page, 5 API, 5 RPC, RLS, full MoMo create+IPN, lock flow, 6 tab account).
-**Admin**: shell + auth + sidebar/header + 5 page real-data (products list/new/edit/bulk-upload, dashboard, orders list/detail, collections CRUD, newsletter, analytics, **chatbot KB**).
-**AI Chatbot**: ✅ core (sprint 2026-07-20) + ✅ Knowledge Base (sprint 2026-07-21). Còn lại ❌ rate-limit + ❌ GA4 chatbot events.
+**Admin**: shell + auth + sidebar/header + 5 page real-data (products list/new/edit/bulk-upload, dashboard, orders list/detail, collections CRUD, newsletter, analytics, **chatbot KB + analytics dashboard + suggested answers + sidebar analytics widget**).
+**AI Chatbot**: ✅ core (sprint 2026-07-20) + ✅ Knowledge Base (sprint 2026-07-21) + ✅ **Suggested Answers + Cluster Analytics + Rate-limit cooldown** (sprint 2026-07-22 buổi sáng) + ✅ **Tool Cache + Analytics Tracking + Sidebar Widget + Cache Invalidation** (sprint 2026-07-22 buổi chiều). Còn lại ❌ GA4 chatbot events.
 
-**Gap lớn nhất**: MoMo env (0% populated), rate-limit (0%), Sentry (0%), end-user account UI tabs (polish), inventory/payments/settings admin pages (P2), draft enum (P2).
+**Gap lớn nhất**: MoMo env (0% populated), GA4 chatbot events (0%), Sentry (0%), end-user account UI tabs (polish), inventory/payments/settings admin pages (P2), draft enum (P2).
 
 ### 19.2. Critical (chặn production)
 
@@ -2885,6 +3340,8 @@ Logic: với matcher mới, **chỉ cần user tồn tại** (không check role)
 | I13 | §11/§17 | **`DRAFT` enum value + draft→publish flow** | new migration + bulk-upload toggle + products list "Publish All Drafts" | 2h | Required cho draft workflow §17.6. |
 | I14 | §18.6 | **Display approved reviews on PDPs** | `components/product/product-reviews.tsx` + `app/api/products/[slug]/reviews/route.ts` | 2h | Table + API có sẵn (0009), chỉ thiếu UI. |
 | **I15** | **§15.17** | **🆕 AI Chatbot Knowledge Base** ✅ DONE 2026-07-21 | `lib/chatbot/static-knowledge.ts`, `components/chatbot/chat-collection-card.tsx`, `app/(admin)/admin/chatbot/page.tsx`, `app/api/admin/chatbot/{knowledge,faqs,upcoming,promotions,leads}/route.ts`, migrations `0015_chat_leads.sql` + `0016_chatbot_knowledge.sql` + `0017_chatbot_seed.sql` | 4–5h | 5 bảng DB mới (chat_knowledge/chat_faqs/upcoming_products/upcoming_collections/chat_promotions) + 1 bảng leads (chat_leads) + 5 tools mới (getKnowledge/getFaq/getUpcomingProducts/getUpcomingCollections/getActivePromotions) + 1 static file SHOP_INFO + admin UI 5 tabs + sidebar menu + lead capture. Routing tool theo intent trong system prompt. Xem §15.17. |
+| **I16** | **§15.18** | **🆕 Chatbot Suggested Answers + Cluster Analytics + Multi-provider rate-limit cooldown** ✅ DONE 2026-07-22 | `supabase/migrations/0019_chat_suggested_answers.sql`, `app/api/admin/chatbot/suggested-answers/route.ts`, `app/api/admin/chatbot/clusters/route.ts`, sửa `lib/chatbot/{tools,analytics,client,system-prompt}.ts` + `app/api/chat/route.ts` + `app/(admin)/admin/chatbot/page.tsx` | 3h | Bảng `chat_suggested_answers` (UUID, category enum 11, trigger_keywords TEXT[], GIN index, RLS service_role) + RPC `get_user_question_clusters` (normalize tiếng Việt: lowercase + bỏ dấu + bỏ punct + collapse whitespace → GROUP BY → ORDER BY ask_count) + tool `getSuggestedAnswers` (12 tool total, ưu tiên trước getKnowledge cho chính sách) + 2 tab mới trong `/admin/chatbot` (Phân tích: SummaryCards 4 ô + Top tools + Top clusters với nút "Tạo mẫu trả lời" + Failed calls, day filter 1/7/30; Mẫu trả lời: CRUD form + list inline edit/delete/publish) + multi-provider rate-limit cooldown (Groq/Or/Cb/Cf 429/STREAM_TIMEOUT → mark cooldown với parse "try again in Xs", skip N giây thay vì waste 25s STREAM_TIMEOUT mỗi request; response `ALL_PROVIDERS_COOLDOWN` 503 với cooldowns map). Xem §15.18. |
+| **I17** | **§15.19** | **🆕 Tool Cache + Analytics Tracking + Sidebar Widget + Cache Invalidation Hooks** ✅ DONE 2026-07-22 (buổi chiều) | `supabase/migrations/0018_chat_analytics_and_validation.sql`, `lib/chatbot/{tool-cache,analytics,cache-invalidation}.ts`, `components/admin/chatbot-analytics-widget.tsx`, `app/api/admin/chat-analytics/{route,widget/route}.ts`, sửa `lib/chatbot/tools.ts` + `components/layout/admin-sidebar.tsx` + 6 admin CRUD routes | 3h | In-memory LRU cache (200 entries, TTL 1-10 phút per tool) cho 11/12 tools (trừ `captureLead`) → giảm tải DB khi cùng câu hỏi lặp lại. Bảng `chat_analytics` (BIGSERIAL, session_id, user_id, tool_name, tool_args JSONB, tool_result_count, tool_result_status, tool_error, latency_ms, provider, model) + 3 RPCs aggregation (`get_chat_analytics_summary`, `get_top_user_questions`, `get_failed_tool_calls`) + indexes + RLS service_role. Logger `logToolCall` (fire-and-forget, silent fail) wrap 12 tools. `sanitizeArgs` redact 11 sensitive keys (phone/email/apiKey/...). Defense-in-depth CHECK constraints cho `chat_knowledge.category` + `chat_faqs.category` (9 giá trị enum). Component `ChatbotAnalyticsWidget` glass-morphism nhúng vào `AdminSidebar` (chỉ expanded): tổng calls 24h, error rate % (color-coded), top 3 tools, failed 24h badge, cache size + hit rate, auto-refresh 30s. API endpoint `/api/admin/chat-analytics/widget` trả compact JSON. 12 cache invalidation hooks trong 6 admin CRUD routes (products/collections/promotions/knowledge) gọi `invalidateTool(...)` sau success → user thấy data mới ngay, không phải đợi TTL expire. Xem §15.19. |
 
 ### 19.4. Nice-to-have (UX polish)
 
@@ -2911,6 +3368,8 @@ Logic: với matcher mới, **chỉ cần user tồn tại** (không check role)
 | N19 | §13 | **Cleanup 39 pre-existing TypeScript errors** | `docs/ts-errors-cleanup.md` (đã liệt kê) | 2-3h | Phát hiện 2026-07-16 sau khi `tsc --noEmit` toàn project. 6 nhóm: Supabase generic narrowing (14 errors), Lucide IconComp (7), mobile-bottom-nav prop (1), account-sidebar getInitials (2), Postgrest update/insert never (8), queries row type (7). `next build` vẫn pass vì file lỗi nằm ngoài route graph hiện tại. |
 | N20 | §15.17 | **🆕 Knowledge base: embed columns auto-fill** | `lib/chatbot/embed-knowledge.ts` + cron | 1h | Bảng `chat_knowledge.embedding` và `chat_faqs.embedding` hiện chưa auto-fill. Khi semantic search KB được bật, cần batch embed tất cả rows + trigger on UPDATE. Hiện keyword ILIKE đủ dùng. |
 | N21 | §15.17 | **🆕 GA4 chatbot events** | `components/chatbot/chat-widget.tsx` + `lib/analytics/events.ts` | 1h | 4 events chưa fire: `chat_opened` (mở panel), `chat_message_sent` (gửi), `chat_product_clicked` (click card), `chat_lead_captured` (captureLead success). Xem §15.12. |
+| N22 | §15.19 | **🆕 Per-user cache cho semantic search** | `lib/chatbot/tool-cache.ts` | 30m | Hiện `semanticSearch` cache theo `query` text chung (2 user hỏi cùng "nhẫn vintage" hit cache chung). Nếu muốn personalization → thêm `userId` vào `buildCacheKey`. Trade-off: cache size tăng 10x. Cần confirm nhu cầu thực. |
+| N23 | §15.19 | **🆕 External analytics (PostHog / Plausible)** | TBD | 2h | Nếu cần analytics external (session replay, funnel chi tiết, A/B test). Hiện `chat_analytics` nội bộ + GA4 events (N21) đủ dùng cho MVP. Cần tài khoản + API key + quyết định track event nào. |
 
 ### 19.5. Infrastructure
 
@@ -2943,6 +3402,8 @@ Logic: với matcher mới, **chỉ cần user tồn tại** (không check role)
 | 10 | 5 UI primitives còn thiếu | Unblock nhiều job khác | 2–3h | 🟡 PARTIAL |
 | 11 | **🆕 Fix login kẹt loading + Admin block mua hàng** | UX critical | 1h | ✅ DONE 2026-07-17 |
 | 12 | **🆕 Apply migration 0011 (customer_id backfill theo email)** | `/tai-khoan/don-hang` thấy đơn | 5m | ❌ PENDING (file sẵn, cần apply) |
+| 13 | **🆕 Apply migration 0018 (chat_analytics + CHECK constraints)** | Sidebar widget hoạt động, analytics tracking | 2m | ❌ PENDING (file sẵn, cần apply — kiểm tra category trước) |
+| 14 | **🆕 Apply migration 0019 (chat_suggested_answers + cluster RPC)** | Admin dùng được Suggested Answers + Cluster Analytics tab | 2m | ❌ PENDING (file sẵn, cần apply) |
 
 **Top 3 ưu tiên cao nhất** cho launch: #1 (payment), #2+#3 (analytics), #4 (lock expiry). Xong 3 cái này → launch v1.
 
@@ -2961,6 +3422,8 @@ Logic: với matcher mới, **chỉ cần user tồn tại** (không check role)
     - `/thanh-toan` page có fallback `<AdminCheckoutBlocked />` (không redirect /403).
 8. ✅ **AI Chatbot shipped 2026-07-20** — 12 file mới (3 migrations + 5 lib/chatbot + 1 route + 1 hook + 7 components + 1 script + 1 doc) + 1 sửa layout. Migration numbers 0012-0014 (KHÔNG dùng 0004/0005 như spec §15.16 vì đã tồn tại). Embedding dim 1536 (Gemini hỗ trợ `outputDimensionality: 1536`). `chat_messages` sliding window 10 messages. `getCurrentUser()` dùng để set `user_id` khi logged-in.
 9. ✅ **AI Chatbot Knowledge Base shipped 2026-07-21** — 12 file mới (3 migrations 0015-0017 + 1 lib/chatbot/static-knowledge + 1 component + 1 admin page + 5 API CRUD + 1 static file) + 7 file sửa (tools/system-prompt/route.ts/message/widget/admin-nav-config/admin-sidebar). Tổng 11 tools cho AI SDK v6 (inputSchema, stopWhen=stepCountIs(4)). Cấu trúc 3 tầng: static (SHOP_INFO) → DB dynamic (5 bảng) → seed mẫu (10+8+3+2+3). Admin quản lý ở `/admin/chatbot` (5 tabs). Lead capture lưu vào `chat_leads` qua tool `captureLead` với `experimental_context`. Sidebar menu mới "Chatbot" (icon `Bot`). Chi tiết §15.17.
+ 10. ✅ **Chatbot Suggested Answers + Cluster Analytics + Rate-limit cooldown shipped 2026-07-22** — 3 file mới (migration 0019 + 2 admin API) + 4 file sửa (lib/chatbot: tools/analytics/client/system-prompt + app/api/chat/route.ts + admin page). Tổng 12 tools (`getSuggestedAnswers` đăng ký vào `allTools`). Admin UI thêm 2 tab mới (Phân tích, Mẫu trả lời) → tổng 7 tabs ở `/admin/chatbot`. Multi-provider chain giờ skip provider trong cooldown (in-memory `Map<provider, cooldownUntilMs>`, parse "try again in Xs" từ Groq rate-limit message). Cross-tab navigation dùng `window.dispatchEvent('chatbot-prefill')`. RPC `get_user_question_clusters` dùng `translate()` để strip Vietnamese diacritics → cluster "ship hàng" / "Ship hang" / "SHIP hàng" về cùng 1 group. Chi tiết §15.18.
+ 11. ✅ **🆕 Tool Cache + Analytics Tracking + Sidebar Widget + Cache Invalidation shipped 2026-07-22 (buổi chiều)** — 7 file mới (migration 0018 `chat_analytics` + 3 RPCs aggregation + 2 CHECK constraints + 2 file TS `tool-cache.ts` + `analytics.ts` + `cache-invalidation.ts` + 1 component widget + 2 API endpoint) + 8 file sửa (`lib/chatbot/{tools,config,client,embeddings}.ts` + `app/api/chat/route.ts` + `components/layout/admin-sidebar.tsx` + 6 admin CRUD routes + `.env.local.example`). Wrap 11/12 tools với `cachedToolCall` (in-memory LRU 200 entries, TTL 1-10 phút per tool) + `logToolCall` (fire-and-forget insert vào `chat_analytics`, silent fail). Sanitize 11 sensitive keys (phone/email/apiKey/...). Provider + model trong `experimental_context` → analytics track được AI provider đang dùng. Tool call leak detect (regex `function=\w+>{` + `<function>` tag) → retry provider kế tiếp. Multi-provider chain giờ có 6 providers (groq/openrouter/cerebras/cloudflare/gemini/openai), ưu tiên free, auto-fallback. Sidebar widget (chỉ expanded, auto-refresh 30s) hiển thị: tổng calls 24h, error rate % (color-coded <1% / 1-5% / ≥5%), top 3 tools, failed 24h badge, cache size + hit rate. 12 cache invalidation hooks trong 6 admin CRUD routes gọi `invalidateTool(...)` sau success → user thấy data mới ngay, không phải đợi TTL expire. Chi tiết §15.19.
 
 ---
 
@@ -2968,6 +3431,8 @@ Logic: với matcher mới, **chỉ cần user tồn tại** (không check role)
 
 | Ngày | Sprint | Highlights |
 |---|---|---|
+| 2026-07-22 (PM) | **🆕 Tool Cache + Analytics Tracking + Sidebar Widget + Cache Invalidation** | Bảng `chat_analytics` + 3 RPCs aggregation (summary/top-questions/failed-calls) + CHECK constraints defense-in-depth cho `chat_knowledge.category` + `chat_faqs.category`. In-memory LRU cache (200 entries, TTL 1-10 phút per tool) cho 11/12 tools (trừ `captureLead`). Fire-and-forget logger wrap mỗi tool call với latency, status, error. Widget analytics nhúng vào `AdminSidebar` (chỉ expanded): tổng calls 24h + error rate % + top 3 tools + failed 24h badge + cache stats, auto-refresh 30s. 12 cache invalidation hooks trong 6 admin CRUD routes (products/collections/promotions/knowledge) để user thấy data mới ngay. Multi-provider chain mở rộng 6 providers (groq/openrouter/cerebras/cloudflare/gemini/openai), ưu tiên free. Xem §15.19. |
+| 2026-07-22 (AM) | **Chatbot Suggested Answers + Cluster Analytics + Rate-limit cooldown** | Bảng `chat_suggested_answers` + RPC `get_user_question_clusters` (gom câu hỏi thật) + tool `getSuggestedAnswers` (model gọi trước `getKnowledge`) + 2 tab mới trong `/admin/chatbot` (Phân tích + Mẫu trả lời). Multi-provider rate-limit cooldown (Groq/Or/Cb/Cf 429/STREAM_TIMEOUT → skip N giây). Xem §15.18. |
 | 2026-07-21 | **Chatbot Knowledge Base** | 5 bảng DB + 5 tools + admin UI 5 tabs + lead capture + sidebar menu. xem §15.17. |
 | 2026-07-20 | **AI Chatbot core** | pgvector + chat_sessions + chat_messages + match_products + 4 tools + 7 components + streaming. |
 | 2026-07-17 | **Login + Admin Block** | Fix race condition login, admin block checkout, customer_id backfill theo email (migration 0011). |

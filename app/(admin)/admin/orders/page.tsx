@@ -48,6 +48,8 @@ const PAYMENT_METHODS: PaymentMethod[] = ['MOMO', 'COD', 'BANK_TRANSFER'];
 
 const ORDER_STATUS_BADGE: Record<OrderStatus, string> = {
   NEW: 'text-info border-info/30 bg-info/10',
+  WAITING_PAYMENT: 'text-info border-info/30 bg-info/10',
+  WAITING_CONFIRM: 'text-warning border-warning/30 bg-warning/10',
   CONFIRMED: 'text-warning border-warning/30 bg-warning/10',
   SHIPPING: 'text-gold border-gold/30 bg-gold/10',
   DONE: 'text-success border-success/30 bg-success/10',

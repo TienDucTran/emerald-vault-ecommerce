@@ -78,7 +78,7 @@ export async function GET(req: Request) {
       );
     }
 
-    const orderIds = (orders ?? []).map((o) => o.id);
+    const orderIds = ((orders ?? []) as Array<{ id: string }>).map((o) => o.id);
     const itemsMap = new Map<string, string[]>();
     if (orderIds.length > 0) {
       const { data: items, error: itemsErr } = await admin
@@ -88,7 +88,7 @@ export async function GET(req: Request) {
       if (itemsErr) {
         console.error('[admin/orders/export] items error:', itemsErr);
       } else {
-        for (const it of items ?? []) {
+        for (const it of (items ?? []) as Array<{ order_id: string; snapshot_title: string }>) {
           const list = itemsMap.get(it.order_id) ?? [];
           list.push(it.snapshot_title);
           itemsMap.set(it.order_id, list);

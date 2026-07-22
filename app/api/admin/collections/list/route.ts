@@ -78,7 +78,7 @@ export async function GET(req: Request) {
       );
     }
 
-    const ids = (data ?? []).map((c) => c.id);
+    const ids = ((data ?? []) as Array<{ id: string }>).map((c) => c.id);
     const countMap = new Map<string, number>();
     if (ids.length > 0) {
       const { data: prods, error: pErr } = await admin
@@ -98,8 +98,8 @@ export async function GET(req: Request) {
       }
     }
 
-    const collections: AdminCollectionListItem[] = (data ?? []).map((c) => ({
-      ...(c as CollectionRow),
+    const collections: AdminCollectionListItem[] = ((data ?? []) as CollectionRow[]).map((c) => ({
+      ...c,
       product_count: countMap.get(c.id) ?? 0,
     }));
 

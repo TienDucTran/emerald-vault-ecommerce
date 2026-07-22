@@ -19,7 +19,14 @@ export type ProductCategory = 'NHAN' | 'DAY_CHUYEN' | 'BONG_TAI' | 'VONG_TAY' | 
 export type Material = 'BAC_925' | 'MA_VANG_18K' | 'MA_VANG_24K' | 'VANG_18K' | 'KIM_CUONG';
 export type ProductStatus = 'AVAILABLE' | 'SOLD_OUT';
 export type LockStatus = 'ACTIVE' | 'RELEASED' | 'EXPIRED' | 'CONVERTED';
-export type OrderStatus = 'NEW' | 'CONFIRMED' | 'SHIPPING' | 'DONE' | 'CANCELLED';
+export type OrderStatus =
+  | 'NEW'
+  | 'WAITING_PAYMENT'
+  | 'WAITING_CONFIRM'
+  | 'CONFIRMED'
+  | 'SHIPPING'
+  | 'DONE'
+  | 'CANCELLED';
 export type PaymentMethod = 'MOMO' | 'COD' | 'BANK_TRANSFER';
 export type PaymentStatus = 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
 
@@ -198,13 +205,26 @@ export type Database = {
       product_reviews:     { Row: ReviewRow;          Insert: Partial<Omit<ReviewRow, 'id' | 'created_at' | 'updated_at' | 'is_approved'>>  & { product_id: string; customer_name: string; rating: number; content: string; user_id: string }; Update: Partial<Pick<ReviewRow, 'title' | 'content' | 'rating'>> };
       // Migration 0006 — newsletter subscribers
       newsletter_subscribers: { Row: NewsletterSubscriberRow; Insert: Partial<Omit<NewsletterSubscriberRow, 'id' | 'subscribed_at'>> & { email: string }; Update: Partial<Pick<NewsletterSubscriberRow, 'is_active' | 'full_name' | 'source'>> };
+      // Migration 0012-0017 — AI Chatbot + Knowledge Base
+      chat_sessions:         { Row: ChatSessionRow;     Insert: Omit<ChatSessionRow, 'id' | 'started_at' | 'last_message_at'> & { id?: string; started_at?: string; last_message_at?: string }; Update: Partial<ChatSessionRow> };
+      chat_messages:         { Row: ChatMessageRow;     Insert: Omit<ChatMessageRow, 'id' | 'created_at'> & { id?: string; created_at?: string }; Update: Partial<ChatMessageRow> };
+      chat_leads:            { Row: ChatLeadRow;        Insert: Omit<ChatLeadRow, 'id' | 'created_at'> & { id?: string; created_at?: string }; Update: Partial<ChatLeadRow> };
+      chat_knowledge:        { Row: ChatKnowledgeRow;   Insert: Omit<ChatKnowledgeRow, 'id' | 'created_at' | 'updated_at'> & { id?: string; created_at?: string; updated_at?: string }; Update: Partial<ChatKnowledgeRow> };
+      chat_faqs:             { Row: ChatFaqRow;         Insert: Omit<ChatFaqRow, 'id' | 'created_at' | 'updated_at' | 'view_count'> & { id?: string; created_at?: string; updated_at?: string; view_count?: number }; Update: Partial<ChatFaqRow> };
+      upcoming_products:     { Row: UpcomingProductRow; Insert: Omit<UpcomingProductRow, 'id' | 'created_at' | 'updated_at'> & { id?: string; created_at?: string; updated_at?: string }; Update: Partial<UpcomingProductRow> };
+      upcoming_collections:  { Row: UpcomingCollectionRow; Insert: Omit<UpcomingCollectionRow, 'id' | 'created_at' | 'updated_at'> & { id?: string; created_at?: string; updated_at?: string }; Update: Partial<UpcomingCollectionRow> };
+      chat_promotions:       { Row: ChatPromotionRow;   Insert: Omit<ChatPromotionRow, 'id' | 'created_at'> & { id?: string; created_at?: string }; Update: Partial<ChatPromotionRow> };
     };
     Views: { [_ in never]: never };
     Functions: {
       lock_item:                  { Args: { p_product_id: string; p_client_id: string }; Returns: InventoryLockRow };
       confirm_payment:            { Args: { p_order_id: string; p_momo_trans_id: number }; Returns: null };
       link_guest_orders_to_user:  { Args: { p_user_id: string; p_phone: string }; Returns: number };
+      link_my_guest_orders:       { Args: Record<string, never>; Returns: number };
       is_verified_purchase:       { Args: { p_user_id: string; p_product_id: string }; Returns: boolean };
+      match_products:             { Args: { query_embedding: number[]; match_count?: number }; Returns: Array<{ id: string; title: string; slug: string; price: number; image_url: string; material: Material; quality_tier: QualityTier; similarity: number }> };
+      upsert_chat_session:        { Args: { p_client_id: string; p_user_id: string | null }; Returns: ChatSessionRow };
+      update_product_embedding:    { Args: { p_id: string; p_vec: string }; Returns: null };
     };
     Enums: {
       quality_tier_enum:      QualityTier;
@@ -219,3 +239,127 @@ export type Database = {
     CompositeTypes: { [_ in never]: never };
   };
 };
+
+// ────────────────────────────────────────────────────────────────────────────
+// Migration 0012-0017 — AI Chatbot + Knowledge Base
+// Thêm row types + Database interface extends để typed query trả về đúng type.
+// ────────────────────────────────────────────────────────────────────────────
+
+export type ChatRole = 'user' | 'assistant' | 'system';
+export type LeadContactType = 'phone' | 'email' | 'zalo';
+export type DiscountType = 'percent' | 'fixed' | 'shipping' | 'gift';
+export type KnowledgeCategory =
+  | 'shipping'
+  | 'return'
+  | 'warranty'
+  | 'payment'
+  | 'about'
+  | 'contact'
+  | 'care'
+  | 'size'
+  | 'general';
+
+export interface ChatSessionRow {
+  id: string;
+  client_id: string;
+  user_id: string | null;
+  started_at: string;
+  last_message_at: string;
+}
+
+export interface ChatMessageRow {
+  id: string;
+  session_id: string;
+  role: ChatRole;
+  content: string;
+  tool_calls: Json | null;
+  tool_results: Json | null;
+  tokens_used: number | null;
+  created_at: string;
+}
+
+export interface ChatLeadRow {
+  id: string;
+  session_id: string;
+  user_id: string | null;
+  contact_type: LeadContactType;
+  contact_value: string;
+  intent: string | null;
+  matched_product_id: string | null;
+  created_at: string;
+}
+
+export interface ChatKnowledgeRow {
+  id: string;
+  category: KnowledgeCategory;
+  title: string;
+  content: string;
+  keywords: string[] | null;
+  priority: number;
+  is_published: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChatFaqRow {
+  id: string;
+  question: string;
+  answer: string;
+  keywords: string[] | null;
+  category: string | null;
+  display_order: number;
+  is_published: boolean;
+  view_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UpcomingProductRow {
+  id: string;
+  title: string;
+  slug: string;
+  description: string | null;
+  short_pitch: string | null;
+  estimated_price: number | null;
+  material: Material | null;
+  category: ProductCategory | null;
+  cover_image_url: string | null;
+  gallery: string[] | null;
+  expected_launch_date: string | null;
+  notify_enabled: boolean;
+  is_announced: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UpcomingCollectionRow {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  theme: string | null;
+  cover_image_url: string | null;
+  teaser_note: string | null;
+  expected_launch_date: string | null;
+  is_announced: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChatPromotionRow {
+  id: string;
+  title: string;
+  description: string | null;
+  code: string | null;
+  discount_type: DiscountType;
+  discount_value: number | null;
+  min_order_value: number | null;
+  applicable_categories: string[] | null;
+  valid_from: string | null;
+  valid_until: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+// Extend Database với các bảng chatbot — không dùng declare module (conflict với Database export).
+// Các types đã được merge trực tiếp vào Database interface ở trên.

@@ -20,6 +20,7 @@ import { z } from 'zod';
 import { AuthError, requireAdmin } from '@/lib/auth/require-admin';
 import { slugify } from '@/lib/utils';
 import type { CollectionRow } from '@/lib/supabase/types';
+import { invalidateCollectionCache } from '@/lib/chatbot/cache-invalidation';
 
 // requireAdmin() gọi cookies() → bắt buộc dynamic.
 export const dynamic = 'force-dynamic';
@@ -175,6 +176,9 @@ export async function POST(req: Request) {
         { status: 500 }
       );
     }
+
+    // Invalidate cache để chatbot thấy collection mới ngay
+    invalidateCollectionCache();
 
     return NextResponse.json({ ok: true, data: created }, { status: 201 });
   } catch (e) {

@@ -125,7 +125,7 @@ export function CheckoutForm({ payment, onPaymentChange, isBankConfigured }: Che
             .eq('user_id', user.id)
             .eq('is_default', true)
             .maybeSingle(),
-        ]);
+        ]) as any;
 
         if (cancelled) return;
 

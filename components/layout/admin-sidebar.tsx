@@ -22,6 +22,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useAdminShell } from './admin-shell-context';
 import { adminNavItems, bottomLinks } from './admin-nav-config';
+import { ChatbotAnalyticsWidget } from '@/components/admin/chatbot-analytics-widget';
 
 const ICONS: Record<string, LucideIcon> = {
   LayoutDashboard,
@@ -153,6 +154,13 @@ export function AdminSidebar() {
             );
           })}
         </nav>
+
+        {/* Chatbot Analytics Widget (chỉ hiện khi expanded) */}
+        {showLabels && (
+          <div className="px-4 pb-4">
+            <ChatbotAnalyticsWidget />
+          </div>
+        )}
 
         {/* Bottom Section */}
         <div

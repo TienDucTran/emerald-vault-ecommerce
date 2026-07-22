@@ -70,7 +70,7 @@ export function ProductCard({ product, priority = false, className }: ProductCar
 
         {/* Unavailable overlay (SOLD_OUT hoặc RESERVED) */}
         {unavailable && (
-          <ProductUnavailableOverlay status={product.status} />
+          <ProductUnavailableOverlay status={product.status as 'SOLD_OUT' | 'RESERVED'} />
         )}
 
         {/* Featured badge — chỉ hiện khi còn AVAILABLE (vì overlay đã chiếm chỗ) */}

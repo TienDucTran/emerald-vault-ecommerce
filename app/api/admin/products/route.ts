@@ -20,6 +20,7 @@ import {
 } from '@/lib/admin/products-schema';
 import { listAdminProducts } from '@/lib/supabase/queries/admin-products';
 import { AuthError, requireAdmin } from '@/lib/auth/require-admin';
+import { invalidateProductCache } from '@/lib/chatbot/cache-invalidation';
 
 // requireAdmin() gọi cookies() → bắt buộc dynamic.
 export const dynamic = 'force-dynamic';
@@ -130,6 +131,9 @@ export async function POST(req: Request) {
         { status: 500 }
       );
     }
+
+    // Invalidate cache để chatbot thấy sp mới ngay
+    invalidateProductCache();
 
     return NextResponse.json({ ok: true, data }, { status: 201 });
   } catch (e) {

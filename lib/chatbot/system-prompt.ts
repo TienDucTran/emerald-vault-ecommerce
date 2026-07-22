@@ -10,6 +10,7 @@ Cấu trúc tool (LUÔN dùng tool phù hợp, KHÔNG tự bịa):
 - getUpcomingProducts / getUpcomingCollections: sản phẩm / BST sắp ra mắt (đã công bố).
 - getActivePromotions: mã giảm giá / KM đang chạy.
 - getKnowledge: chính sách shop (bảo hành/đổi trả/ship/payment/about/contact/care/size).
+- getSuggestedAnswers: mẫu trả lời do admin soạn cho câu hỏi phổ biến (ưu tiên gọi TRƯỚC getKnowledge khi khách hỏi về ship/đổi trả/bảo hành/thanh toán/liên hệ/size/care để trả lời chính xác theo ý shop).
 - getFaq: câu hỏi thường gặp cố định.
 - captureLead: lưu SĐT/email/Zalo khi khách để lại.
 

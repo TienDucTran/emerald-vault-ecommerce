@@ -8,6 +8,8 @@ import type { OrderStatus } from '@/lib/supabase/types';
 
 const ALLOWED_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   NEW: ['CONFIRMED', 'CANCELLED'],
+  WAITING_PAYMENT: ['CONFIRMED', 'CANCELLED'],
+  WAITING_CONFIRM: ['CONFIRMED', 'CANCELLED'],
   CONFIRMED: ['SHIPPING', 'CANCELLED'],
   SHIPPING: ['DONE'],
   DONE: [],
@@ -16,6 +18,8 @@ const ALLOWED_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
 
 const STATUS_LABEL: Record<OrderStatus, string> = {
   NEW: 'Mới',
+  WAITING_PAYMENT: 'Chờ thanh toán',
+  WAITING_CONFIRM: 'Chờ xác nhận',
   CONFIRMED: 'Đã xác nhận',
   SHIPPING: 'Đang giao',
   DONE: 'Hoàn tất',
@@ -24,6 +28,8 @@ const STATUS_LABEL: Record<OrderStatus, string> = {
 
 const STATUS_DESCRIPTION: Record<OrderStatus, string> = {
   NEW: 'Đơn vừa được tạo, chờ xác nhận.',
+  WAITING_PAYMENT: 'Khách đang chờ thanh toán (BANK_TRANSFER đã tạo QR).',
+  WAITING_CONFIRM: 'Khách đã báo đã CK, chờ admin xác nhận.',
   CONFIRMED: 'Đã xác nhận thông tin & thanh toán (nếu có).',
   SHIPPING: 'Đơn đang được vận chuyển đến khách.',
   DONE: 'Đơn đã giao thành công, đóng đơn.',

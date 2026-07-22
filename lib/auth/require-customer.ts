@@ -63,11 +63,11 @@ export async function requireCustomer(): Promise<RequireCustomerResult> {
     throw new AuthError(401, 'NOT_AUTHENTICATED', 'Yêu cầu đăng nhập');
   }
 
-  const { data: profile, error } = await supabase
+  const { data: profile, error } = (await supabase
     .from('profiles')
     .select('*')
     .eq('id', user.id)
-    .single<ProfileRow>();
+    .single()) as { data: ProfileRow | null; error: any };
 
   if (error || !profile) {
     throw new AuthError(403, 'NOT_CUSTOMER', 'Không tìm thấy profile');
@@ -127,11 +127,11 @@ export async function getOptionalCustomer(): Promise<RequireCustomerResult | nul
 
     if (!user) return null;
 
-    const { data: profile, error } = await supabase
+    const { data: profile, error } = (await supabase
       .from('profiles')
       .select('*')
       .eq('id', user.id)
-      .maybeSingle<ProfileRow>();
+      .maybeSingle()) as { data: ProfileRow | null; error: any };
 
     if (error || !profile) return null;
 
@@ -173,11 +173,11 @@ export async function getCurrentUser(): Promise<CurrentUserContext> {
     } = await supabase.auth.getUser();
     if (!user) return null;
 
-    const { data: profile, error } = await supabase
+    const { data: profile, error } = (await supabase
       .from('profiles')
       .select('*')
       .eq('id', user.id)
-      .maybeSingle<ProfileRow>();
+      .maybeSingle()) as { data: ProfileRow | null; error: any };
 
     if (error || !profile) return null;
 

@@ -20,6 +20,7 @@
 import { NextResponse } from 'next/server';
 import { UpdateProductSchema } from '@/lib/admin/products-schema';
 import { AuthError, requireAdmin } from '@/lib/auth/require-admin';
+import { invalidateProductCache } from '@/lib/chatbot/cache-invalidation';
 
 // requireAdmin() gọi cookies() → bắt buộc dynamic.
 export const dynamic = 'force-dynamic';
@@ -135,6 +136,9 @@ export async function PATCH(req: Request, { params }: Ctx) {
       );
     }
 
+    // Invalidate cache để chatbot thấy data product đã cập nhật
+    invalidateProductCache();
+
     return NextResponse.json({ ok: true, data });
   } catch (e) {
     if (e instanceof AuthError) {
@@ -162,6 +166,9 @@ export async function DELETE(_req: Request, { params }: Ctx) {
         { status: 500 }
       );
     }
+
+    // Invalidate cache để chatbot không trả về sp đã xoá
+    invalidateProductCache();
 
     return NextResponse.json({ ok: true, id });
   } catch (e) {

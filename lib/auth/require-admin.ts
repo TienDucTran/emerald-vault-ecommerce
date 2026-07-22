@@ -58,11 +58,11 @@ export async function requireAdmin(): Promise<RequireAdminResult> {
     throw new AuthError(401, 'UNAUTHENTICATED', 'Yêu cầu đăng nhập');
   }
 
-  const { data: profile, error } = await supabase
+  const { data: profile, error } = (await supabase
     .from('profiles')
     .select('*')
     .eq('id', user.id)
-    .single<ProfileRow>();
+    .single()) as { data: ProfileRow | null; error: any };
 
   if (error || !profile) {
     throw new AuthError(403, 'FORBIDDEN', 'Không tìm thấy profile');

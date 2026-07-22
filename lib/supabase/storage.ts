@@ -112,7 +112,11 @@ async function listFolderNames(folder: string): Promise<Set<string>> {
     );
   }
 
-  return new Set((data ?? []).map((obj) => obj.name).filter((n): n is string => !!n));
+  return new Set(
+    ((data ?? []) as Array<{ name: string | null }>)
+      .map((obj) => obj.name)
+      .filter((n): n is string => !!n)
+  );
 }
 
 /**

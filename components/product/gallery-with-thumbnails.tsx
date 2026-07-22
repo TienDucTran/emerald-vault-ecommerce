@@ -55,7 +55,7 @@ export function GalleryWithThumbnails({ product }: GalleryWithThumbnailsProps) {
           className={cn('object-cover', isUnavailable && 'grayscale')}
         />
         {/* Overlay vintage stamp cho SOLD_OUT / RESERVED */}
-        {isUnavailable && <ProductUnavailableOverlay status={product.status} />}
+        {isUnavailable && <ProductUnavailableOverlay status={product.status as 'SOLD_OUT' | 'RESERVED'} />}
       </div>
 
       {/* Thumbnails — UI cũ: grid-cols-5, gap-2, border-gold/20 */}

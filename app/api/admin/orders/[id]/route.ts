@@ -30,6 +30,8 @@ const PAYMENT_STATUSES: PaymentStatus[] = [
 
 const ALLOWED_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   NEW: ['CONFIRMED', 'CANCELLED'],
+  WAITING_PAYMENT: ['CONFIRMED', 'CANCELLED'],
+  WAITING_CONFIRM: ['CONFIRMED', 'CANCELLED'],
   CONFIRMED: ['SHIPPING', 'CANCELLED'],
   SHIPPING: ['DONE'],
   DONE: [],
@@ -74,11 +76,11 @@ export async function GET(
     }
     const admin = createAdminClient();
 
-    const { data: order, error: orderErr } = await admin
+    const { data: order, error: orderErr } = (await admin
       .from('orders')
       .select('*')
       .eq('id', id)
-      .single<OrderRow>();
+      .single()) as { data: OrderRow | null; error: any };
 
     if (orderErr || !order) {
       return NextResponse.json(
@@ -100,10 +102,8 @@ export async function GET(
       );
     }
 
-    const items: OrderDetailItem[] = (itemsRaw ?? []).map((row) => {
-      const r = row as OrderItemRow & {
-        product: { id: string; slug: string } | null;
-      };
+    const items: OrderDetailItem[] = ((itemsRaw ?? []) as any[]).map((row: any) => {
+      const r = row as any;
       return {
         id: r.id,
         order_id: r.order_id,
@@ -130,16 +130,19 @@ async function handleConfirmBankPayment(
   const db = admin as any;
 
   // 1. Verify order + payment_method
-  const { data: order, error: orderErr } = await admin
+  const { data: order, error: orderErr } = (await admin
     .from('orders')
     .select('id, status, payment_method, payment_status')
     .eq('id', orderId)
-    .single<{
+    .single()) as {
+    data: {
       id: string;
       status: OrderStatus;
       payment_method: PaymentMethod;
       payment_status: PaymentStatus;
-    }>();
+    } | null;
+    error: any;
+  };
 
   if (orderErr || !order) {
     return NextResponse.json(
@@ -211,7 +214,7 @@ async function handleConfirmBankPayment(
   }
 
   // 4. Update order → CONFIRMED + PAID
-  const { data: updatedOrder, error: orderUpErr } = await admin
+  const { data: updatedOrder, error: orderUpErr } = (await admin
     .from('orders')
     .update({
       status: 'CONFIRMED',
@@ -220,7 +223,7 @@ async function handleConfirmBankPayment(
     })
     .eq('id', orderId)
     .select('*')
-    .single<OrderRow>();
+    .single()) as { data: OrderRow | null; error: any };
 
   if (orderUpErr || !updatedOrder) {
     console.error('[admin/orders/:id] order confirm error:', orderUpErr);
@@ -313,15 +316,18 @@ export async function PATCH(
     }
 
     const admin = createAdminClient();
-    const { data: current, error: curErr } = await admin
+    const { data: current, error: curErr } = (await admin
       .from('orders')
       .select('id, status, payment_status')
       .eq('id', id)
-      .single<{
+      .single()) as {
+      data: {
         id: string;
         status: OrderStatus;
         payment_status: PaymentStatus;
-      }>();
+      } | null;
+      error: any;
+    };
 
     if (curErr || !current) {
       return NextResponse.json(
@@ -348,12 +354,12 @@ export async function PATCH(
     if (payment_status) update.payment_status = payment_status;
     update.updated_at = new Date().toISOString();
 
-    const { data: order, error: upErr } = await admin
+    const { data: order, error: upErr } = (await admin
       .from('orders')
       .update(update)
       .eq('id', id)
       .select('*')
-      .single<OrderRow>();
+      .single()) as { data: OrderRow | null; error: any };
 
     if (upErr || !order) {
       console.error('[admin/orders/:id] update error:', upErr);

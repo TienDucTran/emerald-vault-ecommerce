@@ -909,7 +909,7 @@ export function CollectionForm({
             </div>
           ) : products.length === 0 ? (
             <div className="rounded-sm border border-dashed border-[#4D4635] p-6 text-center text-xs text-text-muted/60">
-              Chưa có sản phẩm nào trong bộ sưu tập này. Bấm "Thêm sản phẩm" để chọn từ danh sách.
+              Chưa có sản phẩm nào trong bộ sưu tập này. Bấm &quot;Thêm sản phẩm&quot; để chọn từ danh sách.
             </div>
           ) : (
             <ul className="space-y-2">
