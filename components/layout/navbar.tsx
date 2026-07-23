@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Menu, X, ShoppingBag, User } from 'lucide-react';
+import { Menu, X, ShoppingBag, User, Package, Search } from 'lucide-react';
 import { useState } from 'react';
 import { CartBadge } from './cart-badge';
 import { WishlistBootstrap } from './wishlist-bootstrap';
@@ -84,6 +84,16 @@ export function Navbar() {
             <CartBadge />
           </Link>
 
+          {/* Order lookup icon */}
+          <Link
+            href="/don-hang"
+            className="hidden lg:grid h-8 w-8 place-items-center text-gold transition-colors hover:text-gold-champagne active:scale-90"
+            aria-label="Tra cứu đơn hàng"
+            title="Tra cứu đơn hàng"
+          >
+            <Package className="h-5 w-5" />
+          </Link>
+
           {/* Account icon */}
           <Link
             href="/tai-khoan"
@@ -141,6 +151,20 @@ export function Navbar() {
               </Link>
             );
           })}
+          <Link
+            key="tra-cuu-don-hang"
+            href="/don-hang"
+            onClick={() => setMobileOpen(false)}
+            aria-current={pathname === '/don-hang' ? 'page' : undefined}
+            style={{ animationDelay: mobileOpen ? `${NAV_ITEMS.length * 50}ms` : undefined }}
+            className={cn(
+              'border-b border-surface-emerald/50 py-3 font-heading text-sm font-semibold uppercase tracking-wider transition-colors hover:text-gold motion-safe:animate-slideInLeft flex items-center gap-2',
+              pathname === '/don-hang' ? 'text-gold' : 'text-text-base'
+            )}
+          >
+            <Package className="h-4 w-4" />
+            Tra cứu đơn hàng
+          </Link>
         </nav>
       </div>
     </header>

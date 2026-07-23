@@ -54,6 +54,7 @@ import {
   CATEGORY_LABELS,
   TIER_LABELS,
   cn,
+  tierBadgeClass,
 } from '@/lib/utils';
 import {
   CreateProductSchema,
@@ -179,19 +180,13 @@ const sectionTitleCls =
 const h1Cls = 'font-heading text-2xl font-bold text-[#EAE1D4] tracking-tight';
 const subtitleCls = 'text-sm text-[#D0C5AF]/60 mt-1';
 const tintError = 'border-error/30 bg-error/5 text-error';
-const tintWarning = 'border-gold/30 bg-gold/5 text-gold';
-const tintInfo = 'border-gold/30 bg-gold/5 text-gold';
+const tintWarning = 'border-warning/30 bg-warning/10 text-warning';
+const tintInfo = 'border-info/30 bg-info/10 text-info';
 
 const tierBadgeCls = (tier: 'SSS' | 'SS' | 'S', active: boolean) => {
   const base = 'inline-block px-2 py-0.5 text-[9px] font-bold rounded';
-  const color =
-    tier === 'SSS'
-      ? 'bg-gradient-to-r from-gold to-gold-champagne text-background'
-      : tier === 'SS'
-      ? 'bg-gold/20 text-gold border border-gold/40'
-      : 'bg-surface text-gold/80 border border-gold/20';
   const ring = active ? 'ring-1 ring-gold' : '';
-  return `${base} ${color} ${ring}`;
+  return `${base} ${tierBadgeClass(tier)} ${ring}`;
 };
 
 const SUGGESTED_TAGS = [

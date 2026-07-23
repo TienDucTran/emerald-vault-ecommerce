@@ -1,5 +1,7 @@
 'use client';
 
+import { tierBadgeClass } from '@/lib/utils';
+
 const lowStockItems = [
   { name: 'Silver Ring SS', sku: 'SR-001', stock: 2, threshold: 5, tier: 'SS' },
   { name: 'Gold Necklace SSS', sku: 'GN-023', stock: 1, threshold: 3, tier: 'SSS' },
@@ -52,13 +54,7 @@ export function LowStockAlerts() {
               <div className="flex items-center gap-2 sm:gap-3 shrink-0">
                 {/* Tier badge */}
                 <span
-                  className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${
-                    item.tier === 'SSS'
-                      ? 'bg-gradient-to-r from-gold to-gold-champagne text-background'
-                      : item.tier === 'SS'
-                      ? 'bg-gold/20 text-gold border border-gold/40'
-                      : 'bg-surface text-gold/80 border border-gold/20'
-                  }`}
+                  className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${tierBadgeClass(item.tier)}`}
                 >
                   {item.tier}
                 </span>

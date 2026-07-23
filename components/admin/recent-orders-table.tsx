@@ -1,5 +1,7 @@
 'use client';
 
+import { getOrderStatusPill, getOrderStatusMeta } from '@/lib/order/status';
+
 const recentOrders = [
   {
     id: '#EV-2026-001',
@@ -48,14 +50,6 @@ const recentOrders = [
   },
 ];
 
-const statusColors: Record<string, string> = {
-  NEW: 'text-info border-info/30 bg-info/10',
-  CONFIRMED: 'text-warning border-warning/30 bg-warning/10',
-  SHIPPING: 'text-gold border-gold/30 bg-gold/10',
-  DONE: 'text-success border-success/30 bg-success/10',
-  CANCELLED: 'text-error border-error/30 bg-error/10',
-};
-
 export function RecentOrdersTable() {
   return (
     <div>
@@ -103,11 +97,9 @@ export function RecentOrdersTable() {
                 </td>
                 <td className="px-6 py-3">
                   <span
-                    className={`inline-block px-2 py-0.5 text-[10px] font-medium rounded border ${
-                      statusColors[order.status] || 'text-[#D0C5AF]/50 border-[#4D4635]/30 bg-transparent'
-                    }`}
+                    className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider ${getOrderStatusPill(order.status)}`}
                   >
-                    {order.status}
+                    {getOrderStatusMeta(order.status).label}
                   </span>
                 </td>
                 <td className="px-6 py-3">

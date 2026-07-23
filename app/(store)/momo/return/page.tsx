@@ -42,6 +42,25 @@ function MomoReturnContent() {
   const [paymentStatus, setPaymentStatus] = useState<string | null>(null);
   const pollsRef = useRef(0);
 
+  const getPhoneFromSession = (code: string): string | null => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const phone = sessionStorage.getItem(`momo-phone-${code}`);
+      // Xóa sau khi đọc để tránh giữ lại trong session
+      if (phone) sessionStorage.removeItem(`momo-phone-${code}`);
+      return phone;
+    } catch {
+      return null;
+    }
+  };
+
+  const buildOrderUrl = (code: string): string => {
+    const phone = getPhoneFromSession(code);
+    return phone
+      ? `/don-hang/${encodeURIComponent(code)}?phone=${encodeURIComponent(phone)}`
+      : `/don-hang/${encodeURIComponent(code)}`;
+  };
+
   useEffect(() => {
     if (!orderCode) {
       setState('failed');
@@ -87,7 +106,7 @@ function MomoReturnContent() {
   useEffect(() => {
     if (state === 'success' && orderCode) {
       const t = setTimeout(() => {
-        router.push(`/don-hang/${orderCode}`);
+        router.push(buildOrderUrl(orderCode));
       }, 1500);
       return () => clearTimeout(t);
     }
@@ -141,7 +160,7 @@ function MomoReturnContent() {
             <div className="mt-6 flex flex-col gap-2">
               {orderCode && (
                 <Button asChild variant="primary" size="lg" className="w-full">
-                  <Link href={`/don-hang/${orderCode}`}>Xem đơn hàng</Link>
+                  <Link href={buildOrderUrl(orderCode)}>Xem đơn hàng</Link>
                 </Button>
               )}
               <Button asChild variant="outline" size="lg" className="w-full">
@@ -163,7 +182,7 @@ function MomoReturnContent() {
             {orderCode && (
               <div className="mt-6 flex flex-col gap-2">
                 <Button asChild variant="primary" size="lg" className="w-full">
-                  <Link href={`/don-hang/${orderCode}`}>Tôi đã thanh toán — kiểm tra lại</Link>
+                  <Link href={buildOrderUrl(orderCode)}>Tôi đã thanh toán — kiểm tra lại</Link>
                 </Button>
                 <Button asChild variant="outline" size="lg" className="w-full">
                   <Link href="/gio-hang">Quay lại giỏ hàng</Link>

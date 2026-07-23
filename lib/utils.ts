@@ -87,3 +87,40 @@ export const TIER_DESCRIPTIONS: Record<string, string> = {
   SS: 'Phổ biến nhất, tình trạng gần như hoàn hảo.',
   S: 'Phù hợp đeo hằng ngày hoặc làm quà tặng.',
 };
+
+/**
+ * Tier badge Tailwind classes — dùng cho product card overlay (small badge góc trên-trái ảnh).
+ * SSS: gold gradient (cao cấp nhất), SS: surface elevated, S: muted.
+ */
+export const TIER_BADGE_CLASS: Record<string, string> = {
+  SSS: 'bg-primary/90 text-quartz-black border-champagne-gold/50 shadow-[0_0_10px_rgba(242,202,80,0.4)]',
+  SS: 'bg-surface-container-highest text-on-surface border-primary/40',
+  S: 'bg-surface-container text-on-surface-variant border-dotted border-primary/40',
+};
+
+/**
+ * Tier overlay frame class — border overlay xoay nhẹ quanh ảnh sản phẩm (Stitch redesign).
+ * Mỗi tier có 1 góc xoay khác nhau để trông "editorial".
+ */
+export const TIER_FRAME_CLASS: Record<string, string> = {
+  SSS: 'rotate-3 group-hover:rotate-6',
+  SS: '-rotate-2 group-hover:rotate-0',
+  S: 'rotate-1 group-hover:-rotate-3',
+};
+
+/**
+ * Helper lấy tier class an toàn (fallback nếu tier không xác định).
+ */
+export function tierBadgeClass(tier: string | null | undefined): string {
+  if (tier && tier in TIER_BADGE_CLASS) {
+    return TIER_BADGE_CLASS[tier];
+  }
+  return TIER_BADGE_CLASS.S ?? 'bg-surface text-text-muted border-gold/20';
+}
+
+export function tierFrameClass(tier: string | null | undefined): string {
+  if (tier && tier in TIER_FRAME_CLASS) {
+    return TIER_FRAME_CLASS[tier];
+  }
+  return TIER_FRAME_CLASS.S;
+}

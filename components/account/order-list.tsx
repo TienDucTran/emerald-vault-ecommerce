@@ -1,21 +1,24 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Package, ShoppingBag, ChevronDown } from 'lucide-react';
 import { OrderCard } from './order-card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { createClient } from '@/lib/supabase/client';
+import { toast } from '@/lib/toast/toast-store';
 import type { CustomerOrderListItem } from '@/lib/supabase/queries/orders';
+import type { OrderStatus } from '@/lib/supabase/types';
 
-type FilterKey = 'ALL' | 'NEW' | 'SHIPPING' | 'DONE' | 'CANCELLED';
+type FilterKey = 'ALL' | 'WAITING' | 'SHIPPING' | 'DONE';
 
-const FILTERS: { key: FilterKey; label: string; matchStatuses: string[] }[] = [
+const FILTERS: { key: FilterKey; label: string; matchStatuses: OrderStatus[] }[] = [
   { key: 'ALL', label: 'Tất cả', matchStatuses: [] },
-  { key: 'NEW', label: 'Mới', matchStatuses: ['NEW', 'CONFIRMED'] },
+  { key: 'WAITING', label: 'Đang đợi', matchStatuses: ['NEW', 'WAITING_PAYMENT', 'WAITING_CONFIRM'] },
   { key: 'SHIPPING', label: 'Đang giao', matchStatuses: ['SHIPPING'] },
   { key: 'DONE', label: 'Hoàn tất', matchStatuses: ['DONE'] },
-  { key: 'CANCELLED', label: 'Đã hủy', matchStatuses: ['CANCELLED'] },
 ];
 
 type SortKey = 'newest' | 'oldest' | 'price_desc' | 'price_asc';
@@ -32,23 +35,92 @@ export interface OrderListProps {
 }
 
 export function OrderList({ orders, total }: OrderListProps) {
+  const router = useRouter();
   const [filter, setFilter] = useState<FilterKey>('ALL');
   const [sort, setSort] = useState<SortKey>('newest');
   const [sortOpen, setSortOpen] = useState(false);
+  const previousStatusesRef = useRef<Record<string, string>>({});
+
+  useEffect(() => {
+    const map: Record<string, string> = {};
+    for (const o of orders) map[o.code] = o.status;
+    previousStatusesRef.current = map;
+  }, []);
+
+  useEffect(() => {
+    let channel: ReturnType<ReturnType<typeof createClient>['channel']> | null = null;
+    let cancelled = false;
+
+    (async () => {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user || cancelled) return;
+
+      channel = supabase
+        .channel(`orders-${user.id}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'orders',
+            filter: `customer_id=eq.${user.id}`,
+          },
+          (payload) => {
+            const newRow = payload.new as {
+              id: string;
+              code: string;
+              status: string;
+            };
+            const oldRow = payload.old as { status?: string };
+            const oldStatus = oldRow?.status;
+            const newStatus = newRow.status;
+            const previous = previousStatusesRef.current[newRow.code];
+
+            const cameFromPending =
+              previous === undefined ||
+              previous === 'WAITING_PAYMENT' ||
+              previous === 'WAITING_CONFIRM' ||
+              oldStatus === 'WAITING_PAYMENT' ||
+              oldStatus === 'WAITING_CONFIRM';
+
+            if (newStatus === 'CONFIRMED' && oldStatus !== 'CONFIRMED' && cameFromPending) {
+              previousStatusesRef.current[newRow.code] = newStatus;
+              toast.success(`Đơn hàng #${newRow.code} đã được admin xác nhận`, {
+                description: 'Đang chuẩn bị giao hàng.',
+                action: {
+                  label: 'Xem',
+                  onClick: () => router.push(`/don-hang/${encodeURIComponent(newRow.code)}`),
+                },
+              });
+              router.refresh();
+            } else if (previous === undefined) {
+              previousStatusesRef.current[newRow.code] = newStatus;
+            }
+          }
+        )
+        .subscribe();
+    })();
+
+    return () => {
+      cancelled = true;
+      if (channel) {
+        channel.unsubscribe();
+      }
+    };
+  }, [router]);
 
   const counts = useMemo(() => {
     const c: Record<FilterKey, number> = {
       ALL: orders.length,
-      NEW: 0,
+      WAITING: 0,
       SHIPPING: 0,
       DONE: 0,
-      CANCELLED: 0,
     };
     for (const o of orders) {
-      if (o.status === 'NEW' || o.status === 'CONFIRMED') c.NEW++;
+      if (o.status === 'NEW' || o.status === 'WAITING_PAYMENT' || o.status === 'WAITING_CONFIRM') c.WAITING++;
       if (o.status === 'SHIPPING') c.SHIPPING++;
       if (o.status === 'DONE') c.DONE++;
-      if (o.status === 'CANCELLED') c.CANCELLED++;
     }
     return c;
   }, [orders]);
@@ -74,16 +146,22 @@ export function OrderList({ orders, total }: OrderListProps) {
   }, [orders, filter, sort]);
 
   return (
-    <div className="flex flex-col gap-8">
-      <div className="flex flex-col gap-2">
-        <h1 className="font-heading text-[28px] font-normal leading-tight tracking-[0.1em] text-gold">
-          ĐƠN HÀNG CỦA TÔI
-        </h1>
-        <p className="text-base text-text-muted">
-          Có <span className="font-medium text-gold">{total}</span> đơn hàng trong
-          hệ thống.
-        </p>
-      </div>
+    <div className="relative flex flex-col gap-8 overflow-hidden">
+      <div
+        className="pointer-events-none absolute -top-40 -right-40 h-96 w-96 rounded-full bg-primary/5 blur-[120px]"
+        aria-hidden
+      />
+
+      <header className="mb-12 flex flex-col items-start gap-4 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h1 className="font-heading text-4xl font-bold tracking-[0.05em] text-gold md:text-5xl">
+            ĐƠN HÀNG CỦA TÔI
+          </h1>
+          <p className="mt-2 text-sm italic text-text-muted">
+            Lịch sử các vật phẩm lưu ký của bạn.
+          </p>
+        </div>
+      </header>
 
       {orders.length === 0 ? (
         <EmptyState />
@@ -99,10 +177,10 @@ export function OrderList({ orders, total }: OrderListProps) {
                     type="button"
                     onClick={() => setFilter(f.key)}
                     className={cn(
-                      'shrink-0 rounded-full px-5 py-2 text-sm font-medium transition-all duration-200',
+                      'shrink-0 px-6 py-2 font-heading text-[11px] tracking-[0.15em] transition-colors',
                       active
-                        ? 'bg-gold text-background shadow-gold-glow'
-                        : 'border border-gold/20 text-text-muted hover:border-gold hover:text-text-base'
+                        ? 'bg-gradient-gold text-background shadow-gold-glow'
+                        : 'border border-gold/20 text-text-muted hover:border-gold/50 hover:text-gold'
                     )}
                   >
                     {f.label} ({counts[f.key]})

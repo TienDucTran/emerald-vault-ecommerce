@@ -20,6 +20,10 @@ import {
 } from '@/lib/analytics/dashboard';
 import { formatVND, formatVNDShort } from '@/lib/utils';
 import { RefreshButton } from '@/components/admin/dashboard-refresh-button';
+import {
+  getOrderStatusMeta,
+  getOrderStatusPill,
+} from '@/lib/order/status';
 
 export const revalidate = 30;
 
@@ -54,33 +58,6 @@ function formatDateTime(iso: string): string {
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('vi-VN');
-}
-
-function statusBadge(status: string): string {
-  switch (status) {
-    case 'NEW':
-      return 'border border-warning/40 text-warning bg-warning/10';
-    case 'CONFIRMED':
-      return 'border border-info/40 text-info bg-info/10';
-    case 'SHIPPING':
-      return 'border border-blue-400/40 text-blue-300 bg-blue-400/10';
-    case 'DONE':
-      return 'border border-success/40 text-success bg-success/10';
-    case 'CANCELLED':
-      return 'border border-error/40 text-error bg-error/10';
-    case 'PAID':
-      return 'border border-success/40 text-success bg-success/10';
-    case 'PENDING':
-      return 'border border-warning/40 text-warning bg-warning/10';
-    case 'AVAILABLE':
-      return 'border border-success/40 text-success bg-success/10';
-    case 'SOLD_OUT':
-      return 'border border-error/40 text-error bg-error/10';
-    case 'ACTIVE':
-      return 'border border-info/40 text-info bg-info/10';
-    default:
-      return 'border border-[#4D4635]/40 text-[#D0C5AF]/70 bg-[#1F1B13]';
-  }
 }
 
 export default async function AdminDashboardPage() {
@@ -225,6 +202,15 @@ export default async function AdminDashboardPage() {
             Có {kpis.pendingBankConfirmations} đơn CK chờ xác nhận → Xem
           </Link>
         )}
+        {kpis.pendingRefundRequests > 0 && (
+          <Link
+            href="/admin/orders?paymentStatus=REFUND_REQUESTED"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-sm text-xs font-heading tracking-[0.05em] uppercase border border-warning/40 text-warning bg-warning/5 hover:bg-warning/10 transition-colors"
+          >
+            <span className="w-2 h-2 rounded-full bg-warning animate-pulse" />
+            Có {kpis.pendingRefundRequests} yêu cầu hoàn tiền → Xem
+          </Link>
+        )}
         {expiringLocks.length > 0 && (
           <Link
             href="/admin/inventory"
@@ -251,6 +237,7 @@ export default async function AdminDashboardPage() {
         )}
         {kpis.ordersPending === 0 &&
           kpis.pendingBankConfirmations === 0 &&
+          kpis.pendingRefundRequests === 0 &&
           expiringLocks.length === 0 &&
           kpis.productsSoldOut === 0 && (
             <span className="inline-flex items-center gap-2 px-4 py-2 rounded-sm text-xs font-heading tracking-[0.05em] uppercase border border-success/40 text-success bg-success/5">
@@ -310,9 +297,9 @@ export default async function AdminDashboardPage() {
                     </td>
                     <td className="py-2 px-3 text-right">
                       <span
-                        className={`inline-block px-2 py-0.5 text-[9px] rounded ${statusBadge(o.status)}`}
+                        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider ${getOrderStatusPill(o.status)}`}
                       >
-                        {o.status}
+                        {getOrderStatusMeta(o.status).label}
                       </span>
                     </td>
                   </tr>

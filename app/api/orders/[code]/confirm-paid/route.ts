@@ -2,7 +2,7 @@
 // Customer báo "đã chuyển khoản" — chuyển order WAITING_PAYMENT → WAITING_CONFIRM.
 // Body: { phone: string }
 //
-// Response 200: { ok: true, orderStatus: 'WAITING_CONFIRM' }
+// Response 200: { ok: true, order: { status, paymentStatus } }
 // Response 4xx: { ok: false, error }
 
 import { NextResponse } from 'next/server';
@@ -40,7 +40,7 @@ export async function POST(
   // 1. Tìm order
   const { data: order, error: orderErr } = await db
     .from('orders')
-    .select('id, code, customer_phone, status, payment_method')
+    .select('id, code, customer_phone, status, payment_status, payment_method')
     .eq('code', code)
     .maybeSingle();
   if (orderErr) {
@@ -93,16 +93,29 @@ export async function POST(
 
   // 4. Nếu order đang WAITING_PAYMENT → chuyển sang WAITING_CONFIRM
   let newStatus = order.status;
+  let newPaymentStatus = order.payment_status;
   if (order.status === 'WAITING_PAYMENT') {
+    // Transition sang "Chờ xác nhận CK" ở CẢ orders.status và payment_status
+    // (đồng bộ 2 trạng thái để admin thấy đúng state).
     const { error: stErr } = await db
       .from('orders')
-      .update({ status: 'WAITING_CONFIRM' })
+      .update({
+        status: 'WAITING_CONFIRM',
+        payment_status: 'AWAITING_CONFIRM',
+      })
       .eq('id', order.id);
     if (stErr) {
       return NextResponse.json({ ok: false, error: stErr.message }, { status: 500 });
     }
     newStatus = 'WAITING_CONFIRM';
+    newPaymentStatus = 'AWAITING_CONFIRM';
   }
 
-  return NextResponse.json({ ok: true, orderStatus: newStatus });
+  return NextResponse.json({
+    ok: true,
+    order: {
+      status: newStatus,
+      paymentStatus: newPaymentStatus,
+    },
+  });
 }

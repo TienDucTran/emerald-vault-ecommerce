@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { formatVND, formatVNDShort, CATEGORY_LABELS } from '@/lib/utils';
+import { formatVND, formatVNDShort, CATEGORY_LABELS, tierBadgeClass } from '@/lib/utils';
 
 /**
  * /admin/analytics — page tổng hợp số liệu GA4 + orders.
@@ -87,13 +87,6 @@ function formatDelta(n: number | null): { text: string; tone: 'up' | 'down' | 'f
   if (rounded < 0) return { text: `↓ ${Math.abs(rounded)}%`, tone: 'down' };
   return { text: '0%', tone: 'flat' };
 }
-
-const tierBadge = (tier: string | null) => {
-  if (!tier) return 'bg-surface text-[#D0C5AF]/40 border border-[#4D4635]/30';
-  if (tier === 'SSS') return 'bg-gradient-to-r from-gold to-gold-champagne text-background';
-  if (tier === 'SS') return 'bg-gold/20 text-gold border border-gold/40';
-  return 'bg-surface text-gold/80 border border-gold/20';
-};
 
 export default function AnalyticsPage() {
   const [days, setDays] = useState(7);
@@ -618,7 +611,7 @@ export default function AnalyticsPage() {
                       </td>
                       <td className="px-4 sm:px-6 lg:px-8 py-4">
                         <span
-                          className={`inline-block px-2 py-0.5 text-[9px] font-bold rounded ${tierBadge(p.qualityTier)}`}
+                          className={`inline-block px-2 py-0.5 text-[9px] font-bold rounded ${tierBadgeClass(p.qualityTier)}`}
                         >
                           {p.qualityTier ?? '—'}
                         </span>

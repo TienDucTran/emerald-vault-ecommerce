@@ -5,6 +5,7 @@ import { Modal } from '@/components/ui/modal';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/lib/toast/toast-store';
 import type { OrderStatus } from '@/lib/supabase/types';
+import { getOrderStatusMeta } from '@/lib/order/status';
 
 const ALLOWED_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   NEW: ['CONFIRMED', 'CANCELLED'],
@@ -14,16 +15,6 @@ const ALLOWED_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   SHIPPING: ['DONE'],
   DONE: [],
   CANCELLED: [],
-};
-
-const STATUS_LABEL: Record<OrderStatus, string> = {
-  NEW: 'Mới',
-  WAITING_PAYMENT: 'Chờ thanh toán',
-  WAITING_CONFIRM: 'Chờ xác nhận',
-  CONFIRMED: 'Đã xác nhận',
-  SHIPPING: 'Đang giao',
-  DONE: 'Hoàn tất',
-  CANCELLED: 'Đã huỷ',
 };
 
 const STATUS_DESCRIPTION: Record<OrderStatus, string> = {
@@ -80,7 +71,7 @@ export function StatusUpdateDialog({
         return;
       }
       toast.success(
-        `Đã cập nhật: ${STATUS_LABEL[currentStatus]} → ${STATUS_LABEL[newStatus]}`
+        `Đã cập nhật: ${getOrderStatusMeta(currentStatus).label} → ${getOrderStatusMeta(newStatus).label}`
       );
       onUpdated?.(newStatus);
       setOpen(false);
@@ -112,7 +103,7 @@ export function StatusUpdateDialog({
         description={
           noTransitions
             ? 'Đơn hàng đã ở trạng thái cuối, không thể chuyển tiếp.'
-            : `Trạng thái hiện tại: ${STATUS_LABEL[currentStatus]} (${currentStatus})`
+            : `Trạng thái hiện tại: ${getOrderStatusMeta(currentStatus).label} (${currentStatus})`
         }
         size="md"
         footer={
@@ -138,7 +129,7 @@ export function StatusUpdateDialog({
       >
         {noTransitions ? (
           <p className="text-sm text-[#D0C5AF]/60">
-            Đơn hàng ở trạng thái <strong>{STATUS_LABEL[currentStatus]}</strong> —
+            Đơn hàng ở trạng thái <strong>{getOrderStatusMeta(currentStatus).label}</strong> —
             không có trạng thái kế tiếp hợp lệ.
           </p>
         ) : (
@@ -164,7 +155,7 @@ export function StatusUpdateDialog({
                   />
                   <div className="min-w-0 flex-1">
                     <div className="text-sm text-[#EAE1D4] font-medium">
-                      {STATUS_LABEL[s]}{' '}
+                      {getOrderStatusMeta(s).label}{' '}
                       <span className="text-[10px] text-gold/60 ml-1">({s})</span>
                     </div>
                     <p className="text-[11px] text-[#D0C5AF]/50 mt-0.5">

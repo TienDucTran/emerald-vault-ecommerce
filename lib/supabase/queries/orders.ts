@@ -13,6 +13,10 @@ export interface CustomerOrderListItem {
   createdAt: string;
   itemCount: number;
   thumbnailUrl: string | null;
+  productName: string | null;
+  productTier: string | null;
+  productDescription: string | null;
+  firstItemImage: string | null;
 }
 
 export type OrderWithItems = OrderRow & {
@@ -87,7 +91,10 @@ export async function getOrdersByCustomer(
       .from('orders')
       .select(
         `id, code, status, payment_status, total_amount, created_at,
-         order_items(id, product_id, snapshot_image, product:products(image_url))`
+         order_items(
+           id, product_id, snapshot_image, snapshot_title,
+           product:products(image_url, quality_tier, description)
+         )`
       )
       .eq('customer_id', customerId)
       .order('created_at', { ascending: false })
@@ -101,10 +108,11 @@ export async function getOrdersByCustomer(
     const items: CustomerOrderListItem[] = (data ?? []).map((row: any) => {
       const orderItems = (row.order_items ?? []) as Array<{
         snapshot_image: string;
-        product: { image_url: string } | null;
+        snapshot_title: string;
+        product: { image_url: string; quality_tier: string; description: string | null } | null;
       }>;
       const first = orderItems[0];
-      const thumbnailUrl = first?.snapshot_image ?? first?.product?.image_url ?? null;
+      const product = first?.product ?? null;
       return {
         id: row.id as string,
         code: row.code as string,
@@ -113,7 +121,11 @@ export async function getOrdersByCustomer(
         totalAmount: Number(row.total_amount),
         createdAt: row.created_at as string,
         itemCount: orderItems.length,
-        thumbnailUrl,
+        thumbnailUrl: first?.snapshot_image ?? product?.image_url ?? null,
+        productName: first?.snapshot_title ?? null,
+        productTier: product?.quality_tier ?? null,
+        productDescription: product?.description ?? null,
+        firstItemImage: first?.snapshot_image ?? product?.image_url ?? null,
       };
     });
 

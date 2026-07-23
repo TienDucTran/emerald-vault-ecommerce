@@ -8,6 +8,7 @@ import {
   MATERIAL_LABELS,
   CATEGORY_LABELS,
   TIER_LABELS,
+  tierBadgeClass,
 } from '@/lib/utils';
 import type {
   ProductRow,
@@ -24,12 +25,6 @@ type Product = ProductRow;
 const STATUS_LABELS: Record<string, string> = {
   AVAILABLE: 'Có sẵn',
   SOLD_OUT: 'Hết hàng',
-};
-
-const tierBadge = (tier: QualityTier) => {
-  if (tier === 'SSS') return 'bg-gradient-to-r from-gold to-gold-champagne text-background';
-  if (tier === 'SS') return 'bg-gold/20 text-gold border border-gold/40';
-  return 'bg-surface text-gold/80 border border-gold/20';
 };
 
 const statusColors: Record<string, string> = {
@@ -535,7 +530,7 @@ export default function ProductsPage() {
                       </td>
                       <td className="px-6 py-4">
                         <span
-                          className={`inline-block px-2 py-0.5 text-[9px] font-bold rounded ${tierBadge(product.quality_tier)}`}
+                            className={`inline-block px-2 py-0.5 text-[9px] font-bold rounded ${tierBadgeClass(product.quality_tier)}`}
                         >
                           {product.quality_tier}
                         </span>

@@ -4,7 +4,7 @@
 
 ---
 
-## 0. TRẠNG THÁI TỔNG THỂ (auto-generated, cập nhật 2026-07-22 — Sprint "Tool Cache + Chat Analytics + Sidebar Widget")
+## 0. TRẠNG THÁI TỔNG THỂ (auto-generated, cập nhật 2026-07-23 — Sprint "Customer self-service cancel/refund + Bank Payment UX + Admin Order Detail polish")
 
 > Báo cáo tổng hợp từ audit codebase. Tổng ~155 mục trong 19 sections của file này.
 > Chi tiết đầy đủ + danh sách job pending theo priority xem **[§19. STATUS — JOB PENDING](#19-status--job-pending)** ở cuối file.
@@ -24,6 +24,9 @@
 **AI Chatbot Knowledge Base** (sprint 2026-07-21): ✅ done — 5 bảng DB (chat_knowledge/faqs/upcoming_products/upcoming_collections/chat_promotions) + 5 tools mới + admin CRUD UI + sidebar menu + lead capture. Chatbot giờ trả lời được: chính sách shop, FAQ cứng, sản phẩm/BST sắp ra mắt, mã giảm giá đang chạy. Xem §15.17.
 **AI Chatbot Suggested Answers + Cluster Analytics** (sprint 2026-07-22 buổi sáng): ✅ done — bảng `chat_suggested_answers` + RPC `get_user_question_clusters` (gom câu hỏi thật của khách theo text-similarity) + tool `getSuggestedAnswers` (model tự gọi trước `getKnowledge` cho câu hỏi chính sách) + 2 tab mới trong `/admin/chatbot` (Phân tích: SummaryCards/Top tools/Top clusters/Failed calls với day-filter 1/7/30; Mẫu trả lời: CRUD form + list với edit/delete/publish). Multi-provider rate-limit cooldown (Groq/Or/Cb/Cf 429/STREAM_TIMEOUT → skip N giây). Xem §15.18.
 **🆕 AI Chatbot Tool Cache + Analytics + Sidebar Widget** (sprint 2026-07-22 buổi chiều): ✅ done — in-memory LRU cache + TTL cho 11/12 tools (giảm tải DB khi cùng câu hỏi lặp lại); bảng `chat_analytics` + 3 RPCs (summary/top-questions/failed-calls) tracking mỗi tool call (latency, status, error); fire-and-forget logger không block tool; widget analytics nhúng vào `AdminSidebar` (chỉ hiện khi expanded): tổng calls 24h, error rate %, top 3 tools, failed 24h badge, cache size + hit rate, auto-refresh 30s; cache invalidation hooks trong 6 admin CRUD routes (products/collections/promotions/knowledge) gọi `invalidateTool(...)` để user thấy data mới ngay; defense-in-depth CHECK constraints cho `chat_knowledge.category` + `chat_faqs.category`. Xem §15.19.
+**🆕 Bank Payment UX + Admin Order Detail polish** (sprint 2026-07-23): ✅ done — bank-payment-client nhận thêm `billUploadedAt`; sau upload bill thành công lưu local state (`billUrl` + `billUploadedAt`) để user thấy feedback tức thì (preview thumbnail + timestamp "Đã upload lúc HH:MM DD/MM"); button đổi text "Upload lại bill" khi đã có bill; click "Tôi đã chuyển" redirect về `/tai-khoan/don-hang/[code]` (chi tiết đơn trong account) thay vì list — user thấy ngay badge "Chờ xác nhận" + Realtime toast khi admin confirm; admin order detail gỡ trùng lặp "Phương thức" + "Số tiền CK" giữa panel "Thanh toán" và card "Thanh toán ngân hàng" — bank card giờ chỉ show info RIÊNG (Ngân hàng + BIN, STK, Chủ TK, Nội dung CK).
+**🆕 Customer self-service cancel + refund request** (sprint 2026-07-23): ✅ done — `POST /api/orders/[code]/customer-action` với 2 action: `cancel` (chỉ WAITING_PAYMENT → set CANCELLED + payment=FAILED + release locks + restore products + bank_transfers.rejected_at) và `request_refund` (WAITING_CONFIRM/CONFIRMED/SHIPPING/DONE → set payment_status=REFUND_REQUESTED, admin CK lại thủ công rồi chuyển REFUNDED). Migration 0021 thêm enum value `REFUND_REQUESTED` + 4 audit fields (`customer_cancelled_at`, `customer_cancel_reason`, `refund_requested_at`, `refund_reason`). UI: trang `/tai-khoan/don-hang/[code]` thêm `<CustomerActionButtons/>` với modal nhập lý do — button "Hủy đơn hàng" (đỏ, WAITING_PAYMENT), "Yêu cầu hoàn tiền" (vàng, các status còn lại), banner "ĐANG CHỜ ADMIN HOÀN TIỀN" khi đã request.
+**🆕 Admin orders — bổ sung filter status thiếu + refund-request alert** (sprint 2026-07-23): ✅ done — admin list `/admin/orders` filter status bổ sung `WAITING_PAYMENT` + `WAITING_CONFIRM` (trước đây thiếu → admin không filter được đơn CK chờ xác nhận từ dropdown); payment status bổ sung `REFUND_REQUESTED`; API `GET /api/admin/orders` + `/api/admin/orders/export` update zod enum schema tương ứng (trước đây schema reject → 400 BAD_REQUEST nếu user pass query hợp lệ); dashboard KPI mới `pendingRefundRequests` + alert badge "Có N yêu cầu hoàn tiền → Xem" link tới `/admin/orders?paymentStatus=REFUND_REQUESTED`.
 
 **3 gap lớn nhất**:
 1. ❌ **MoMo env chưa populate** — Phase 2 (khi có MST, cần làm theo `docs/momo-sandbox-setup.md` 8 bước ~20 phút). Hiện tại VietQR đã cover MVP payment.
@@ -750,7 +753,8 @@ lib/
        │     → bank_transfers.user_confirmed_at = NOW()
        │     → orders.status = 'WAITING_CONFIRM'
        │     → toast "Đã ghi nhận, admin sẽ xác nhận trong ít phút"
-       │     → page hiển thị "Đang chờ admin xác nhận..."
+       │     → redirect /tai-khoan/don-hang/[code] (user login) | /don-hang/[code]?phone=... (guest)
+       │     → page hiển thị badge "Chờ xác nhận" + Realtime toast khi admin confirm
        │
        └─► User upload bill
              → POST /api/orders/[code]/bank-proof (multipart FormData với file 'bill')
@@ -760,7 +764,11 @@ lib/
              → bank_transfers.bill_image_url = publicUrl
              → bank_transfers.bill_uploaded_at = NOW()
              → nếu chưa có user_confirmed_at → set = NOW() + status WAITING_CONFIRM
-             → toast "Đã upload bill CK, admin sẽ xác nhận sớm"
+             → response { ok, billUrl, userConfirmedAt }
+             → client update local state (billUrl + billUploadedAt) → render
+                thumbnail + "Đã upload lúc HH:MM DD/MM" NGAY (không đợi router.refresh)
+             → button đổi text "Upload lại bill"
+             → toast "Đã upload bill, admin sẽ xác nhận trong ít phút"
        │
        ▼
 [Admin vào /admin/orders/[code] → thấy card "Thanh toán ngân hàng"]
@@ -1111,6 +1119,78 @@ app/(admin)/admin/analytics/page.tsx  # client page, fetch + render + delta %
 **Trade-off**:
 - Match theo email (khuyến nghị) > match theo SĐT (rủi ro 2 user cùng SĐT test).
 - Email customer nhập lúc guest checkout phải khớp email đăng ký → nếu user đăng ký email khác, đơn cũ vẫn NULL. Acceptable cho MVP.
+
+---
+
+## 10.4. 🆕 Customer self-service: cancel + refund request (sprint 2026-07-23)
+
+> **Vấn đề**: Trước đây customer muốn hủy/hoàn tiền phải gọi Zalo hoặc email admin → admin làm thủ công → chậm, không có audit trail.
+> **Fix**: 2 action tự phục vụ ngay trên trang `/tai-khoan/don-hang/[code]`.
+
+### 10.4.1. Hai action theo status
+
+| Status đơn | Action khả dụng | Hành vi khi submit |
+|---|---|---|
+| `WAITING_PAYMENT` | **HỦY ĐƠN HÀNG** (button đỏ) | `status=CANCELLED`, `payment_status=FAILED`, release `inventory_locks` (ACTIVE→RELEASED), restore products (RESERVED→AVAILABLE) qua RPC `release_product_reservation`, set `bank_transfers.rejected_at + rejected_reason` (nếu BANK_TRANSFER), set `orders.customer_cancelled_at + customer_cancel_reason`. |
+| `WAITING_CONFIRM`, `CONFIRMED`, `SHIPPING`, `DONE` (khi `payment_status ∈ {PAID, AWAITING_CONFIRM}`) | **YÊU CẦU HOÀN TIỀN** (button vàng) | `payment_status=REFUND_REQUESTED` (status giữ nguyên), set `orders.refund_requested_at + refund_reason`. Admin xử lý thủ công (CK lại user qua ngân hàng) → sau đó admin chuyển `payment_status=REFUNDED` qua dialog cập nhật đơn. |
+| `REFUND_REQUESTED` (đã request rồi) | Banner "ĐANG CHỜ ADMIN HOÀN TIỀN" (vàng) | Không có button — chờ admin. |
+| `CANCELLED`, `DONE+REFUNDED` | Không có action | — |
+
+### 10.4.2. API
+
+```
+POST /api/orders/[code]/customer-action
+Auth: requireCustomer (order.customer_id = user.id)
+Body: { action: 'cancel' | 'request_refund', reason?: string }
+
+200 → { ok: true, action, order: { status, paymentStatus } }
+400 → { ok: false, error: 'INVALID_STATUS' | 'INVALID_PAYMENT_STATUS' | 'INVALID_BODY' }
+401 → { ok: false, error: 'UNAUTHENTICATED' }
+403 → { ok: false, error: 'FORBIDDEN' } (order thuộc user khác)
+404 → { ok: false, error: 'NOT_FOUND' }
+409 → { ok: false, error: 'ALREADY_REQUESTED' } (đã refund_requested rồi)
+```
+
+### 10.4.3. UI — `<CustomerActionButtons/>` ở `/tai-khoan/don-hang/[code]`
+
+- Đặt dưới cùng của Order Summary, dưới row "THEO DÕI HÀNH TRÌNH / TẢI HÓA ĐƠN".
+- Click button → mở modal overlay nhập lý do (textarea, max 500 chars, optional).
+- Sau success → `toast.success(...)` + `router.refresh()` → server re-fetch order → re-render buttons theo status mới.
+
+### 10.4.4. Migration 0021 cần apply
+
+```sql
+-- supabase/migrations/0021_customer_cancel_refund.sql
+ALTER TYPE payment_status_enum ADD VALUE IF NOT EXISTS 'REFUND_REQUESTED';
+
+ALTER TABLE orders
+  ADD COLUMN IF NOT EXISTS customer_cancelled_at TIMESTAMPTZ NULL,
+  ADD COLUMN IF NOT EXISTS customer_cancel_reason TEXT NULL,
+  ADD COLUMN IF NOT EXISTS refund_requested_at TIMESTAMPTZ NULL,
+  ADD COLUMN IF NOT EXISTS refund_reason TEXT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_orders_refund_requested
+  ON orders(payment_status, refund_requested_at DESC)
+  WHERE payment_status = 'REFUND_REQUESTED';
+```
+
+**Lưu ý**: `ALTER TYPE ... ADD VALUE` không chạy được trong transaction block → cần apply qua Supabase SQL Editor, chạy từng câu lệnh (giống migration 0020).
+
+### 10.4.5. Files
+
+```
+supabase/migrations/0021_customer_cancel_refund.sql
+app/api/orders/[code]/customer-action/route.ts        # POST — cancel | request_refund
+app/(store)/tai-khoan/don-hang/[code]/customer-action-buttons.tsx  # Client component
+app/(store)/tai-khoan/don-hang/[code]/page.tsx        # Mount <CustomerActionButtons/>
+lib/supabase/types.ts                                 # OrderRow + 4 audit fields + REFUND_REQUESTED
+lib/order/status.ts                                   # PAYMENT_STATUS_META.REFUND_REQUESTED
+```
+
+### 10.4.6. Admin follow-up (P2)
+
+- Admin dashboard `/admin/orders` chưa có filter "Refund requested" — nên thêm filter `payment_status=REFUND_REQUESTED` để admin xử lý nhanh (sprint sau).
+- Khi admin xử lý xong (đã CK lại cho user), chỉ cần PATCH `payment_status=REFUNDED` qua dialog hiện tại — flow đã support.
 
 ---
 

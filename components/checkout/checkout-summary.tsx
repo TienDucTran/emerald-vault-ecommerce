@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Lock, ShieldCheck, Clock } from 'lucide-react';
 import { formatVND } from '@/lib/utils';
+import { getPaymentMethodLabel } from '@/lib/order/status';
 import type { PaymentOption } from './checkout-form';
 
 export interface CheckoutItem {
@@ -273,11 +274,7 @@ export function CheckoutSummary({
             Thanh toán
           </span>
           <span className="font-sans text-sm font-semibold text-gold">
-            {payment === 'MOMO'
-              ? 'Ví MoMo'
-              : payment === 'COD'
-                ? 'COD'
-                : 'Chuyển khoản'}
+            {getPaymentMethodLabel(payment)}
           </span>
         </div>
       )}

@@ -9,6 +9,7 @@ import {
   AlertCircle,
   Database,
   Activity,
+  Check,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -20,6 +21,7 @@ interface WidgetData {
   failed24hCount: number;
   cacheSize: number;
   cacheHitRate: number;
+  cacheEvents: number;
   meta: { days: number; generatedAt: string };
 }
 
@@ -125,11 +127,20 @@ export function ChatbotAnalyticsWidget() {
               </div>
             </div>
             <div className="text-right">
-              <div className={cn('text-lg font-bold', errorColor)}>
-                {(data.errorRate * 100).toFixed(1)}%
+              <div className={cn('text-lg font-bold flex items-center justify-end gap-1', errorColor)}>
+                {data.totalCalls === 0 ? (
+                  <span className="text-text-muted">—</span>
+                ) : (
+                  <>
+                    {data.errorRate === 0 && (
+                      <Check className="w-3.5 h-3.5" aria-label="No errors" />
+                    )}
+                    <span>{(data.errorRate * 100).toFixed(1)}%</span>
+                  </>
+                )}
               </div>
               <div className="text-[10px] text-text-muted uppercase tracking-wider">
-                errors
+                error rate
               </div>
             </div>
           </div>
@@ -160,16 +171,25 @@ export function ChatbotAnalyticsWidget() {
           )}
 
           {/* Cache stats */}
-          <div className="flex items-center justify-between text-[10px] text-text-muted pt-1 border-t border-[#4D4635]/50">
-            <div className="flex items-center gap-1">
-              <Database className="w-3 h-3" />
-              <span>cache: {data.cacheSize}/200</span>
+          {(data.cacheEvents > 0 || data.cacheSize > 0) && (
+            <div className="flex items-center justify-between text-[10px] text-text-muted pt-1 border-t border-[#4D4635]/50">
+              <div className="flex items-center gap-1">
+                <Database className="w-3 h-3" />
+                <span>cache: {data.cacheSize}/200</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <Activity className="w-3 h-3" />
+                <span>
+                  hit:{' '}
+                  {data.cacheEvents === 0 ? (
+                    <span className="text-text-muted">—</span>
+                  ) : (
+                    `${(data.cacheHitRate * 100).toFixed(0)}%`
+                  )}
+                </span>
+              </div>
             </div>
-            <div className="flex items-center gap-1">
-              <Activity className="w-3 h-3" />
-              <span>hit: {(data.cacheHitRate * 100).toFixed(0)}%</span>
-            </div>
-          </div>
+          )}
 
           {/* Expanded view */}
           {expanded && (

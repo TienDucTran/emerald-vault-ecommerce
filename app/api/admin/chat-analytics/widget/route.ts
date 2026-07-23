@@ -32,8 +32,8 @@ export async function GET(request: NextRequest) {
     const totalErrors = summary24h.reduce((sum, s) => sum + s.error_calls, 0);
     const errorRate = totalCalls > 0 ? totalErrors / totalCalls : 0;
 
-    // Top 3 tool được gọi nhiều nhất
-    const topTools = summary24h.slice(0, 3).map((s) => ({
+    // Top 5 tool được gọi nhiều nhất
+    const topTools = summary24h.slice(0, 5).map((s) => ({
       name: s.tool_name,
       calls: s.total_calls,
     }));
@@ -52,6 +52,7 @@ export async function GET(request: NextRequest) {
       failed24hCount: failed24h.length,
       cacheSize: cacheStats.size,
       cacheHitRate: Math.round(cacheStats.hitRate * 100) / 100,
+      cacheEvents: cacheStats.hits + cacheStats.misses,
       meta: { days, generatedAt: new Date().toISOString() },
     });
   } catch (err) {

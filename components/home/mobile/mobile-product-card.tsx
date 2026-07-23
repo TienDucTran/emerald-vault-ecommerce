@@ -3,6 +3,7 @@
 // Overlay "ĐÃ SƯU TẦM" nếu status === 'SOLD_OUT'
 import Link from 'next/link';
 import type { ProductCategory, Material, ProductStatus, QualityTier } from '@/lib/types';
+import { tierBadgeClass } from '@/lib/utils';
 
 interface ProductCardMobileProps {
   product: {
@@ -17,12 +18,6 @@ interface ProductCardMobileProps {
     material: Material | string;
   };
 }
-
-const TIER_STYLES: Record<string, { bg: string; border: string; text: string }> = {
-  SSS: { bg: 'rgba(13,17,23,0.9)', border: 'rgba(242,202,80,0.3)', text: '#F2CA50' },
-  SS:  { bg: 'rgba(13,17,23,0.8)',  border: 'rgba(77,70,53,0.5)',   text: '#D0C5AF' },
-  S:   { bg: 'rgba(13,17,23,0.8)',  border: 'rgba(77,70,53,0.5)',   text: '#D0C5AF' },
-};
 
 function formatVND(n: number): string {
   return new Intl.NumberFormat('vi-VN').format(n) + '₫';
@@ -41,7 +36,6 @@ function materialLabel(m: string): string {
 
 export function ProductCardMobile({ product }: ProductCardMobileProps) {
   const isSoldOut = product.status === 'SOLD_OUT';
-  const tier = TIER_STYLES[product.quality_tier] ?? TIER_STYLES.S;
   const era = product.era || materialLabel(product.material);
 
   return (
@@ -67,13 +61,9 @@ export function ProductCardMobile({ product }: ProductCardMobileProps) {
 
       {/* Tier badge — top-left */}
       <div
-        className="absolute top-2 left-2 flex items-center gap-1 px-2 py-1 rounded-sm border"
-        style={{ background: tier.bg, borderColor: tier.border }}
+        className={`absolute top-2 left-2 flex items-center gap-1 px-2 py-1 rounded-sm border ${tierBadgeClass(product.quality_tier)}`}
       >
-        <span
-          className="font-sans font-bold text-[9px] tracking-wider uppercase"
-          style={{ color: tier.text }}
-        >
+        <span className="font-sans font-bold text-[9px] tracking-wider uppercase">
           TIER {product.quality_tier}
         </span>
       </div>

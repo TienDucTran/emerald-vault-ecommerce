@@ -6,8 +6,10 @@
 //   - Redirect nếu order không phải BANK_TRANSFER hoặc đã quá giai đoạn CK.
 //   - Client subcomponent xử lý copy + countdown + upload + confirm.
 
+import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
-import { createClient } from '@/lib/supabase/server';
+import { getCurrentUser } from '@/lib/auth/require-customer';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { getBankByCode } from '@/lib/bank/types';
 import { BankPaymentClient } from './bank-payment-client';
 
@@ -36,19 +38,19 @@ interface PageProps {
 export default async function BankPaymentPage({ params, searchParams }: PageProps) {
   const code = decodeURIComponent(params.code);
   const phone = (searchParams.phone ?? '').trim();
+  const currentUser = await getCurrentUser();
 
-  if (!phone) {
-    // Bắt buộc có phone để xác minh (guest lookup pattern).
+  if (!currentUser && !phone) {
     redirect(`/don-hang/${encodeURIComponent(code)}`);
   }
 
-  const supabase = createClient();
+  const supabase = createAdminClient();
   const db = supabase as any;
 
   const { data: order, error: orderErr } = await db
     .from('orders')
     .select(
-      'id, code, customer_name, customer_phone, total_amount, payment_method, status, created_at'
+      'id, code, customer_id, customer_name, customer_phone, total_amount, payment_method, status, created_at'
     )
     .eq('code', code)
     .maybeSingle();
@@ -63,18 +65,41 @@ export default async function BankPaymentPage({ params, searchParams }: PageProp
   if (!order) {
     notFound();
   }
-  // So sánh phone sau khi normalize để tránh lệch do +84, khoảng trắng, v.v.
-  const dbPhone = normalizePhone(order.customer_phone);
-  const urlPhone = normalizePhone(phone);
-  if (dbPhone !== urlPhone || dbPhone.length < 8) {
-    notFound();
+
+  let authorized = false;
+  if (currentUser && order.customer_id === currentUser.user.id) {
+    authorized = true;
+  } else if (!currentUser && phone) {
+    const dbPhone = normalizePhone(order.customer_phone);
+    const urlPhone = normalizePhone(phone);
+    if (dbPhone === urlPhone && dbPhone.length >= 8) {
+      authorized = true;
+    }
+  }
+
+  if (!authorized) {
+    return (
+      <div className="container mx-auto px-4 py-20">
+        <div className="mx-auto max-w-md rounded-lg border border-gold/20 bg-surface p-8 text-center">
+          <h1 className="mb-2 font-heading text-2xl font-bold text-gold">Không thể truy cập</h1>
+          <p className="mb-6 text-sm text-text-muted">
+            Số điện thoại không khớp với đơn hàng, hoặc bạn không có quyền xem trang này.
+          </p>
+          <Link
+            href={`/don-hang/${encodeURIComponent(code)}`}
+            className="inline-flex h-10 items-center gap-2 rounded-md bg-gradient-gold px-5 text-sm font-semibold text-background transition-shadow hover:shadow-gold-glow-lg"
+          >
+            ← Quay lại trang đơn hàng
+          </Link>
+        </div>
+      </div>
+    );
   }
 
   if (order.payment_method !== 'BANK_TRANSFER') {
     redirect(`/don-hang/${encodeURIComponent(code)}`);
   }
 
-  // Nếu đã qua giai đoạn CK (admin confirm hoặc đang ship) → quay về trang đơn.
   if (['CONFIRMED', 'SHIPPING', 'DONE'].includes(order.status)) {
     redirect(`/don-hang/${encodeURIComponent(code)}`);
   }
@@ -95,10 +120,24 @@ export default async function BankPaymentPage({ params, searchParams }: PageProp
     );
   }
   if (!bt) {
-    // Debug log - giúp truy vết khi thiếu bank_transfers cho đơn BANK_TRANSFER.
-    // Có thể bỏ sau khi đã ổn định flow tạo row ở checkout.
     console.error('[bank-payment] bank_transfers not found for order:', order.id, order.code);
-    notFound();
+    return (
+      <div className="container mx-auto px-4 py-20">
+        <div className="mx-auto max-w-md rounded-lg border border-red-500/30 bg-red-500/10 p-8 text-center">
+          <h1 className="mb-2 font-heading text-2xl font-bold text-red-400">Thiếu thông tin thanh toán</h1>
+          <p className="mb-6 text-sm text-text-muted">
+            Không tìm thấy thông tin chuyển khoản cho đơn hàng này. Vui lòng liên hệ admin qua Zalo hoặc email{' '}
+            <a href="mailto:support@emerald-vault.vn" className="text-gold underline">support@emerald-vault.vn</a>.
+          </p>
+          <Link
+            href={`/don-hang/${encodeURIComponent(code)}`}
+            className="inline-flex h-10 items-center gap-2 rounded-md bg-gradient-gold px-5 text-sm font-semibold text-background transition-shadow hover:shadow-gold-glow-lg"
+          >
+            ← Quay lại trang đơn hàng
+          </Link>
+        </div>
+      </div>
+    );
   }
 
   const bankMeta = getBankByCode(bt.bank_code);
@@ -106,7 +145,6 @@ export default async function BankPaymentPage({ params, searchParams }: PageProp
 
   return (
     <div className="container mx-auto max-w-2xl px-4 py-8">
-      {/* Header */}
       <div className="mb-6 text-center">
         <h1 className="font-heading text-3xl font-bold text-gold">Hoàn tất thanh toán</h1>
         <p className="mt-2 text-sm text-text-muted">
@@ -116,7 +154,7 @@ export default async function BankPaymentPage({ params, searchParams }: PageProp
 
       <BankPaymentClient
         orderCode={order.code}
-        phone={phone}
+        phone={phone || order.customer_phone}
         qrImageUrl={bt.qr_image_url}
         bankName={bankName}
         accountNumber={bt.account_number}
@@ -126,6 +164,7 @@ export default async function BankPaymentPage({ params, searchParams }: PageProp
         qrExpiresAt={bt.qr_expires_at}
         userConfirmedAt={bt.user_confirmed_at}
         billImageUrl={bt.bill_image_url}
+        billUploadedAt={bt.bill_uploaded_at}
         orderStatus={order.status}
       />
     </div>

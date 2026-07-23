@@ -18,6 +18,7 @@ interface BankPaymentClientProps {
   qrExpiresAt: string;
   userConfirmedAt: string | null;
   billImageUrl: string | null;
+  billUploadedAt: string | null;
   orderStatus: string;
 }
 
@@ -100,6 +101,10 @@ export function BankPaymentClient(props: BankPaymentClientProps) {
 
   const [confirming, setConfirming] = useState(false);
   const [uploading, setUploading] = useState(false);
+  // Local copy của bill state — update ngay sau upload thành công
+  // để user thấy feedback tức thì, không cần đợi router.refresh() về server.
+  const [billUrl, setBillUrl] = useState<string | null>(props.billImageUrl);
+  const [billUploadedAt, setBillUploadedAt] = useState<string | null>(props.billUploadedAt);
 
   const onConfirmPaid = async () => {
     if (confirming) return;
@@ -116,9 +121,20 @@ export function BankPaymentClient(props: BankPaymentClientProps) {
         return;
       }
       toast.success('Đã ghi nhận', {
-        description: 'Admin sẽ xác nhận trong ít phút.',
+        description:
+          'Admin sẽ xác nhận trong ít phút. Bạn sẽ nhận thông báo khi đơn được xác nhận.',
       });
-      router.refresh();
+      // Đưa user về đúng trang chi tiết đơn trong /tai-khoan để thấy
+      // badge "Chờ xác nhận" + timeline realtime (Supabase Realtime sẽ bắn
+      // toast khi admin confirm). Fallback cho guest share link: về trang
+      // order detail public kèm phone để họ tự check.
+      if (typeof window !== 'undefined' && document.cookie.includes('sb-')) {
+        router.push(`/tai-khoan/don-hang/${encodeURIComponent(props.orderCode)}`);
+      } else {
+        router.push(
+          `/don-hang/${encodeURIComponent(props.orderCode)}?phone=${encodeURIComponent(props.phone)}`
+        );
+      }
     } catch {
       toast.error('Mất kết nối mạng.');
     } finally {
@@ -152,7 +168,13 @@ export function BankPaymentClient(props: BankPaymentClientProps) {
         toast.error(json.message ?? json.error ?? 'Upload thất bại.');
         return;
       }
-      toast.success('Đã upload bill');
+      // Update local state ngay để user thấy feedback tức thì
+      // (không cần đợi router.refresh() → server fetch → re-render).
+      if (json.billUrl) setBillUrl(json.billUrl);
+      if (json.userConfirmedAt) setBillUploadedAt(json.userConfirmedAt);
+      toast.success('Đã upload bill', {
+        description: 'Admin sẽ xác nhận trong ít phút.',
+      });
       router.refresh();
     } catch {
       toast.error('Upload thất bại. Vui lòng thử lại.');
@@ -260,6 +282,46 @@ export function BankPaymentClient(props: BankPaymentClientProps) {
         </div>
       )}
 
+      {/* Bill đã upload (preview + timestamp) */}
+      {billUrl && (
+        <div className="mt-6 flex items-start gap-3 rounded-md border border-success/40 bg-success/10 p-3">
+          <a
+            href={billUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="relative h-16 w-16 shrink-0 overflow-hidden rounded border border-gold/30 bg-[#1F1B13] hover:border-gold/60 transition-colors"
+            title="Click để xem full size"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={billUrl}
+              alt="Bill đã upload"
+              className="h-full w-full object-contain"
+            />
+          </a>
+          <div className="min-w-0 flex-1 text-sm">
+            <p className="flex items-center gap-1.5 font-semibold text-success">
+              <CheckCircle2 className="h-4 w-4" />
+              Đã upload bill
+            </p>
+            {billUploadedAt && (
+              <p className="mt-0.5 text-xs text-text-muted">
+                Lúc {new Date(billUploadedAt).toLocaleString('vi-VN', {
+                  day: '2-digit',
+                  month: '2-digit',
+                  year: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+              </p>
+            )}
+            <p className="mt-1 text-xs text-text-muted">
+              Click ảnh để xem full size. Có thể upload lại nếu chọn sai ảnh.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Action buttons */}
       <div className="mt-6 flex flex-col gap-3 sm:flex-row">
         <button
@@ -287,7 +349,7 @@ export function BankPaymentClient(props: BankPaymentClientProps) {
           ) : (
             <Upload className="h-4 w-4" />
           )}
-          Upload bill
+          {billUrl ? 'Upload lại bill' : 'Upload bill'}
         </button>
 
         <input

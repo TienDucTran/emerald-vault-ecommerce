@@ -1,5 +1,7 @@
 'use client';
 
+import { tierBadgeClass } from '@/lib/utils';
+
 const tierData = [
   { tier: 'SSS', percentage: 35, value: '₫45.2M', color: 'from-gold to-gold-champagne' },
   { tier: 'SS', percentage: 28, value: '₫36.1M', color: 'from-gold/60 to-gold/20' },
@@ -23,13 +25,7 @@ export function SalesByTier() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span
-                  className={`inline-block px-2 py-0.5 text-[10px] font-bold rounded ${
-                    item.tier === 'SSS'
-                      ? 'bg-gradient-to-r from-gold to-gold-champagne text-background'
-                      : item.tier === 'SS'
-                      ? 'bg-gold/20 text-gold border border-gold/40'
-                      : 'bg-surface text-gold/80 border border-gold/20'
-                  }`}
+                  className={`inline-block px-2 py-0.5 text-[10px] font-bold rounded ${tierBadgeClass(item.tier)}`}
                 >
                   {item.tier}
                 </span>

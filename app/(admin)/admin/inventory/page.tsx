@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { tierBadgeClass } from '@/lib/utils';
 
 const inventoryItems = [
   { id: 'SR-001', name: 'Silver Ring SS', category: 'Ring', tier: 'SS', stock: 5, locked: 2, status: 'Low Stock', threshold: 5 },
@@ -17,12 +18,6 @@ const statusColors: Record<string, string> = {
   'Available': 'text-success border-success/30 bg-success/10',
   'Low Stock': 'text-warning border-warning/30 bg-warning/10',
   'Out of Stock': 'text-error border-error/30 bg-error/10',
-};
-
-const tierBadge = (tier: string) => {
-  if (tier === 'SSS') return 'bg-gradient-to-r from-gold to-gold-champagne text-background';
-  if (tier === 'SS') return 'bg-gold/20 text-gold border border-gold/40';
-  return 'bg-surface text-gold/80 border border-gold/20';
 };
 
 export default function InventoryPage() {
@@ -178,7 +173,7 @@ export default function InventoryPage() {
                       <span className="text-xs text-[#D0C5AF]/70">{item.category}</span>
                     </td>
                     <td className="px-6 py-4">
-                      <span className={`inline-block px-2 py-0.5 text-[9px] font-bold rounded ${tierBadge(item.tier)}`}>
+                        <span className={`inline-block px-2 py-0.5 text-[9px] font-bold rounded ${tierBadgeClass(item.tier)}`}>
                         {item.tier}
                       </span>
                     </td>

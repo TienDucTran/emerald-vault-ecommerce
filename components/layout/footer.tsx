@@ -16,6 +16,7 @@ const FOOTER_LINKS = [
       { label: 'Câu chuyện', href: '/cau-chuyen' },
       { label: 'Cách phân biệt đồ si', href: '/cach-phan-biet-do-si' },
       { label: 'Hướng dẫn bảo quản', href: '/huong-dan-bao-quan' },
+      { label: 'Tra cứu đơn hàng', href: '/don-hang' },
       { label: 'Liên hệ', href: '/lien-he' },
     ],
   },

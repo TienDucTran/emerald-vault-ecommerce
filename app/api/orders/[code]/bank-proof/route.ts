@@ -177,11 +177,14 @@ export async function POST(
     updates.bill_uploaded_at = now;
   }
 
-  // 4. Mark user_confirmed nếu user tick
+  // 4. Mark user_confirmed khi user tick HOẶC upload bill.
+  // Upload bill cũng là tín hiệu "user đã CK" mạnh — không bắt buộc phải tick checkbox.
   let userConfirmedAt: string | null = null;
-  if (userConfirmed) {
-    updates.user_confirmed_at = now;
-    userConfirmedAt = now;
+  if (userConfirmed || billUrl) {
+    if (!bt.user_confirmed_at) {
+      updates.user_confirmed_at = now;
+      userConfirmedAt = now;
+    }
   }
 
   // 5. Apply updates lên bank_transfers
@@ -195,17 +198,33 @@ export async function POST(
     }
   }
 
-  // 6. Nếu user vừa tick "đã CK" lần đầu → chuyển order sang WAITING_CONFIRM
-  if (userConfirmed) {
-    const allowed = ['WAITING_PAYMENT'];
-    if (allowed.includes(order.status)) {
-      await db.from('orders').update({ status: 'WAITING_CONFIRM' }).eq('id', order.id);
+  // 6. Transition WAITING_PAYMENT → WAITING_CONFIRM nếu user tick "đã CK" HOẶC upload bill.
+  // Đồng bộ cả orders.status và payment_status.
+  const userSignaledCompletion = userConfirmed || billUrl;
+  let transitionedStatus: string | null = null;
+  let transitionedPaymentStatus: string | null = null;
+  if (userSignaledCompletion && order.status === 'WAITING_PAYMENT') {
+    const { error: stErr } = await db
+      .from('orders')
+      .update({
+        status: 'WAITING_CONFIRM',
+        payment_status: 'AWAITING_CONFIRM',
+      })
+      .eq('id', order.id);
+    if (stErr) {
+      console.error('[bank-proof] order status update failed:', stErr);
+      // Không fail request — bill đã upload thành công, chỉ là status chưa đổi.
+    } else {
+      transitionedStatus = 'WAITING_CONFIRM';
+      transitionedPaymentStatus = 'AWAITING_CONFIRM';
     }
   }
 
   return NextResponse.json({
     ok: true,
     billUrl,
-    userConfirmedAt,
+    userConfirmedAt: userConfirmedAt ?? bt.user_confirmed_at,
+    orderStatus: transitionedStatus ?? order.status,
+    orderPaymentStatus: transitionedPaymentStatus ?? order.payment_status,
   });
 }

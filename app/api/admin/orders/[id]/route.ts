@@ -318,13 +318,14 @@ export async function PATCH(
     const admin = createAdminClient();
     const { data: current, error: curErr } = (await admin
       .from('orders')
-      .select('id, status, payment_status')
+      .select('id, status, payment_status, payment_method')
       .eq('id', id)
       .single()) as {
       data: {
         id: string;
         status: OrderStatus;
         payment_status: PaymentStatus;
+        payment_method: PaymentMethod;
       } | null;
       error: any;
     };
@@ -372,6 +373,21 @@ export async function PATCH(
     // Side-effect cleanup: when moving to CANCELLED and no payment was received,
     // release the inventory locks and restore products to AVAILABLE.
     if (status === 'CANCELLED' && current.status !== 'CANCELLED') {
+      // Khi cancel BANK_TRANSFER order, cũng phải set payment_status = FAILED để
+      // đồng bộ với status = CANCELLED.
+      if (
+        current.payment_method === 'BANK_TRANSFER' &&
+        current.payment_status === 'PENDING'
+      ) {
+        const { error: psErr } = await (admin as any)
+          .from('orders')
+          .update({ payment_status: 'FAILED', updated_at: new Date().toISOString() })
+          .eq('id', id);
+        if (psErr) {
+          console.error('[admin/orders/:id PATCH] payment_status update failed:', psErr);
+        }
+      }
+
       if (
         current.payment_status === 'PENDING' ||
         current.payment_status === 'FAILED'
@@ -402,6 +418,32 @@ export async function PATCH(
             relResErr.message
           );
           // Non-fatal — order is already CANCELLED
+        }
+      }
+
+      // Nếu order bị cancel mà là BANK_TRANSFER và có bank_transfers row →
+      // set rejected_at + rejected_reason để audit log biết admin đã reject.
+      if (current.payment_method === 'BANK_TRANSFER') {
+        const { data: bt } = await (admin as any)
+          .from('bank_transfers')
+          .select('id')
+          .eq('order_id', id)
+          .maybeSingle();
+        if (bt?.id) {
+          const { error: btRejectErr } = await (admin as any)
+            .from('bank_transfers')
+            .update({
+              rejected_at: new Date().toISOString(),
+              rejected_reason: 'Cancelled by admin',
+            })
+            .eq('id', bt.id);
+          if (btRejectErr) {
+            console.error(
+              '[admin/orders/:id PATCH] bank_transfers reject update failed:',
+              btRejectErr
+            );
+            // Không fail request — order đã cancel rồi, chỉ là audit chưa update.
+          }
         }
       }
     }

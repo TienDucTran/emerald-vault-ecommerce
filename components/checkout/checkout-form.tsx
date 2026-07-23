@@ -268,6 +268,12 @@ export function CheckoutForm({ payment, onPaymentChange, isBankConfigured }: Che
       });
       const orderJson = await orderRes.json();
       if (!orderRes.ok || !orderJson.ok) {
+        // Defensive: nếu session hết hạn giữa lúc load page và submit
+        // → đẩy về login rồi quay lại checkout sau khi đăng nhập.
+        if (orderRes.status === 401 || orderJson.error === 'NOT_AUTHENTICATED') {
+          router.push('/tai-khoan/dang-nhap?next=/thanh-toan');
+          return;
+        }
         const msg = orderJson.error || 'ORDER_FAILED';
         setError(translateOrderError(msg));
         return;
@@ -277,6 +283,11 @@ export function CheckoutForm({ payment, onPaymentChange, isBankConfigured }: Che
 
       // 2. Phân luồng
       if (paymentMethod === 'MOMO') {
+        try {
+          sessionStorage.setItem(`momo-phone-${code}`, phone);
+        } catch {
+          // sessionStorage có thể không khả dụng (private mode) — ignore
+        }
         const momoRes = await fetch('/api/momo/create', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -291,13 +302,22 @@ export function CheckoutForm({ payment, onPaymentChange, isBankConfigured }: Che
         window.location.href = momoJson.payUrl;
         return;
       }
-      // COD / Bank transfer: sang trang đơn hàng (hoặc trang QR cho BANK_TRANSFER)
       // Clear cart local
       useCartStore.getState().clear();
-      if (redirectUrl) {
-        router.push(`${redirectUrl}?phone=${encodeURIComponent(phone)}`);
+
+      // Sau khi submit:
+      // - MOMO: đã return ở nhánh trên
+      // - COD: customer đã login (Option B) → /tai-khoan/don-hang/[code]
+      // - BANK_TRANSFER: cần trang QR với phone để tra cứu bank_transfers row
+      if (paymentMethod === 'COD') {
+        router.push(`/tai-khoan/don-hang/${encodeURIComponent(code)}`);
       } else {
-        router.push(`/don-hang/${code}?phone=${encodeURIComponent(phone)}`);
+        // BANK_TRANSFER
+        if (redirectUrl) {
+          router.push(`${redirectUrl}?phone=${encodeURIComponent(phone)}`);
+        } else {
+          router.push(`/don-hang/${code}?phone=${encodeURIComponent(phone)}`);
+        }
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'NETWORK_ERROR');

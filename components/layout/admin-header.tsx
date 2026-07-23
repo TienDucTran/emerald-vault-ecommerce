@@ -7,6 +7,8 @@ import { LogOut, Menu, ChevronLeft, ChevronRight } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useAdminShell } from './admin-shell-context';
 import { adminNavItems } from './admin-nav-config';
+import { useCartStore } from '@/lib/store/cart';
+import { useWishlistStore } from '@/lib/store/wishlist';
 
 const DESKTOP_EXPANDED_WIDTH = 256;
 const DESKTOP_COLLAPSED_WIDTH = 72;
@@ -106,9 +108,24 @@ export function AdminHeader() {
       const supabase = createClient();
       await supabase.auth.signOut();
     } catch {
-      // ignore — server-side logout endpoint vẫn sẽ clear cookies khi navigate.
+      // ignore — server-side logout endpoint sẽ vẫn clear cookies qua SSR.
     }
-    router.push('/admin/login');
+
+    try {
+      await fetch('/api/auth/logout?to=customer', {
+        method: 'POST',
+        credentials: 'same-origin',
+        redirect: 'manual',
+        headers: { Accept: 'application/json' },
+      });
+    } catch {
+      // opaqueredirect / network error → client signOut đã clear browser cookies rồi.
+    }
+
+    useCartStore.getState().clear();
+    useWishlistStore.getState().clear();
+
+    router.push('/tai-khoan/dang-nhap');
     router.refresh();
   }
 

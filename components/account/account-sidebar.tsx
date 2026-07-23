@@ -16,6 +16,7 @@ import {
 import { cn } from '@/lib/utils';
 import { createClient } from '@/lib/supabase/client';
 import { useWishlistStore } from '@/lib/store/wishlist';
+import { useCartStore } from '@/lib/store/cart';
 
 const NAV_ITEMS = [
   { label: 'Hồ sơ', href: '/tai-khoan/ho-so', icon: User },
@@ -99,14 +100,27 @@ function useLogout() {
       await supabase.auth.signOut();
     } catch (err) {
       console.error('[AccountSidebar] logout error:', err);
-    } finally {
-      // Clear in-memory wishlist cache để user tiếp theo trên cùng browser
-      // không thấy trạng thái heart của user trước.
-      useWishlistStore.getState().clear();
-      setBusy(false);
-      router.push('/tai-khoan/dang-nhap');
-      router.refresh();
     }
+
+    try {
+      await fetch('/api/auth/customer-logout', {
+        method: 'POST',
+        credentials: 'same-origin',
+        redirect: 'manual',
+        headers: { Accept: 'application/json' },
+      });
+    } catch {
+      // opaqueredirect / network error → client signOut đã clear browser cookies rồi.
+    }
+
+    // Clear in-memory cart + wishlist cache để user tiếp theo trên cùng browser
+    // không thấy trạng thái của user trước.
+    useCartStore.getState().clear();
+    useWishlistStore.getState().clear();
+
+    setBusy(false);
+    router.push('/tai-khoan/dang-nhap');
+    router.refresh();
   };
 
   return { handleLogout, busy };

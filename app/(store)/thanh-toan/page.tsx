@@ -1,5 +1,6 @@
 import { ShieldCheck, Clock, Truck, Lock, ShieldAlert } from 'lucide-react';
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import { CheckoutClient } from '@/components/checkout/checkout-client';
 import { getNewestProducts } from '@/lib/supabase/queries/products';
 import { toProduct } from '@/lib/adapters/supabase-to-app';
@@ -16,10 +17,13 @@ export const metadata = {
 };
 
 export default async function CheckoutPage() {
-  // Auth check: nếu user login là admin → hiện fallback page giải thích
-  // (KHÔNG redirect /403 vì UX kém — admin đang có intent mua, cần giải thích rõ)
+  // Option B: bắt buộc login trước khi vào trang thanh toán.
+  // Guest → redirect sang /tai-khoan/dang-nhap?next=/thanh-toan
   const currentUser = await getCurrentUser();
-  if (currentUser && currentUser.role === 'admin') {
+  if (!currentUser) {
+    redirect('/tai-khoan/dang-nhap?next=/thanh-toan');
+  }
+  if (currentUser.role === 'admin') {
     return <AdminCheckoutBlocked />;
   }
 
@@ -137,12 +141,14 @@ function AdminCheckoutBlocked() {
 
             <p className="text-[10px] text-text-muted/50">
               Cần đăng xuất admin?{' '}
-              <Link
-                href="/tai-khoan/dang-xuat"
-                className="text-text-base/70 underline-offset-2 hover:text-gold hover:underline"
-              >
-                Đăng xuất
-              </Link>
+              <form action="/api/auth/logout?to=customer" method="POST" className="inline">
+                <button
+                  type="submit"
+                  className="text-text-base/70 underline-offset-2 hover:text-gold hover:underline"
+                >
+                  Đăng xuất
+                </button>
+              </form>
               .
             </p>
           </div>

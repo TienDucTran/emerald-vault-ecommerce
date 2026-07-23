@@ -257,12 +257,14 @@ export default function CartPage() {
                   <p className="mt-1 text-warning/80">
                     Tài khoản quản trị viên không thể đặt hàng qua kênh khách hàng.
                     Vui lòng dùng tài khoản khách hoặc{' '}
-                    <Link
-                      href="/tai-khoan/dang-xuat"
-                      className="underline underline-offset-2 hover:text-warning"
-                    >
-                      đăng xuất
-                    </Link>
+                    <form action="/api/auth/logout?to=customer" method="POST" className="inline">
+                      <button
+                        type="submit"
+                        className="underline underline-offset-2 hover:text-warning"
+                      >
+                        đăng xuất
+                      </button>
+                    </form>
                     .
                   </p>
                 </div>

@@ -2,9 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { Badge } from '@/components/ui/badge';
 import { formatVND } from '@/lib/utils';
 import { toast } from '@/lib/toast/toast-store';
+import {
+  getOrderStatusMeta,
+  getOrderStatusPill,
+  getPaymentStatusMeta,
+  getPaymentMethodLabel,
+} from '@/lib/order/status';
 import type {
   OrderStatus,
   PaymentStatus,
@@ -33,6 +38,8 @@ type ListResponse = {
 
 const ORDER_STATUSES: OrderStatus[] = [
   'NEW',
+  'WAITING_PAYMENT',
+  'WAITING_CONFIRM',
   'CONFIRMED',
   'SHIPPING',
   'DONE',
@@ -40,34 +47,13 @@ const ORDER_STATUSES: OrderStatus[] = [
 ];
 const PAYMENT_STATUSES: PaymentStatus[] = [
   'PENDING',
+  'AWAITING_CONFIRM',
   'PAID',
   'FAILED',
   'REFUNDED',
+  'REFUND_REQUESTED',
 ];
 const PAYMENT_METHODS: PaymentMethod[] = ['MOMO', 'COD', 'BANK_TRANSFER'];
-
-const ORDER_STATUS_BADGE: Record<OrderStatus, string> = {
-  NEW: 'text-info border-info/30 bg-info/10',
-  WAITING_PAYMENT: 'text-info border-info/30 bg-info/10',
-  WAITING_CONFIRM: 'text-warning border-warning/30 bg-warning/10',
-  CONFIRMED: 'text-warning border-warning/30 bg-warning/10',
-  SHIPPING: 'text-gold border-gold/30 bg-gold/10',
-  DONE: 'text-success border-success/30 bg-success/10',
-  CANCELLED: 'text-error border-error/30 bg-error/10',
-};
-
-const PAYMENT_METHOD_LABEL: Record<PaymentMethod, string> = {
-  MOMO: 'MoMo',
-  COD: 'COD',
-  BANK_TRANSFER: 'Chuyển khoản',
-};
-
-const PAYMENT_STATUS_LABEL: Record<PaymentStatus, string> = {
-  PENDING: 'Chờ TT',
-  PAID: 'Đã TT',
-  FAILED: 'Lỗi',
-  REFUNDED: 'Hoàn',
-};
 
 function formatDate(iso: string): string {
   try {
@@ -232,7 +218,7 @@ export default function OrdersPage() {
           <option value="">Tất cả thanh toán</option>
           {PAYMENT_STATUSES.map((s) => (
             <option key={s} value={s}>
-              {PAYMENT_STATUS_LABEL[s]} ({s})
+              {getPaymentStatusMeta(s).label} ({s})
             </option>
           ))}
         </select>
@@ -348,21 +334,19 @@ export default function OrdersPage() {
                       </span>
                     </td>
                     <td className="px-6 py-4">
-                      <div className="flex flex-col gap-1">
-                        <Badge variant="gold" className="w-fit">
-                          {PAYMENT_METHOD_LABEL[o.payment_method]}
-                        </Badge>
-                        <span className="text-[10px] text-[#D0C5AF]/50">
-                          {PAYMENT_STATUS_LABEL[o.payment_status]} ·{' '}
-                          {o.payment_status}
+                      <span className="text-xs text-[#D0C5AF]">
+                        {getPaymentMethodLabel(o.payment_method)}
+                        <span className="text-[#D0C5AF]/40"> · </span>
+                        <span className={getPaymentStatusMeta(o.payment_status).textColor}>
+                          {getPaymentStatusMeta(o.payment_status).label}
                         </span>
-                      </div>
+                      </span>
                     </td>
                     <td className="px-6 py-4">
                       <span
-                        className={`inline-block px-2 py-0.5 text-[10px] font-medium rounded border ${ORDER_STATUS_BADGE[o.status]}`}
+                        className={`inline-block px-2 py-0.5 text-[10px] font-medium rounded border ${getOrderStatusPill(o.status)}`}
                       >
-                        {o.status}
+                        {getOrderStatusMeta(o.status).label}
                       </span>
                     </td>
                     <td className="px-6 py-4">
@@ -373,9 +357,10 @@ export default function OrdersPage() {
                     <td className="px-6 py-4 text-right">
                       <Link
                         href={`/admin/orders/${o.id}`}
-                        className="text-[10px] text-gold hover:text-gold/80 font-heading tracking-[0.1em] uppercase"
+                        className="inline-flex items-center gap-1.5 rounded border border-gold/30 bg-gold/5 px-4 py-2 text-xs font-heading font-bold tracking-[0.1em] uppercase text-gold transition-colors hover:bg-gold/15 hover:border-gold/60"
                       >
-                        Xem chi tiết →
+                        Xem chi tiết
+                        <span aria-hidden>→</span>
                       </Link>
                     </td>
                   </tr>

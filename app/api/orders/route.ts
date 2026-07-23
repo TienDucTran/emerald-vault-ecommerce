@@ -112,29 +112,45 @@ export async function POST(req: Request) {
       }
     );
     const { data: { user } } = await userScoped.auth.getUser();
-    if (user) {
-      currentUserId = user.id;
-      // Check role: nếu admin → 403
-      const { data: profile } = (await createAdminClient()
-        .from('profiles')
-        .select('role')
-        .eq('id', user.id)
-        .maybeSingle()) as { data: { role?: string } | null };
-      if (profile?.role === 'admin') {
-        return NextResponse.json(
-          {
-            ok: false,
-            error: 'NOT_CUSTOMER',
-            message: 'Tài khoản quản trị viên không thể đặt hàng. Vui lòng dùng tài khoản khách hàng.',
-          },
-          { status: 403 }
-        );
-      }
+    if (!user) {
+      // Option B: bắt buộc login — không cho guest checkout
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'NOT_AUTHENTICATED',
+          message: 'Vui lòng đăng nhập để đặt hàng.',
+        },
+        { status: 401 }
+      );
+    }
+    currentUserId = user.id;
+    // Check role: nếu admin → 403
+    const { data: profile } = (await createAdminClient()
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .maybeSingle()) as { data: { role?: string } | null };
+    if (profile?.role === 'admin') {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'NOT_CUSTOMER',
+          message: 'Tài khoản quản trị viên không thể đặt hàng. Vui lòng dùng tài khoản khách hàng.',
+        },
+        { status: 403 }
+      );
     }
   } catch (authErr) {
-    // Lỗi đọc session không nên block guest checkout
-    // → log warning, tiếp tục như guest
-    console.warn('[orders] auth check failed, falling back to guest:', authErr);
+    // Lỗi đọc session → fail closed (an toàn hơn fail open)
+    console.error('[orders] auth check failed:', authErr);
+    return NextResponse.json(
+      {
+        ok: false,
+        error: 'NOT_AUTHENTICATED',
+        message: 'Không thể xác thực phiên. Vui lòng đăng nhập lại.',
+      },
+      { status: 401 }
+    );
   }
 
   // 0. (BANK_TRANSFER) Validate bank config TRƯỚC khi insert để fail fast.

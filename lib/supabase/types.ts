@@ -28,7 +28,13 @@ export type OrderStatus =
   | 'DONE'
   | 'CANCELLED';
 export type PaymentMethod = 'MOMO' | 'COD' | 'BANK_TRANSFER';
-export type PaymentStatus = 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
+export type PaymentStatus =
+  | 'PENDING'
+  | 'AWAITING_CONFIRM'
+  | 'PAID'
+  | 'FAILED'
+  | 'REFUNDED'
+  | 'REFUND_REQUESTED';
 
 export interface CollectionRow {
   id: string;
@@ -98,6 +104,7 @@ export interface InventoryLockRow {
 export interface OrderRow {
   id: string;
   code: string;
+  customer_id: string | null;
   customer_name: string;
   customer_phone: string;
   customer_email: string | null;
@@ -112,6 +119,10 @@ export interface OrderRow {
   status: OrderStatus;
   created_at: string;
   updated_at: string;
+  customer_cancelled_at: string | null;
+  customer_cancel_reason: string | null;
+  refund_requested_at: string | null;
+  refund_reason: string | null;
 }
 
 export interface OrderItemRow {

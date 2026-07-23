@@ -10,10 +10,10 @@ export const runtime = 'nodejs';
 
 const querySchema = z.object({
   status: z
-    .enum(['NEW', 'CONFIRMED', 'SHIPPING', 'DONE', 'CANCELLED'])
+    .enum(['NEW', 'WAITING_PAYMENT', 'WAITING_CONFIRM', 'CONFIRMED', 'SHIPPING', 'DONE', 'CANCELLED'])
     .optional(),
   paymentStatus: z
-    .enum(['PENDING', 'PAID', 'FAILED', 'REFUNDED'])
+    .enum(['PENDING', 'AWAITING_CONFIRM', 'PAID', 'FAILED', 'REFUNDED', 'REFUND_REQUESTED'])
     .optional(),
   q: z.string().trim().max(100).optional(),
   page: z.coerce.number().int().min(1).default(1),

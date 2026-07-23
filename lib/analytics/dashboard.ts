@@ -23,6 +23,7 @@ export interface DashboardKpis {
   ordersLastMonth: number;
   ordersPending: number;
   pendingBankConfirmations: number;
+  pendingRefundRequests: number;
   totalProducts: number;
   productsAvailable: number;
   productsSoldOut: number;
@@ -118,6 +119,7 @@ export async function getDashboardData(): Promise<DashboardData> {
     ordersLastMonth,
     ordersPending,
     bankConfirmPending,
+    refundRequestsPending,
     productsAll,
     productsAvail,
     productsSold,
@@ -175,6 +177,11 @@ export async function getDashboardData(): Promise<DashboardData> {
       .select('id', { count: 'exact', head: true })
       .eq('status', 'WAITING_CONFIRM')
       .eq('payment_method', 'BANK_TRANSFER'),
+    // Refund requests pending (customer yêu cầu hoàn tiền, admin chưa xử lý)
+    sb
+      .from('orders')
+      .select('id', { count: 'exact', head: true })
+      .eq('payment_status', 'REFUND_REQUESTED'),
     // Products counts
     sb.from('products').select('id', { count: 'exact', head: true }),
     sb
@@ -251,6 +258,7 @@ export async function getDashboardData(): Promise<DashboardData> {
     ordersLastMonth: ordersLastMonth.count ?? 0,
     ordersPending: ordersPending.count ?? 0,
     pendingBankConfirmations: bankConfirmPending.count ?? 0,
+    pendingRefundRequests: refundRequestsPending.count ?? 0,
     totalProducts: productsAll.count ?? 0,
     productsAvailable: productsAvail.count ?? 0,
     productsSoldOut: productsSold.count ?? 0,

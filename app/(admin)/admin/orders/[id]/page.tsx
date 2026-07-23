@@ -9,12 +9,18 @@ import { BankPaymentActions } from '@/components/admin/orders/bank-payment-actio
 import { requireAdmin } from '@/lib/auth/require-admin';
 import { formatVND, MATERIAL_LABELS } from '@/lib/utils';
 import { getBankByCode } from '@/lib/bank/types';
+import {
+  getOrderStatusMeta,
+  getPaymentStatusMeta,
+  getPaymentMethodLabel,
+  ORDER_STATUS_TONE_BADGE,
+  type OrderStatus,
+  type PaymentStatus,
+} from '@/lib/order/status';
 import type {
   Material,
   OrderRow,
-  OrderStatus,
   PaymentMethod,
-  PaymentStatus,
 } from '@/lib/supabase/types';
 
 export const dynamic = 'force-dynamic';
@@ -51,45 +57,35 @@ interface BankTransferRow {
   updated_at: string;
 }
 
-const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
-  NEW: 'Mới',
-  WAITING_PAYMENT: 'Chờ thanh toán',
-  WAITING_CONFIRM: 'Chờ xác nhận',
-  CONFIRMED: 'Đã xác nhận',
-  SHIPPING: 'Đang giao',
-  DONE: 'Hoàn tất',
-  CANCELLED: 'Đã huỷ',
+// Icon letter cho payment method (M / C / B). Helper cục bộ vì shared PAYMENT_METHOD_LABEL
+// chỉ có label, không có icon. Nếu sau này cần reuse, nâng cấp lên shared helper.
+const PAYMENT_METHOD_ICON: Record<PaymentMethod, string> = {
+  MOMO: 'M',
+  COD: 'C',
+  BANK_TRANSFER: 'B',
 };
 
-const PAYMENT_METHOD_LABEL: Record<PaymentMethod, { label: string; icon: string }> = {
-  MOMO: { label: 'MoMo', icon: 'M' },
-  COD: { label: 'COD', icon: 'C' },
-  BANK_TRANSFER: { label: 'Chuyển khoản', icon: 'B' },
-};
+function StatusBadge({ status }: { status: string }) {
+  const meta = getOrderStatusMeta(status);
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 font-heading text-[10px] tracking-[0.15em] ${ORDER_STATUS_TONE_BADGE[meta.tone]}`}
+    >
+      {meta.label}
+    </span>
+  );
+}
 
-const ORDER_STATUS_BADGE: Record<OrderStatus, 'default' | 'outline' | 'gold' | 'success' | 'sold-out'> = {
-  NEW: 'outline',
-  WAITING_PAYMENT: 'outline',
-  WAITING_CONFIRM: 'gold',
-  CONFIRMED: 'default',
-  SHIPPING: 'default',
-  DONE: 'gold',
-  CANCELLED: 'sold-out',
-};
-
-const PAYMENT_STATUS_BADGE: Record<PaymentStatus, 'default' | 'outline' | 'gold' | 'success' | 'sold-out'> = {
-  PENDING: 'outline',
-  PAID: 'success',
-  FAILED: 'sold-out',
-  REFUNDED: 'gold',
-};
-
-const PAYMENT_STATUS_LABEL: Record<PaymentStatus, string> = {
-  PENDING: 'Chờ thanh toán',
-  PAID: 'Đã thanh toán',
-  FAILED: 'Thất bại',
-  REFUNDED: 'Đã hoàn tiền',
-};
+function PaymentBadge({ status }: { status: string }) {
+  const meta = getPaymentStatusMeta(status);
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 font-heading text-[10px] tracking-[0.15em] ${ORDER_STATUS_TONE_BADGE[meta.tone]}`}
+    >
+      {meta.label}
+    </span>
+  );
+}
 
 function formatDate(iso: string): string {
   try {
@@ -164,7 +160,8 @@ export default async function OrderDetailPage({
   }
 
   const subtotal = order.total_amount - order.shipping_fee;
-  const pmInfo = PAYMENT_METHOD_LABEL[order.payment_method];
+  const pmLabel = getPaymentMethodLabel(order.payment_method);
+  const pmIcon = PAYMENT_METHOD_ICON[order.payment_method];
   const fullAddress = [order.customer_address, order.district, order.province]
     .filter(Boolean)
     .join(', ');
@@ -186,9 +183,7 @@ export default async function OrderDetailPage({
               <h1 className="font-heading text-3xl font-bold text-gold tracking-tight">
                 {order.code}
               </h1>
-              <Badge variant={ORDER_STATUS_BADGE[order.status]}>
-                {ORDER_STATUS_LABEL[order.status]}
-              </Badge>
+              <StatusBadge status={order.status} />
             </div>
             <p className="text-xs text-[#D0C5AF]/50 mt-1">
               Tạo lúc {formatDate(order.created_at)} · Cập nhật {formatDate(order.updated_at)}
@@ -282,9 +277,9 @@ export default async function OrderDetailPage({
               </p>
               <div className="flex items-center gap-2 mt-1">
                 <span className="inline-flex h-6 w-6 items-center justify-center rounded bg-gold/15 text-gold text-[10px] font-bold">
-                  {pmInfo.icon}
+                  {pmIcon}
                 </span>
-                <span className="text-sm text-[#EAE1D4]">{pmInfo.label}</span>
+                <span className="text-sm text-[#EAE1D4]">{pmLabel}</span>
               </div>
             </div>
             <div>
@@ -292,9 +287,7 @@ export default async function OrderDetailPage({
                 Trạng thái TT
               </p>
               <div className="mt-1">
-                <Badge variant={PAYMENT_STATUS_BADGE[order.payment_status]}>
-                  {PAYMENT_STATUS_LABEL[order.payment_status]}
-                </Badge>
+                <PaymentBadge status={order.payment_status} />
               </div>
             </div>
           </div>
@@ -451,16 +444,19 @@ function BankPaymentCard({
         )}
       </div>
 
-      {/* Grid 2 cột: label / value */}
+      {/* Grid 2 cột: label / value — chỉ thông tin RIÊNG của CK (STK, nội dung).
+          Phương thức + Trạng thái TT + Số tiền đã có ở panel "Thanh toán" phía trên. */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
         <div>
           <p className="text-[10px] uppercase tracking-wider text-[#D0C5AF]/40">
-            Phương thức
+            Ngân hàng
           </p>
           <div className="flex items-center gap-2 mt-1">
-            <span className="text-sm text-[#EAE1D4]">Chuyển khoản ngân hàng</span>
-            <span className="inline-flex items-center px-2 py-0.5 text-[10px] uppercase tracking-wider rounded border border-gold/30 text-gold bg-gold/5">
+            <span className="text-sm text-[#EAE1D4]">
               {bank?.name ?? bankTransfer.bank_code}
+            </span>
+            <span className="inline-flex items-center px-2 py-0.5 text-[10px] uppercase tracking-wider rounded border border-gold/30 text-gold bg-gold/5">
+              BIN {bankTransfer.bank_bin}
             </span>
           </div>
         </div>
@@ -482,15 +478,7 @@ function BankPaymentCard({
         </div>
         <div>
           <p className="text-[10px] uppercase tracking-wider text-[#D0C5AF]/40">
-            Số tiền CK
-          </p>
-          <p className="text-sm font-heading font-bold text-gold mt-1">
-            {formatVND(Number(bankTransfer.amount))}
-          </p>
-        </div>
-        <div className="sm:col-span-2">
-          <p className="text-[10px] uppercase tracking-wider text-[#D0C5AF]/40">
-            Nội dung CK
+            Nội dung CK (đối chiếu)
           </p>
           <p className="text-sm text-gold font-bold font-mono mt-1 break-all">
             {bankTransfer.transfer_content}
