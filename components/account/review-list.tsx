@@ -12,11 +12,11 @@ import type { Review } from '@/lib/types/account';
 type Status = 'loading' | 'ready' | 'error' | 'empty';
 
 const cardClass = cn(
-  'flex flex-col gap-4 rounded-md border border-gold/20 bg-surface-emerald p-5'
+  'flex flex-col gap-4 rounded-md border border-gold/20 bg-surface-emerald p-5 shadow-card'
 );
 
 const labelClass =
-  'font-heading text-[10px] font-normal uppercase tracking-[0.05em] text-[#99907C]';
+  'font-heading text-[10px] font-normal uppercase tracking-[0.05em] text-text-muted';
 
 function formatDate(iso: string): string {
   try {
@@ -237,7 +237,7 @@ function ReviewRow({
 
   return (
     <article className={cardClass}>
-      <header className="flex flex-wrap items-start justify-between gap-3">
+      <header className="flex flex-wrap items-start justify-between gap-3 sm:items-center">
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-2">
             <span className={labelClass}>SẢN PHẨM</span>

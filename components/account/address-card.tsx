@@ -16,8 +16,9 @@ export interface AddressCardProps {
 }
 
 const cardClass = cn(
-  'rounded-md border border-gold/20 bg-surface-emerald p-4',
-  'flex flex-col gap-4'
+  'rounded-md border border-gold/20 bg-surface-emerald shadow-card',
+  'transition-all duration-300 hover:border-gold/40 hover:shadow-card-hover',
+  'flex flex-col gap-4 p-4'
 );
 
 export function AddressCard({

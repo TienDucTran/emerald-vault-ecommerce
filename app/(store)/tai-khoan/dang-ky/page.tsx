@@ -101,9 +101,10 @@ export default function RegisterPage() {
           <p className="mt-1 text-[10px] font-heading tracking-[0.2em] text-text-muted/50 uppercase">
             Si Nhật Vintage
           </p>
+          <div className="mx-auto mt-4 h-px w-16 bg-gradient-to-r from-transparent via-gold to-transparent" />
         </Link>
 
-        <div className="rounded-lg border border-gold/20 bg-surface-emerald/60 p-8 backdrop-blur-sm">
+        <div className="shadow-card rounded-lg border border-gold/20 bg-surface-emerald/60 p-8 backdrop-blur-sm">
           <h2 className="font-heading text-xl font-bold text-text-base mb-1">Tạo tài khoản</h2>
           <p className="text-xs text-text-muted/70 mb-6">
             Đăng ký để lưu đơn hàng, yêu thích và địa chỉ giao hàng.
@@ -111,7 +112,7 @@ export default function RegisterPage() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label htmlFor="fullName" className="mb-2 block text-[10px] font-heading tracking-[0.15em] uppercase text-text-muted/70">
+              <label htmlFor="fullName" className="mb-2 block text-xs font-heading tracking-[0.1em] uppercase text-text-muted">
                 Họ và tên
               </label>
               <input
@@ -125,13 +126,13 @@ export default function RegisterPage() {
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 disabled={loading}
-                className="w-full rounded-md border border-[#4D4635] bg-[#1F1B13] px-4 py-3 text-sm text-[#D0C5AF] placeholder:text-[#D0C5AF]/30 focus:border-gold/50 focus:outline-none transition-colors disabled:opacity-50"
+                className="w-full rounded-md border border-gold/30 bg-background px-4 py-3 text-sm text-text-base placeholder:text-text-disabled/50 focus:border-gold focus:outline-none focus:ring-2 focus:ring-gold/10 transition-colors disabled:opacity-50"
                 placeholder="Nguyễn Văn A"
               />
             </div>
 
             <div>
-              <label htmlFor="email" className="mb-2 block text-[10px] font-heading tracking-[0.15em] uppercase text-text-muted/70">
+              <label htmlFor="email" className="mb-2 block text-xs font-heading tracking-[0.1em] uppercase text-text-muted">
                 Email
               </label>
               <input
@@ -143,13 +144,13 @@ export default function RegisterPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 disabled={loading}
-                className="w-full rounded-md border border-[#4D4635] bg-[#1F1B13] px-4 py-3 text-sm text-[#D0C5AF] placeholder:text-[#D0C5AF]/30 focus:border-gold/50 focus:outline-none transition-colors disabled:opacity-50"
+                className="w-full rounded-md border border-gold/30 bg-background px-4 py-3 text-sm text-text-base placeholder:text-text-disabled/50 focus:border-gold focus:outline-none focus:ring-2 focus:ring-gold/10 transition-colors disabled:opacity-50"
                 placeholder="ban@email.com"
               />
             </div>
 
             <div>
-              <label htmlFor="phone" className="mb-2 block text-[10px] font-heading tracking-[0.15em] uppercase text-text-muted/70">
+              <label htmlFor="phone" className="mb-2 block text-xs font-heading tracking-[0.1em] uppercase text-text-muted">
                 Số điện thoại
               </label>
               <input
@@ -161,13 +162,13 @@ export default function RegisterPage() {
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 disabled={loading}
-                className="w-full rounded-md border border-[#4D4635] bg-[#1F1B13] px-4 py-3 text-sm text-[#D0C5AF] placeholder:text-[#D0C5AF]/30 focus:border-gold/50 focus:outline-none transition-colors disabled:opacity-50"
+                className="w-full rounded-md border border-gold/30 bg-background px-4 py-3 text-sm text-text-base placeholder:text-text-disabled/50 focus:border-gold focus:outline-none focus:ring-2 focus:ring-gold/10 transition-colors disabled:opacity-50"
                 placeholder="0912345678"
               />
             </div>
 
             <div>
-              <label htmlFor="password" className="mb-2 block text-[10px] font-heading tracking-[0.15em] uppercase text-text-muted/70">
+              <label htmlFor="password" className="mb-2 block text-xs font-heading tracking-[0.1em] uppercase text-text-muted">
                 Mật khẩu
               </label>
               <input
@@ -180,13 +181,13 @@ export default function RegisterPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 disabled={loading}
-                className="w-full rounded-md border border-[#4D4635] bg-[#1F1B13] px-4 py-3 text-sm text-[#D0C5AF] placeholder:text-[#D0C5AF]/30 focus:border-gold/50 focus:outline-none transition-colors disabled:opacity-50"
+                className="w-full rounded-md border border-gold/30 bg-background px-4 py-3 text-sm text-text-base placeholder:text-text-disabled/50 focus:border-gold focus:outline-none focus:ring-2 focus:ring-gold/10 transition-colors disabled:opacity-50"
                 placeholder="Tối thiểu 8 ký tự"
               />
             </div>
 
             <div>
-              <label htmlFor="confirm" className="mb-2 block text-[10px] font-heading tracking-[0.15em] uppercase text-text-muted/70">
+              <label htmlFor="confirm" className="mb-2 block text-xs font-heading tracking-[0.1em] uppercase text-text-muted">
                 Xác nhận mật khẩu
               </label>
               <input
@@ -199,7 +200,7 @@ export default function RegisterPage() {
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
                 disabled={loading}
-                className="w-full rounded-md border border-[#4D4635] bg-[#1F1B13] px-4 py-3 text-sm text-[#D0C5AF] placeholder:text-[#D0C5AF]/30 focus:border-gold/50 focus:outline-none transition-colors disabled:opacity-50"
+                className="w-full rounded-md border border-gold/30 bg-background px-4 py-3 text-sm text-text-base placeholder:text-text-disabled/50 focus:border-gold focus:outline-none focus:ring-2 focus:ring-gold/10 transition-colors disabled:opacity-50"
                 placeholder="Nhập lại mật khẩu"
               />
             </div>

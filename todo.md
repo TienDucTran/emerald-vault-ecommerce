@@ -1,6 +1,6 @@
 # TODO — CẦN CHỈNH SỬA & BỔ SUNG
 
-> Cập nhật lần cuối: 2026-07-17 — Sprint "VietQR + Unblock" xong: payment chính cho MVP (VietQR động + manual confirm + upload bill), migration 0008, customer/admin flow, dashboard KPI.
+> Cập nhật lần cuối: 2026-07-18 — Sprint "Login + Admin Block" xong. Bổ sung phân tích toàn diện từ flows.md, thêm Google OAuth, cập nhật P0/P1/P2.
 
 ---
 
@@ -32,6 +32,8 @@
 - [x] **Bank config env** (2026-07-17): `BANK_CODE` + `BANK_ACCOUNT_NUMBER` + `BANK_ACCOUNT_NAME` trong `.env.example`. Hỗ trợ tài khoản cá nhân, không cần đăng ký kinh doanh.
 - [x] **Admin bank verify UI** (2026-07-17): card "Thanh toán ngân hàng" trong `/admin/orders/[id]` với timeline + bill thumbnail + nút xác nhận + dashboard alert `pendingBankConfirmations`.
 - [x] **Customer bank payment page** (2026-07-17): `/don-hang/[code]/thanh-toan` với QR động 24h countdown + Copy buttons (STK, số tiền, nội dung) + 2 action (confirm + upload bill).
+- [x] **Login page — bỏ magic link, thêm Google OAuth + eye icon** (2026-07-18)
+- [x] **Google OAuth callback route** (2026-07-18)
 - [ ] **Cleanup 39 pre-existing TypeScript errors** — chi tiết 6 nhóm root cause + file + effort ở `docs/ts-errors-cleanup.md` (Effort 2-3h, không block `next build`). Đã fix 3 errors (cart.ts:97, media-picker.tsx:348, server.ts:17,19) trong session 2026-07-16; 39 còn lại là pre-existing.
 
 ---
@@ -51,11 +53,14 @@
 - [ ] Migration `0008_reviews.sql` — bảng product_reviews (P2)
 
 ### B. Auth & Middleware
-- [ ] Tạo `lib/supabase/{client,server,admin}.ts` với `@supabase/ssr`
-- [ ] `middleware.ts` block `/dashboard/*` và `/api/admin/*` nếu không phải admin
-- [ ] Trang `/admin/login` (form đăng nhập Supabase Auth)
-- [ ] Trang `/403` (retro style)
-- [ ] Bootstrap admin đầu tiên: insert profile với `role='admin'`
+- [x] Tạo `lib/supabase/{client,server,admin}.ts` với `@supabase/ssr`
+- [x] `middleware.ts` block `/dashboard/*` và `/api/admin/*` nếu không phải admin
+- [x] Trang `/admin/login` (form đăng nhập Supabase Auth)
+- [x] Trang `/403` (retro style)
+- [x] Bootstrap admin đầu tiên: insert profile với `role='admin'`
+- [x] **Google OAuth**: `app/api/auth/callback/route.ts` — xử lý redirect sau OAuth
+- [x] **Google OAuth**: nút "Đăng nhập bằng Google" trong trang đăng nhập
+- [ ] **Supabase Dashboard**: Bật Google provider + cấu hình redirect URL `{SITE_URL}/api/auth/callback`
 
 ### C. MoMo Payment [Phase 2 — khi có MST]
 
@@ -71,10 +76,17 @@
 - [ ] **[Phase 2]** Production switch: đổi base URL từ `test-payment` → `payment.momo.vn` (sau khi MoMo duyệt live)
 
 ### D. Cấu hình kỹ thuật
-- [ ] `next.config.js` thêm `images.remotePatterns` cho Supabase + `formats: ['avif','webp']`
-- [ ] `.env.local` với đầy đủ 12 biến (xem `flows.md` §14)
+- [x] `next.config.mjs` thêm `images.remotePatterns` cho Supabase + `formats: ['avif','webp']`
+- [x] `.env.local` với đầy đủ biến
 - [ ] `lib/env.ts` validate env lúc startup (zod)
-- [ ] Cài deps: `@supabase/ssr @supabase/supabase-js zustand zod react-hook-form gsap @next/third-parties`
+- [x] Cài deps: `@supabase/ssr @supabase/supabase-js zustand zod react-hook-form gsap @next/third-parties`
+
+### D2. Google OAuth Setup
+- [x] Tạo `app/api/auth/callback/route.ts` — xử lý OAuth redirect, set cookie, redirect về `/tai-khoan/ho-so`
+- [x] Thêm nút Google OAuth trong trang đăng nhập
+- [ ] **Supabase Dashboard**: Bật Google provider → vào Authentication → Providers → Google → Enable → nhập Client ID + Client Secret từ Google Cloud Console
+- [ ] **Google Cloud Console**: Tạo OAuth 2.0 Client ID (Web application) → Authorized redirect URIs: `{SITE_URL}/api/auth/callback`
+- [ ] **Cập nhật `.env`**: thêm `NEXT_PUBLIC_SITE_URL` nếu chưa có
 
 ---
 
@@ -158,12 +170,6 @@
 - [ ] `app/(admin)/dashboard/inventory/page.tsx` — MOCK (P2)
 - [ ] `app/(admin)/dashboard/payments/page.tsx` — MOCK (P2)
 - [ ] `app/(admin)/dashboard/settings/page.tsx` — MOCK (P2)
-
-### E. Quick-win tiếp theo (sprint sau)
-- [ ] **Populate MoMo env** (30 phút) — theo `docs/momo-sandbox-setup.md` 8 bước → unblock `/api/momo/create` 503
-- [ ] **Apply migrations 0006 + 0007** lên Supabase (5 phút) — `supabase db push` hoặc paste SQL vào Dashboard
-- [ ] **Test admin dashboard/orders/collections/newsletter** end-to-end (30 phút)
-- [ ] **Apply migration 0010_pg_cron_jobs** (nếu chưa) — enable pg_cron trên Dashboard trước
 
 ### J. Rate-limit & Security
 - [ ] Upstash Redis setup (hoặc Vercel KV)
@@ -259,16 +265,16 @@
 - [ ] Index: `idx_addresses_user`, `idx_wishlist_user`, `idx_reviews_product_approved`, `idx_reviews_user`
 
 ### T. Auth Pages (end-user)
-- [ ] `app/(store)/dang-nhap/page.tsx` — Email + Magic Link tabs
-- [ ] `app/(store)/dang-ky/page.tsx` — full_name + email + phone + password
-- [ ] `app/(store)/quen-mat-khau/page.tsx` — reset password qua email
-- [ ] `app/(store)/xac-nhan-email/page.tsx` — thông báo verify
-- [ ] `lib/auth/require-user.ts` — auth helper (tương tự require-admin)
-- [ ] Update `middleware.ts` — thêm matcher `/tai-khoan/:path*` + `/api/account/:path*`
+- [x] `app/(store)/tai-khoan/dang-nhap/page.tsx` — Email + Password + Google OAuth (bỏ magic link)
+- [x] `app/(store)/tai-khoan/dang-ky/page.tsx` — full_name + email + phone + password
+- [ ] `app/(store)/tai-khoan/quen-mat-khau/page.tsx` — reset password qua email
+- [ ] `app/(store)/tai-khoan/xac-nhan-email/page.tsx` — thông báo verify
+- [x] `lib/auth/require-user.ts` — auth helper (tương tự require-admin)
+- [x] Update `middleware.ts` — thêm matcher `/tai-khoan/:path*` + `/api/account/:path*`
 - [ ] Update `navbar.tsx` — User icon link dynamic, avatar mini khi logged in
 
 ### U. API Routes
-- [ ] `app/api/auth/magic-link/route.ts`
+- [x] `app/api/auth/callback/route.ts` — Google OAuth callback
 - [ ] `app/api/auth/reset-password/route.ts`
 - [ ] `app/api/account/profile/route.ts` — GET / PATCH
 - [ ] `app/api/account/addresses/route.ts` + `[id]/route.ts` + `[id]/default/route.ts`
@@ -355,6 +361,154 @@
 - [ ] GA4 events: `chat_opened`, `chat_message_sent`, `chat_product_clicked`
 - [ ] Trang `/dashboard/chat` (optional MVP+) — list sessions, messages, tool call stats
 - [ ] Log `tokens_used` mỗi message để tracking cost
+
+---
+
+## 🟣 P1 — AUTO PRODUCT PIPELINE (mới — xem chi tiết `flows.md` §17)
+
+### AA. Backend & Migration
+- [ ] Migration `0006_add_draft_status.sql` (thêm enum value `DRAFT` cho `product_status_enum`)
+- [ ] `POST /api/admin/products/bulk` với zod validation, per-row result
+- [ ] Test bằng Postman/curl với payload JSON
+
+### AB. AI Generator Script
+- [ ] `scripts/ai-product-generator.ts` với ExcelJS
+- [ ] Prompt template + structured output (zod schema)
+- [ ] Upload ảnh lên Supabase Storage trước
+- [ ] CLI: `npm run ai:generate`
+- [ ] Test với 5-10 ảnh thật, check output quality
+
+### AC. Admin UI Import
+- [ ] Form upload Excel + parse client-side
+- [ ] Preview table với row-level error highlight
+- [ ] Dropdown collection + toggle draft/publish
+- [ ] Submit gọi API + hiển thị kết quả
+- [ ] Nút "Download template" trong admin
+
+---
+
+## 🟣 P1 — EVENT-DRIVEN ARCHITECTURE (mới — xem chi tiết `flows.md` §20)
+
+### AD. Phase 1: In-process EventBus
+- [ ] `lib/events/types.ts` — DomainEvent union type
+- [ ] `lib/events/bus.ts` — In-process EventBus
+- [ ] `lib/events/subscribers/index.ts` — Register all subscribers
+- [ ] `lib/events/subscribers/inventory.ts` — Handle inventory.locked, inventory.released
+- [ ] `lib/events/subscribers/bank.ts` — Handle order.created → create bank_transfers
+- [ ] `lib/events/subscribers/order-finalizer.ts` — Handle payment_confirmed → confirm_payment RPC
+- [ ] `lib/events/subscribers/analytics.ts` — Track GA4 events (batched)
+- [ ] `lib/events/subscribers/notifications.ts` — Queue email/SMS/Zalo (Phase 1: log only)
+- [ ] `lib/events/subscribers/admin-realtime.ts` — Broadcast cho admin dashboard
+- [ ] Modify `app/api/orders/route.ts` → publish `order.created`
+- [ ] Modify `app/api/momo/ipn/route.ts` → publish `order.payment_confirmed`
+- [ ] Modify `app/api/admin/orders/[id]/route.ts` → publish `bank_transfer.confirmed`
+
+---
+
+## 🔴 P0 — CRITICAL GAPS TỪ FLOWS.MD (bổ sung mới)
+
+### AE. AI Chatbot (§15) — 0% — GAP LỚN NHẤT
+- [ ] pgvector + chat_sessions + chat_messages + match_products RPC
+- [ ] Embed trigger + batch embed script
+- [ ] Vercel AI SDK + 7 components + use-chat-session
+- [ ] **Effort**: 2-3 ngày
+
+### AF. Rate-Limit API (§13) — 0%
+- [ ] Upstash Redis + `@upstash/ratelimit`
+- [ ] Rate-limit `/api/lock-item`, `/api/orders`, `/api/momo/*`, `/api/chat`
+- [ ] **Effort**: 2h
+
+### AG. Sentry Error Tracking (§13) — 0%
+- [ ] Install `@sentry/nextjs`, config files, env `SENTRY_DSN`
+- [ ] **Effort**: 2h
+
+### AH. Env Validation (Zod) at Startup (§13)
+- [ ] `lib/env.ts` validate toàn bộ env vars, crash early nếu misconfig
+- [ ] **Effort**: 1h
+
+### AI. Structured Logging với Redaction (§13)
+- [ ] `lib/log.ts` — structured JSON, redact phone/email
+- [ ] **Effort**: 2h
+
+### AJ. DRAFT Enum Value + Draft→Publish Flow (§11/§17)
+- [ ] Migration `ALTER TYPE product_status_enum ADD VALUE 'DRAFT'`
+- [ ] Bulk-upload toggle + Products list "Publish All Drafts"
+- [ ] **Effort**: 2h
+
+### AK. Admin Pages Còn Mock (3 pages)
+- [ ] `app/(admin)/dashboard/inventory/page.tsx` — real data
+- [ ] `app/(admin)/dashboard/payments/page.tsx` — real data
+- [ ] `app/(admin)/dashboard/settings/page.tsx` — persistence
+- [ ] **Effort**: 5h
+
+---
+
+## 🟡 P1 — CẢI TIẾN TỪ FLOWS.MD (bổ sung mới)
+
+### AL. UI Primitives Còn Thiếu (§4)
+- [ ] `components/ui/input.tsx` — form input component
+- [ ] `components/ui/dialog.tsx` — modal dialog
+- [ ] `components/ui/skeleton.tsx` — loading skeleton
+- [ ] `components/ui/count-down.tsx` — reusable countdown
+- [ ] `components/ui/shine-image.tsx` — hover shine effect
+- [ ] **Effort**: 2-3h
+
+### AM. Cart Components Tách Riêng (§4)
+- [ ] `components/cart/cart-item.tsx` — 1 item + countdown + remove
+- [ ] `components/cart/cart-summary.tsx` — tổng tiền + checkout button
+- [ ] `components/cart/empty-cart.tsx` — empty state
+- [ ] **Effort**: 1.5h
+
+### AN. Collection Components Tách Riêng (§4)
+- [ ] `components/collection/collection-card.tsx`
+- [ ] `components/collection/collection-hero.tsx`
+- [ ] `components/collection/collection-filter.tsx`
+- [ ] **Effort**: 1.5h
+
+### AO. GA4 — Set GA_ID Thật + Account Events (§9)
+- [ ] Set `NEXT_PUBLIC_GA_ID` thật trong `.env`
+- [ ] GA4 account events: account_register, account_login, account_logout, profile_updated, address_added, wishlist_synced, review_submitted
+- [ ] **Effort**: 1h
+
+### AP. Admin Analytics — Thêm Cache (§9.1)
+- [ ] `unstable_cache` (Next.js) hoặc Upstash Redis TTL 60s
+- [ ] **Effort**: 1h
+
+### AQ. End-User Account — Hoàn Thiện (§18)
+- [ ] `/tai-khoan/xac-nhan-email` page — post-signup confirmation
+- [ ] `/tai-khoan/don-hang/[code]` — account-side order detail
+- [ ] Apply migration 0011 (customer_id backfill theo email)
+- [ ] Reviews hiển thị trên PDP
+- [ ] **Effort**: 4h
+
+### AR. UI/UX Components Còn Thiếu (§16)
+- [ ] `components/product/zoom-image.tsx` — hover zoom
+- [ ] `components/home/latest-drops.tsx` — pattern Lillicoco
+- [ ] `components/home/newsletter-popup.tsx` — modal 30s
+- [ ] `components/ui/newsletter-form.tsx` — email subscribe
+- [ ] `components/layout/mobile-menu.tsx` — slide-out
+- [ ] `components/care/care-guide.tsx` + `authentication-guide.tsx`
+- [ ] `components/product/product-count.tsx` + `product-breadcrumb.tsx`
+- [ ] `components/product/recently-viewed.tsx`
+- [ ] `components/ui/wishlist-button.tsx`
+- [ ] **Effort**: 12-15h
+
+### AS. Newsletter Public API + Form (§16.4)
+- [ ] `POST /api/newsletter/subscribe` — public subscribe API
+- [ ] Footer form component
+- [ ] **Effort**: 1.5h
+
+### AT. TypeScript Errors Cleanup
+- [ ] Fix 39 lỗi (6 nhóm: Supabase generic, Lucide IconComp, mobile-bottom-nav, account-sidebar, Postgrest, queries)
+- [ ] **Effort**: 2-3h
+
+### AU. Hero Image Preload (§12)
+- [ ] Preload hero image + font trong layout
+- [ ] **Effort**: 30m
+
+### AV. Admin Write RLS Policies (§13)
+- [ ] Explicit RLS policies cho `products`/`collections` — INSERT/UPDATE/DELETE chỉ admin
+- [ ] **Effort**: 1h
 
 ---
 

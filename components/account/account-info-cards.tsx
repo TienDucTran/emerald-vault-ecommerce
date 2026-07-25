@@ -38,7 +38,7 @@ export function AccountInfoCards({ profile }: AccountInfoCardsProps) {
   );
   return (
     <div className="flex flex-col gap-6">
-      <div className="rounded-lg border border-gold/20 bg-surface-emerald/30 p-6">
+      <div className="rounded-lg border border-gold/20 bg-surface-emerald/30 p-6 shadow-card">
         <h3 className="mb-6 border-b border-gold/10 pb-2 font-heading text-sm text-gold">
           THÔNG TIN TÀI KHOẢN
         </h3>
@@ -59,14 +59,14 @@ export function AccountInfoCards({ profile }: AccountInfoCardsProps) {
           </div>
           <div className="flex items-center justify-between">
             <span className="text-[13px] text-text-muted">Trạng thái</span>
-            <span className="inline-flex items-center gap-1.5 rounded border border-[#B2CDBC]/20 bg-[#344C3F]/30 px-2 py-0.5 text-xs text-[#B2CDBC]">
+            <span className="inline-flex items-center gap-1.5 rounded border border-success/20 bg-surface-emerald/30 px-2 py-0.5 text-xs text-success">
               <ShieldCheck className="h-3 w-3" />
               Verified
             </span>
           </div>
         </div>
       </div>
-      <div className="relative overflow-hidden rounded-lg border border-gold/40 bg-surface p-6">
+      <div className="relative overflow-hidden rounded-lg border border-gold/40 bg-surface p-6 shadow-gold-glow">
         <div
           className="pointer-events-none absolute inset-0 opacity-30"
           style={{
@@ -106,11 +106,11 @@ export function AccountInfoCards({ profile }: AccountInfoCardsProps) {
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <div className="flex flex-col items-center gap-2 rounded-md border border-gold/10 bg-surface-emerald/20 p-4">
+        <div className="flex flex-col items-center gap-2 rounded-md border border-gold/10 bg-surface-emerald/20 p-4 shadow-sm">
           <ShieldCheck className="h-4 w-5 text-gold" />
           <span className="font-heading text-[10px] text-text-muted">BẢO MậT 2 LỚP</span>
         </div>
-        <div className="flex flex-col items-center gap-2 rounded-md border border-gold/10 bg-surface-emerald/20 p-4">
+        <div className="flex flex-col items-center gap-2 rounded-md border border-gold/10 bg-surface-emerald/20 p-4 shadow-sm">
           <Crown className="h-4 w-5 text-gold" />
           <span className="font-heading text-[10px] text-text-muted">QUYỀN LỢI VIP</span>
         </div>

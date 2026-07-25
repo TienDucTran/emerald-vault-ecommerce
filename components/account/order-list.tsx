@@ -11,6 +11,7 @@ import { createClient } from '@/lib/supabase/client';
 import { toast } from '@/lib/toast/toast-store';
 import type { CustomerOrderListItem } from '@/lib/supabase/queries/orders';
 import type { OrderStatus } from '@/lib/supabase/types';
+import type { RealtimePostgresUpdatePayload } from '@supabase/supabase-js';
 
 type FilterKey = 'ALL' | 'WAITING' | 'SHIPPING' | 'DONE';
 
@@ -66,7 +67,7 @@ export function OrderList({ orders, total }: OrderListProps) {
             table: 'orders',
             filter: `customer_id=eq.${user.id}`,
           },
-          (payload) => {
+          (payload: RealtimePostgresUpdatePayload<{ id: string; code: string; status: string }>) => {
             const newRow = payload.new as {
               id: string;
               code: string;
@@ -128,7 +129,7 @@ export function OrderList({ orders, total }: OrderListProps) {
   const visible = useMemo(() => {
     const f = FILTERS.find((x) => x.key === filter)!;
     let list = orders.filter(
-      (o) => f.matchStatuses.length === 0 || f.matchStatuses.includes(o.status)
+      (o) => f.matchStatuses.length === 0 || f.matchStatuses.includes(o.status as OrderStatus)
     );
     list = [...list].sort((a, b) => {
       switch (sort) {

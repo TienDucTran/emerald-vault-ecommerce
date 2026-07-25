@@ -41,51 +41,71 @@ function getInitials(name?: string | null, fallback?: string | null): string {
   return parts[parts.length - 1].charAt(0).toUpperCase();
 }
 
+function AvatarWithFallback({ url, name, email, className }: { url: string | null; name: string | null; email: string; className?: string }) {
+  const [failed, setFailed] = useState(false);
+
+  if (url && !failed) {
+    return (
+      <img
+        src={url}
+        alt={name || email}
+        className={className}
+        onError={() => setFailed(true)}
+      />
+    );
+  }
+
+  return (
+    <div className={`flex h-full w-full items-center justify-center font-heading font-bold text-gold ${className || ''}`}>
+      {getInitials(name, email)}
+    </div>
+  );
+}
+
 function useProfile(): {
   profile: SidebarProfile | null;
   loading: boolean;
+  refresh: () => void;
 } {
   const [profile, setProfile] = useState<SidebarProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch('/api/account/profile', {
-          cache: 'no-store',
-        });
-        if (!res.ok) {
-          if (!cancelled) setLoading(false);
-          return;
-        }
-        const json = (await res.json()) as {
+  const fetchProfile = async () => {
+    setLoading(true);
+    try {
+      const [profileRes, authRes] = await Promise.all([
+        fetch('/api/account/profile', { cache: 'no-store' }),
+        createClient().auth.getUser(),
+      ]);
+
+      if (profileRes.ok) {
+        const json = (await profileRes.json()) as {
           profile: {
             full_name: string | null;
             phone: string | null;
+            avatar_url?: string | null;
           };
         };
-        const supabase = createClient();
-        const { data: userData } = await supabase.auth.getUser();
-        if (cancelled) return;
+        const user = authRes.data?.user;
         setProfile({
           full_name: json.profile?.full_name ?? null,
-          email: userData.user?.email ?? '',
+          email: user?.email ?? '',
           phone: json.profile?.phone ?? null,
-          avatar_url: null,
+          avatar_url: json.profile?.avatar_url ?? null,
         });
-      } catch (err) {
-        console.error('[AccountSidebar] fetch error:', err);
-      } finally {
-        if (!cancelled) setLoading(false);
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    } catch (err) {
+      console.error('[AccountSidebar] fetch error:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchProfile();
   }, []);
 
-  return { profile, loading };
+  return { profile, loading, refresh: fetchProfile };
 }
 
 function useLogout() {
@@ -100,6 +120,11 @@ function useLogout() {
       await supabase.auth.signOut();
     } catch (err) {
       console.error('[AccountSidebar] logout error:', err);
+    } finally {
+      useWishlistStore.getState().clear();
+      setBusy(false);
+      router.push('/tai-khoan/dang-nhap');
+      router.refresh();
     }
 
     try {
@@ -128,25 +153,32 @@ function useLogout() {
 
 export function AccountSidebar() {
   const pathname = usePathname() || '';
-  const { profile, loading } = useProfile();
+  const { profile, loading, refresh } = useProfile();
   const { handleLogout, busy } = useLogout();
-  const displayName = profile?.full_name || 'Khách hàng';
-  const displayPhone = profile?.phone || (loading ? '…' : 'Chưa cập nhật');
+  const displayName = loading ? '…' : (profile?.full_name || 'Khách hàng');
+  const displayPhone = loading ? '…' : (profile?.phone || 'Chưa cập nhật');
+
+  // Expose refresh globally so profile form can trigger it
+  useEffect(() => {
+    (window as any).__refreshAccountSidebar = refresh;
+    return () => { delete (window as any).__refreshAccountSidebar; };
+  }, [refresh]);
 
   return (
     <aside className="sticky top-[60px] hidden h-[calc(100vh-60px)] w-[288px] shrink-0 flex-col border-r border-gold/10 bg-surface-emerald p-8 md:flex">
       <div className="mb-10 flex flex-col items-center">
-        <div className="mb-3 h-24 w-24 overflow-hidden rounded-xl border-2 border-gold bg-surface">
-          {profile?.avatar_url ? (
-            <img
-              src={profile.avatar_url}
-              alt={displayName}
+        <div className="mb-3 h-24 w-24 overflow-hidden rounded-xl border-2 border-gold bg-surface shadow-gold-glow transition-all duration-300 hover:shadow-gold-glow-lg">
+          {loading ? (
+            <div className="flex h-full w-full items-center justify-center">
+              <Loader2 className="h-8 w-8 animate-spin text-gold/60" />
+            </div>
+          ) : (
+            <AvatarWithFallback
+              url={profile?.avatar_url ?? null}
+              name={profile?.full_name ?? null}
+              email={profile?.email ?? ''}
               className="h-full w-full object-cover"
             />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center font-heading text-3xl font-bold text-gold">
-              {getInitials(profile?.full_name, profile?.email ?? '')}
-            </div>
           )}
         </div>
         <h2 className="text-center font-heading text-sm font-bold uppercase tracking-[0.15em] text-gold">
@@ -154,6 +186,7 @@ export function AccountSidebar() {
         </h2>
         <p className="mt-1 text-sm text-text-muted">{displayPhone}</p>
       </div>
+      <div className="border-t border-gold/10" aria-hidden="true" />
       <nav className="flex flex-1 flex-col gap-1">
         {NAV_ITEMS.map((item) => {
           const active = pathname === item.href || pathname.startsWith(item.href + '/');
@@ -166,7 +199,7 @@ export function AccountSidebar() {
               className={cn(
                 'flex items-center gap-4 rounded-md px-6 py-4 text-base font-normal transition-colors',
                 active
-                  ? 'bg-[#344C3F] border-l-2 border-gold text-gold'
+                  ? 'bg-surface-emeraldAlt border-l-2 border-gold text-gold'
                   : 'text-text-muted hover:bg-surface-emeraldAlt hover:text-text-base'
               )}
             >
@@ -181,7 +214,7 @@ export function AccountSidebar() {
           type="button"
           onClick={handleLogout}
           disabled={busy}
-          className="flex w-full items-center gap-4 rounded-md border border-gold/20 px-4 py-3 text-sm font-medium text-text-muted transition-colors hover:bg-surface-emeraldAlt hover:text-text-base disabled:opacity-50"
+          className="flex w-full items-center gap-4 rounded-md border border-gold/30 px-4 py-3 text-sm font-medium text-text-muted transition-colors hover:bg-surface-emeraldAlt hover:text-text-base disabled:opacity-50"
         >
           {busy ? (
             <Loader2 className="h-5 w-5 shrink-0 animate-spin" />
@@ -201,23 +234,24 @@ export function AccountMobileTabs() {
   const pathname = usePathname() || '';
   const { profile, loading } = useProfile();
   const { handleLogout, busy } = useLogout();
-  const displayName = profile?.full_name || 'Khách hàng';
-  const displayPhone = profile?.phone || (loading ? '…' : 'Chưa cập nhật');
+  const displayName = loading ? '…' : (profile?.full_name || 'Khách hàng');
+  const displayPhone = loading ? '…' : (profile?.phone || 'Chưa cập nhật');
 
   return (
     <div className="md:hidden">
-      <div className="flex items-center gap-3 border-b border-gold/10 bg-surface-emerald px-4 py-3">
+      <div className="flex items-center gap-3 border-b border-gold/10 bg-surface-emerald px-4 py-3 shadow-sm">
         <div className="h-10 w-10 shrink-0 overflow-hidden rounded-lg border border-gold bg-surface">
-          {profile?.avatar_url ? (
-            <img
-              src={profile.avatar_url}
-              alt={displayName}
+          {loading ? (
+            <div className="flex h-full w-full items-center justify-center">
+              <Loader2 className="h-5 w-5 animate-spin text-gold/60" />
+            </div>
+          ) : (
+            <AvatarWithFallback
+              url={profile?.avatar_url ?? null}
+              name={profile?.full_name ?? null}
+              email={profile?.email ?? ''}
               className="h-full w-full object-cover"
             />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center font-heading text-lg font-bold text-gold">
-              {getInitials(profile?.full_name, profile?.email ?? '')}
-            </div>
           )}
         </div>
         <div className="flex-1 min-w-0">

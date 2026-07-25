@@ -54,9 +54,10 @@ export default function ForgotPasswordPage() {
           <p className="mt-1 text-[10px] font-heading tracking-[0.2em] text-text-muted/50 uppercase">
             Si Nhật Vintage
           </p>
+          <div className="mx-auto mt-4 h-px w-16 bg-gradient-to-r from-transparent via-gold to-transparent" />
         </Link>
 
-        <div className="rounded-lg border border-gold/20 bg-surface-emerald/60 p-8 backdrop-blur-sm">
+        <div className="shadow-card rounded-lg border border-gold/20 bg-surface-emerald/60 p-8 backdrop-blur-sm">
           <h2 className="font-heading text-xl font-bold text-text-base mb-1">Quên mật khẩu</h2>
           <p className="text-xs text-text-muted/70 mb-6">
             Nhập email đã đăng ký, chúng tôi sẽ gửi liên kết đặt lại mật khẩu.
@@ -72,19 +73,19 @@ export default function ForgotPasswordPage() {
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label htmlFor="email" className="mb-2 block text-[10px] font-heading tracking-[0.15em] uppercase text-text-muted/70">
-                  Email
-                </label>
-                <input
-                  id="email"
-                  name="email"
-                  type="email"
-                  required
-                  autoComplete="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  disabled={loading}
-                  className="w-full rounded-md border border-[#4D4635] bg-[#1F1B13] px-4 py-3 text-sm text-[#D0C5AF] placeholder:text-[#D0C5AF]/30 focus:border-gold/50 focus:outline-none transition-colors disabled:opacity-50"
+              <label htmlFor="email" className="mb-2 block text-xs font-heading tracking-[0.1em] uppercase text-text-muted">
+                Email
+              </label>
+              <input
+                id="email"
+                name="email"
+                type="email"
+                required
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                disabled={loading}
+                className="w-full rounded-md border border-gold/30 bg-background px-4 py-3 text-sm text-text-base placeholder:text-text-disabled/50 focus:border-gold focus:outline-none focus:ring-2 focus:ring-gold/10 transition-colors disabled:opacity-50"
                   placeholder="ban@email.com"
                 />
               </div>

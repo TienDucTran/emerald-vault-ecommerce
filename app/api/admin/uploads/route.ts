@@ -36,7 +36,7 @@ export const runtime = 'nodejs';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const DEFAULT_FOLDER = 'products';
-const ALLOWED_FOLDERS = ['products', 'categories', 'collections', 'banners'] as const;
+const ALLOWED_FOLDERS = ['products', 'categories', 'collections', 'banners', 'avatars'] as const;
 type AllowedFolder = (typeof ALLOWED_FOLDERS)[number];
 
 function isAllowedFolder(value: string): value is AllowedFolder {

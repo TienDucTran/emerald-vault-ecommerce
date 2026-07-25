@@ -10,14 +10,15 @@ export const metadata = {
 export default async function ProfilePage() {
   const { user, profile } = await requireCustomer();
 
+  const p = profile as unknown as Record<string, unknown>;
   const initialData: ProfileFormData = {
     full_name: profile.full_name ?? '',
     phone: profile.phone ?? '',
     email: user.email ?? '',
-    date_of_birth: '',
-    gender: null,
-    marketing_opt_in: false,
-    avatar_url: null,
+    date_of_birth: (p.date_of_birth as string)?.split('T')[0] ?? '',
+    gender: (p.gender as 'male' | 'female' | 'other' | null) ?? null,
+    marketing_opt_in: (p.marketing_opt_in as boolean) ?? false,
+    avatar_url: (p.avatar_url as string | null) ?? null,
   };
 
   return (

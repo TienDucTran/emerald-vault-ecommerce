@@ -39,6 +39,7 @@ const FOLDER_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'categories', label: 'Categories' },
   { value: 'collections', label: 'Collections' },
   { value: 'banners', label: 'Banners' },
+  { value: 'avatars', label: 'Avatars' },
 ];
 
 const INPUT_CLASS =

@@ -10,8 +10,8 @@ import type { WishlistItemWithProduct } from '@/lib/types/account';
 type Status = 'loading' | 'ready' | 'error' | 'empty';
 
 const cardClass = cn(
-  'group flex flex-col overflow-hidden rounded-md border border-gold/20',
-  'bg-surface-emerald transition-colors hover:border-gold/40'
+  'group flex flex-col overflow-hidden rounded-md border border-gold/20 shadow-card',
+  'bg-surface-emerald transition-all duration-300 hover:border-gold/40 hover:shadow-card-hover'
 );
 
 export function WishlistSyncGrid() {
@@ -76,7 +76,7 @@ export function WishlistSyncGrid() {
       ) : null}
 
       {status === 'loading' ? (
-        <div className="flex flex-col items-center gap-3 rounded-md border border-gold/20 bg-surface-emerald p-12 text-center">
+        <div className="flex flex-col items-center gap-3 rounded-md border border-gold/20 bg-surface-emerald p-12 text-center shadow-card">
           <Loader2 className="h-6 w-6 animate-spin text-gold" />
           <p className="text-sm text-text-muted">Đang tải danh sách yêu thích…</p>
         </div>
@@ -88,7 +88,7 @@ export function WishlistSyncGrid() {
           </Button>
         </div>
       ) : status === 'empty' ? (
-        <div className="flex flex-col items-center gap-4 rounded-md border border-gold/20 bg-surface-emerald p-12 text-center">
+        <div className="flex flex-col items-center gap-4 rounded-md border border-gold/20 bg-surface-emerald p-12 text-center shadow-card">
           <div className="grid h-16 w-16 place-items-center rounded-full border border-gold/30 bg-surface">
             <Heart className="h-7 w-7 text-gold" />
           </div>

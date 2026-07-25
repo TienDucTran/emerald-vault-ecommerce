@@ -3371,6 +3371,559 @@ Logic: với matcher mới, **chỉ cần user tồn tại** (không check role)
 
 ---
 
+## 20. LUỒNG 11 — EVENT-DRIVEN ARCHITECTURE (PUB/SUB)
+
+> **Status**: 🟡 Designed, not implemented. Phase 1 (in-process EventBus) ready to implement. Phase 2 (Redis Pub/Sub) deferred until scaling need.
+> **Mục tiêu**: Giảm coupling giữa các service, tăng khả năng mở rộng (email, SMS, Zalo, CRM, analytics), và cải thiện response time cho các flow quan trọng.
+
+### 20.1. Vấn đề coupling trong kiến trúc hiện tại
+
+Kiến trúc hiện tại là **monolithic synchronous**: mỗi API route phải thực hiện tuần tự tất cả side-effects trước khi trả response. Điều này gây:
+
+1. **Slow response time**: Admin confirm bank payment mất ~300-400ms vì phải chạy 4-5 DB operations tuần tự (`app/api/admin/orders/[id]/route.ts` line 193-257)
+2. **Fragile error handling**: Nếu `bankDb.insert` fail (`app/api/orders/route.ts` line 340) → phải rollback toàn bộ order + locks
+3. **Hard to extend**: Thêm email notification sau khi order created → phải sửa code trong `app/api/orders/route.ts`, `app/api/momo/ipn/route.ts`, và `app/api/admin/orders/[id]/route.ts`
+4. **Blocking critical path**: Nếu email service (future) fail → user không nhận confirmation nhưng order đã tạo
+
+### 20.2. Kiến trúc đề xuất: Hybrid Event-Driven
+
+```
+[Client]
+   │ POST /api/orders
+   ▼
+[Order Service — Next.js Route Handler]
+   │ 1. Verify products AVAILABLE (SYNC)
+   │ 2. Lock items qua RPC lock_item (SYNC — atomic)
+   │ 3. Insert order + order_items (SYNC — ACID)
+   │ 4. Stamp locks.order_id (SYNC)
+   │ 5. Publish event: order.created
+   │ 6. Return { orderCode } NGAY — ~50ms
+   ▼
+[EventBus — lib/events/bus.ts (Phase 1: in-process)]
+   │ publish({ type: 'order.created', payload: {...} })
+   ▼
+[Subscribers — lib/events/subscribers/]
+   ├── inventory.ts       → set_products_reserved (ASYNC)
+   ├── bank.ts            → create bank_transfers + VietQR URL (ASYNC)
+   ├── analytics.ts       → track begin_checkout (ASYNC, batched)
+   ├── notifications.ts   → enqueue email/SMS/Zalo (ASYNC)
+   └── admin-realtime.ts  → broadcast cho admin dashboard (ASYNC)
+```
+
+**Nguyên tắc phân chia SYNC vs ASYNC:**
+
+| Operation | Mode | Lý do |
+|---|---|---|
+| Lock items (`lock_item` RPC) | SYNC | Phải atomic, ACID, tránh race-condition |
+| Insert order + order_items | SYNC | Phải consistent, user cần orderCode ngay |
+| Verify payment signature (IPN) | SYNC | Bảo mật — phải verify trước khi bất kỳ action nào |
+| Update `bank_transfers.admin_confirmed_at` | SYNC | Persist trước khi publish |
+| Mark products SOLD_OUT / RESERVED | ASYNC | Non-critical, có thể eventual consistency |
+| Send email / SMS / Zalo | ASYNC | External service, có thể fail |
+| Track GA4 analytics | ASYNC | Batch được, không block user |
+| Broadcast admin realtime | ASYNC | Nice-to-have, không ảnh hưởng business logic |
+
+### 20.3. Domain Events (canonical schema)
+
+```typescript
+// lib/events/types.ts
+export type DomainEvent =
+  | {
+      type: 'order.created';
+      payload: {
+        orderId: string;
+        code: string;
+        paymentMethod: 'MOMO' | 'COD' | 'BANK_TRANSFER';
+        total: number;
+        customer: {
+          name: string;
+          phone: string;
+          email: string | null;
+        };
+        items: Array<{
+          productId: string;
+          title: string;
+          price: number;
+        }>;
+      };
+    }
+  | {
+      type: 'order.payment_confirmed';
+      payload: {
+        orderId: string;
+        code: string;
+        method: 'MOMO' | 'BANK_TRANSFER';
+        transId?: string;
+        amount: number;
+        confirmedAt: string;
+      };
+    }
+  | {
+      type: 'bank_transfer.confirmed';
+      payload: {
+        orderId: string;
+        orderCode: string;
+        adminId: string;
+        adminNote?: string;
+        confirmedAt: string;
+      };
+    }
+  | {
+      type: 'inventory.locked';
+      payload: {
+        productId: string;
+        clientId: string;
+        lockId: string;
+      };
+    }
+  | {
+      type: 'inventory.released';
+      payload: {
+        productId: string;
+        lockId: string;
+        reason: 'expired' | 'cancelled' | 'released';
+      };
+    };
+```
+
+### 20.4. EventBus implementation (Phase 1 — in-process)
+
+**File**: `lib/events/bus.ts` (NEW)
+
+```typescript
+// lib/events/bus.ts
+import type { DomainEvent } from './types';
+
+type Handler = (event: DomainEvent) => void | Promise<void>;
+
+class EventBus {
+  private handlers = new Map<string, Set<Handler>>();
+
+  subscribe(type: string, handler: Handler) {
+    if (!this.handlers.has(type)) {
+      this.handlers.set(type, new Set());
+    }
+    this.handlers.get(type)!.add(handler);
+  }
+
+  async publish(event: DomainEvent) {
+    const handlers = this.handlers.get(event.type);
+    if (!handlers) return;
+
+    await Promise.allSettled(
+      Array.from(handlers).map((h) =>
+        Promise.resolve(h(event)).catch((err) => {
+          console.error(`[eventbus] ${event.type} handler failed:`, err);
+        })
+      )
+    );
+  }
+}
+
+export const eventBus = new EventBus();
+```
+
+**File**: `lib/events/subscribers/index.ts` (NEW)
+
+```typescript
+// lib/events/subscribers/index.ts
+import { eventBus } from '../bus';
+import { registerInventorySubscribers } from './inventory';
+import { registerBankSubscribers } from './bank';
+import { registerOrderFinalizerSubscribers } from './order-finalizer';
+import { registerAnalyticsSubscribers } from './analytics';
+import { registerNotificationSubscribers } from './notifications';
+import { registerAdminRealtimeSubscribers } from './admin-realtime';
+
+export function registerAllSubscribers() {
+  registerInventorySubscribers();
+  registerBankSubscribers();
+  registerOrderFinalizerSubscribers();
+  registerAnalyticsSubscribers();
+  registerNotificationSubscribers();
+  registerAdminRealtimeSubscribers();
+}
+```
+
+Gọi `registerAllSubscribers()` 1 lần trong `app/layout.tsx` (root) hoặc `app/(store)/layout.tsx`.
+
+### 20.5. Integration vào các flow hiện tại
+
+#### 20.5.1. Order creation flow (`POST /api/orders`)
+
+**File**: `app/api/orders/route.ts`
+
+**Thay đổi**: Sau line 364 (sau khi tạo bank_transfers thành công, trước return), thêm:
+
+```typescript
+// 8. Publish order.created event (non-critical side-effects)
+await eventBus.publish({
+  type: 'order.created',
+  payload: {
+    orderId: order.id,
+    code: order.code,
+    paymentMethod: payment,
+    total: totalAmount,
+    customer: {
+      name: customer.name,
+      phone: customer.phone,
+      email: customer.email ?? null,
+    },
+    items: items.map((it) => ({
+      productId: it.productId,
+      title: it.title,
+      price: it.price,
+    })),
+  },
+});
+
+// 9. Return response (user không cần chờ subscribers)
+return NextResponse.json({
+  ok: true,
+  order: {
+    id: order.id,
+    code: order.code,
+    status: order.status,
+    paymentMethod: order.payment_method,
+    paymentStatus: order.payment_status,
+    totalAmount: order.total_amount,
+  },
+  redirectUrl,
+});
+```
+
+**Subscribers sẽ xử lý**:
+- `inventory.ts`: Set products = RESERVED (cho BANK/MOMO)
+- `bank.ts`: Tạo bank_transfers row + VietQR URL
+- `analytics.ts`: Track `begin_checkout`
+- `notifications.ts`: Enqueue email/SMS
+
+#### 20.5.2. MoMo IPN flow (`POST /api/momo/ipn`)
+
+**File**: `app/api/momo/ipn/route.ts`
+
+**Thay đổi**: Sau line 156 (sau khi xử lý SUCCESS/FAILED, trước return 204), thêm:
+
+```typescript
+// 6. Publish payment_confirmed event (async, non-blocking)
+if (success) {
+  await eventBus.publish({
+    type: 'order.payment_confirmed',
+    payload: {
+      orderId: order.id,
+      code: order.code,
+      method: 'MOMO',
+      transId: body.transId,
+      amount: Number(body.amount),
+      confirmedAt: ipnAt,
+    },
+  });
+}
+
+return new NextResponse(null, { status: 204 });
+```
+
+**Subscribers sẽ xử lý**:
+- `order-finalizer.ts`: Gọi RPC `confirm_payment` → update order + products + locks
+- `analytics.ts`: Track `purchase`
+- `notifications.ts`: Gửi email "Thanh toán thành công"
+- `admin-realtime.ts`: Broadcast new paid order
+
+#### 20.5.3. Admin confirm bank payment (`PATCH /api/admin/orders/[id]`)
+
+**File**: `app/api/admin/orders/[id]/route.ts`
+
+**Thay đổi**: Trong `handleConfirmBankPayment`, sau line 255 (sau khi mark_products_sold_out, trước return), thêm:
+
+```typescript
+// 7. Publish bank_transfer.confirmed event
+await eventBus.publish({
+  type: 'bank_transfer.confirmed',
+  payload: {
+    orderId,
+    orderCode: updatedOrder.code,
+    adminId: adminUser.id,
+    adminNote,
+    confirmedAt: nowIso,
+  }
+});
+
+return NextResponse.json({ order: updatedOrder, bankTransfer });
+```
+
+**Subscribers sẽ xử lý**: giống MoMo IPN — confirm_payment + analytics + notifications.
+
+### 20.6. Subscribers chi tiết
+
+#### 20.6.1. Inventory Subscriber (`lib/events/subscribers/inventory.ts`)
+
+```typescript
+import { eventBus } from '../bus';
+import { createAdminClient } from '@/lib/supabase/admin';
+
+eventBus.subscribe('order.created', async (e) => {
+  if (e.payload.paymentMethod === 'MOMO' || e.payload.paymentMethod === 'BANK_TRANSFER') {
+    const supabase = createAdminClient();
+    await (supabase.rpc as any)('set_products_reserved', {
+      p_order_id: e.payload.orderId,
+    });
+  }
+});
+```
+
+#### 20.6.2. Bank Transfer Subscriber (`lib/events/subscribers/bank.ts`)
+
+```typescript
+import { eventBus } from '../bus';
+import { createAdminClient } from '@/lib/supabase/admin';
+import { getBankConfig } from '@/lib/bank/config';
+import { getBankByCode } from '@/lib/bank/types';
+import { generateVietQRUrl, formatTransferContent } from '@/lib/bank/vietqr';
+
+eventBus.subscribe('order.created', async (e) => {
+  if (e.payload.paymentMethod !== 'BANK_TRANSFER') return;
+
+  const supabase = createAdminClient();
+  const bankCfg = getBankConfig();
+  if (!bankCfg.isConfigured) {
+    console.error('[events/bank] BANK_NOT_CONFIGURED for order', e.payload.code);
+    return;
+  }
+
+  const transferContent = formatTransferContent(e.payload.code);
+  const bankMeta = getBankByCode(bankCfg.bankCode);
+  const qrImageUrl = generateVietQRUrl({
+    bankCode: bankCfg.bankCode as any,
+    accountNumber: bankCfg.accountNumber,
+    accountName: bankCfg.accountName,
+    amount: e.payload.total,
+    addInfo: transferContent,
+    template: 'compact',
+  });
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+  const { error } = await supabase.from('bank_transfers').insert({
+    order_id: e.payload.orderId,
+    qr_image_url: qrImageUrl,
+    bank_code: bankCfg.bankCode,
+    bank_bin: bankMeta?.bin ?? null,
+    account_number: bankCfg.accountNumber,
+    account_name: bankCfg.accountName,
+    amount: e.payload.total,
+    transfer_content: transferContent,
+    qr_expires_at: expiresAt,
+  });
+
+  if (error) {
+    console.error('[events/bank] insert failed:', error);
+  }
+});
+```
+
+#### 20.6.3. Order Finalizer Subscriber (`lib/events/subscribers/order-finalizer.ts`)
+
+```typescript
+import { eventBus } from '../bus';
+import { createAdminClient } from '@/lib/supabase/admin';
+
+eventBus.subscribe('order.payment_confirmed', async (e) => {
+  const supabase = createAdminClient();
+  const transId = e.payload.transId ? BigInt(e.payload.transId) : null;
+
+  if (transId) {
+    await (supabase.rpc as any)('confirm_payment', {
+      p_order_id: e.payload.orderId,
+      p_momo_trans_id: transId,
+    });
+  } else {
+    await supabase
+      .from('orders')
+      .update({
+        payment_status: 'PAID',
+        status: 'CONFIRMED',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', e.payload.orderId);
+  }
+});
+
+eventBus.subscribe('bank_transfer.confirmed', async (e) => {
+  const supabase = createAdminClient();
+  await (supabase.rpc as any)('confirm_payment', {
+    p_order_id: e.payload.orderId,
+    p_momo_trans_id: 0,
+  });
+});
+```
+
+#### 20.6.4. Analytics Subscriber (`lib/events/subscribers/analytics.ts`)
+
+```typescript
+import { eventBus } from '../bus';
+
+eventBus.subscribe('order.payment_confirmed', async (e) => {
+  if (typeof window !== 'undefined' && window.gtag) {
+    window.gtag('event', 'purchase', {
+      transaction_id: e.payload.code,
+      value: e.payload.amount,
+      currency: 'VND',
+    });
+  }
+});
+```
+
+#### 20.6.5. Notification Subscriber (`lib/events/subscribers/notifications.ts`)
+
+```typescript
+import { eventBus } from '../bus';
+
+eventBus.subscribe('order.created', async (e) => {
+  console.log('[notification] order.created:', e.payload.code);
+  // Phase 2: await emailQueue.add('order_created', e.payload);
+});
+
+eventBus.subscribe('order.payment_confirmed', async (e) => {
+  console.log('[notification] payment_confirmed:', e.payload.code);
+  // Phase 2: await emailQueue.add('payment_success', e.payload);
+});
+
+eventBus.subscribe('bank_transfer.confirmed', async (e) => {
+  console.log('[notification] bank_confirmed:', e.payload.orderCode);
+  // Phase 2: await emailQueue.add('bank_confirmed', e.payload);
+});
+```
+
+#### 20.6.6. Admin Realtime Subscriber (`lib/events/subscribers/admin-realtime.ts`)
+
+```typescript
+import { eventBus } from '../bus';
+import { createBrowserClient } from '@/lib/supabase/client';
+
+eventBus.subscribe('order.payment_confirmed', async (e) => {
+  const supabase = createBrowserClient();
+  await supabase.channel('admin-alerts').send({
+    type: 'broadcast',
+    event: 'new_paid_order',
+    payload: {
+      orderCode: e.payload.code,
+      amount: e.payload.amount,
+      timestamp: e.payload.confirmedAt,
+    },
+  });
+});
+
+eventBus.subscribe('bank_transfer.confirmed', async (e) => {
+  const supabase = createBrowserClient();
+  await supabase.channel('admin-alerts').send({
+    type: 'broadcast',
+    event: 'bank_confirmed',
+    payload: {
+      orderCode: e.payload.orderCode,
+      adminId: e.payload.adminId,
+    },
+  });
+});
+```
+
+### 20.7. Phase rollout
+
+#### Phase 1: In-process EventBus (1-2 ngày)
+
+**Mục tiêu**: Decouple logic trong monolith, không cần infra mới.
+
+**Các bước**:
+1. Tạo `lib/events/types.ts`, `lib/events/bus.ts`, `lib/events/subscribers/index.ts`
+2. Tạo 6 subscribers mặc định (inventory, bank, order-finalizer, analytics, notifications, admin-realtime)
+3. Modify 3 API routes để publish events:
+   - `app/api/orders/route.ts` → `order.created`
+   - `app/api/momo/ipn/route.ts` → `order.payment_confirmed`
+   - `app/api/admin/orders/[id]/route.ts` → `bank_transfer.confirmed`
+4. Test: verify events được publish đúng lúc, subscribers chạy đúng, không có regression
+5. Update `flows.md` — section này
+
+**Rollback**: Xóa `await eventBus.publish()` khỏi 3 routes, hệ thống về sync cũ.
+
+#### Phase 2: Upstash Redis Pub/Sub (2-3 ngày, defer đến khi cần scale)
+
+**Khi nào cần**:
+- Có external workers (email worker, SMS worker) chạy độc lập
+- Cần horizontal scale (nhiều Next.js instances)
+- Cần durable queue (message không mất khi server restart)
+
+**Implementation**:
+- Thêm `lib/events/redis.ts` wrapper
+- Replace in-process bus với Redis Pub/Sub
+- Subscribers chạy như Vercel Cron Jobs hoặc Edge Functions
+- Dùng Upstash Redis đã có trong env (`UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`)
+
+**Trade-off**: Thêm latency ~10-50ms, nhưng có durability + horizontal scale.
+
+#### Phase 3: External Workers (nếu cần)
+
+- Email worker: Vercel Cron + `/api/workers/email` route
+- SMS/Zalo worker: tương tự
+- CRM sync worker: GitHub Actions hoặc n8n self-host
+
+### 20.8. Files cần tạo (Phase 1)
+
+```
+lib/events/
+├── types.ts                    # DomainEvent union type
+├── bus.ts                      # In-process EventBus
+├── subscribers/
+│   ├── index.ts                # Register all subscribers
+│   ├── inventory.ts            # Handle inventory.locked, inventory.released
+│   ├── bank.ts                 # Handle order.created → create bank_transfers
+│   ├── order-finalizer.ts      # Handle payment_confirmed → confirm_payment RPC
+│   ├── analytics.ts            # Track GA4 events (batched)
+│   ├── notifications.ts        # Queue email/SMS/Zalo (Phase 1: log only)
+│   └── admin-realtime.ts       # Broadcast cho admin dashboard
+```
+
+### 20.9. Trade-offs & caveats
+
+| Ưu điểm | Nhược điểm / Rủi ro |
+|---|---|
+| Order service trả response nhanh hơn (~50ms vs ~300ms) | Phức tạp debug (phải trace events) |
+| Thêm subscriber mới không sửa order code | Eventual consistency — admin có thể thấy order `NEW` trong vài ms trước khi status update |
+| Email/SMS fail không ảnh hưởng checkout | Cần retry mechanism cho critical events |
+| Dễ mở rộng (SMS, Zalo, CRM) | Cần monitoring (log mọi publish/consume) |
+| Test isolation — có thể test subscribers riêng | Phải đảm bảo idempotency (event có thể deliver 2 lần) |
+
+**Idempotency rules**:
+- Mỗi subscriber phải xử lý duplicate events gracefully
+- Dùng `eventId` (UUID) trong payload để dedupe nếu cần
+- Redis Pub/Sub có thể deliver message 2 lần trong edge cases
+
+### 20.10. Monitoring & Debugging
+
+```typescript
+// Thêm vào bus.ts
+async publish(event: DomainEvent) {
+  const eventId = crypto.randomUUID();
+  console.log(`[eventbus] publish ${event.type}`, { eventId, payload: event.payload });
+  
+  // ... existing logic
+  
+  console.log(`[eventbus] publish ${event.type} done`, { eventId });
+}
+```
+
+**Metrics cần track**:
+- `event_publish_total` — counter by event type
+- `event_handler_duration_ms` — histogram by handler
+- `event_handler_errors_total` — counter by handler + error type
+
+### 20.11. Liên kết
+
+- Xem các flow hiện tại: §7 (checkout), §7.1.1 (VietQR), §7.3 (IPN), §10 (auth)
+- File tham chiếu: `app/api/orders/route.ts`, `app/api/momo/ipn/route.ts`, `app/api/admin/orders/[id]/route.ts`
+- Stack: Next.js 14+ Route Handlers, Supabase Postgres + RPC, Vercel deployment
+
+---
+
+---
+
 ## 19. STATUS — JOB PENDING
 
 > Section này được sinh từ audit codebase ngày 2026-07-16. Mỗi mục có: ID (anchor trong spec), tiêu đề, file/route cần tạo/sửa, mô tả ngắn, và effort ước lượng.

@@ -33,7 +33,7 @@ const inputClass = cn(
 );
 
 const labelClass =
-  'font-heading text-[10px] font-normal uppercase tracking-[0.05em] text-[#99907C]';
+  'font-heading text-[10px] font-normal uppercase tracking-[0.05em] text-text-muted';
 
 const PHONE_PATTERN = '^[0-9+\\s-]{8,20}$';
 

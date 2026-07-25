@@ -14,6 +14,9 @@ export default function ReviewsPage() {
         </p>
       </div>
       <ReviewList />
+      <div className="flex justify-center pt-8">
+        <div className="h-px w-24 bg-gradient-to-r from-transparent via-gold/40 to-transparent" />
+      </div>
     </div>
   );
 }

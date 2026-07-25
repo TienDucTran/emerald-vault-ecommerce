@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
+import { Eye, EyeOff } from 'lucide-react';
 
 const DEFAULT_NEXT = '/tai-khoan/ho-so';
 
@@ -12,13 +13,14 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const nextParam = searchParams.get('next') || DEFAULT_NEXT;
+  const errorParam = searchParams.get('error');
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [magicLoading, setMagicLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [magicSent, setMagicSent] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [error, setError] = useState<string | null>(errorParam);
+  const [showPassword, setShowPassword] = useState(false);
   const [checkingSession, setCheckingSession] = useState(true);
 
   useEffect(() => {
@@ -32,8 +34,6 @@ function LoginForm() {
         if (cancelled) return;
         if (user) {
           router.replace(nextParam);
-          // FALLBACK: dù router.replace fail (vd: cùng URL), vẫn tắt spinner
-          // để tránh kẹt vĩnh viễn ở "Đang kiểm tra phiên đăng nhập..."
           setCheckingSession(false);
           return;
         }
@@ -47,29 +47,9 @@ function LoginForm() {
     };
   }, [router, nextParam]);
 
-  /**
-   * Đợi session được commit hoàn toàn trước khi navigate.
-   * Tránh race condition: signIn thành công nhưng cookie chưa sync
-   * → router.push gửi request RSC với cookie cũ → middleware redirect ngược.
-   *
-   * Fallback timeout 2s: nếu session vẫn null (cookie write bị block,
-   * browser extension chặn, etc) → báo lỗi để user retry thay vì kẹt.
-   */
-  async function waitForSession(timeoutMs = 2000): Promise<boolean> {
-    const supabase = createClient();
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) return true;
-      await new Promise((r) => setTimeout(r, 100));
-    }
-    return false;
-  }
-
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
-    setMagicSent(false);
 
     const trimmed = email.trim();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
@@ -94,17 +74,7 @@ function LoginForm() {
         return;
       }
 
-      // Đợi session được commit (cookie set xong) trước khi navigate
-      const sessionReady = await waitForSession(2000);
-      if (!sessionReady) {
-        setError('Không thể xác nhận phiên đăng nhập. Vui lòng thử lại hoặc kiểm tra trình duyệt (cookie blocker).');
-        setLoading(false);
-        return;
-      }
-
       setPassword('');
-      // QUAN TRỌNG: setLoading(false) trước navigate, để nếu navigate
-      // bị chặn/bounce ngược, nút không bị kẹt "Đang xử lý..."
       setLoading(false);
       router.push(nextParam);
       router.refresh();
@@ -114,32 +84,25 @@ function LoginForm() {
     }
   }
 
-  async function handleMagicLink() {
+  async function handleGoogleLogin() {
     setError(null);
-    setMagicSent(false);
-    const trimmed = email.trim();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
-      setError('Vui lòng nhập email để nhận liên kết đăng nhập.');
-      return;
-    }
-    setMagicLoading(true);
+    setGoogleLoading(true);
     try {
-      const res = await fetch('/api/auth/magic-link', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: trimmed, next: nextParam }),
+      const supabase = createClient();
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/api/auth/callback?next=${encodeURIComponent(nextParam)}`,
+        },
       });
-      const json = await res.json();
-      if (!res.ok || !json.ok) {
-        setError(json?.error || 'Không thể gửi liên kết. Vui lòng thử lại.');
-        setMagicLoading(false);
-        return;
+      if (error) {
+        setError('Không thể kết nối với Google. Vui lòng thử lại.');
+        setGoogleLoading(false);
       }
-      setMagicSent(true);
-      setMagicLoading(false);
+      // Nếu thành công, Supabase sẽ redirect browser
     } catch {
       setError('Đã xảy ra lỗi. Vui lòng thử lại.');
-      setMagicLoading(false);
+      setGoogleLoading(false);
     }
   }
 
@@ -161,17 +124,49 @@ function LoginForm() {
           <p className="mt-1 text-[10px] font-heading tracking-[0.2em] text-text-muted/50 uppercase">
             Si Nhật Vintage
           </p>
+          <div className="mx-auto mt-4 h-px w-16 bg-gradient-to-r from-transparent via-gold to-transparent" />
         </Link>
 
-        <div className="rounded-lg border border-gold/20 bg-surface-emerald/60 p-8 backdrop-blur-sm">
+        <div className="shadow-card rounded-lg border border-gold/20 bg-surface-emerald/60 p-8 backdrop-blur-sm">
           <h2 className="font-heading text-xl font-bold text-text-base mb-1">Đăng nhập</h2>
           <p className="text-xs text-text-muted/70 mb-6">
             Đăng nhập để theo dõi đơn hàng, đồng bộ yêu thích và nhận ưu đãi.
           </p>
 
+          {/* Google OAuth Button */}
+          <Button
+            type="button"
+            variant="outline"
+            size="md"
+            onClick={handleGoogleLogin}
+            disabled={loading || googleLoading}
+            className="w-full mb-4"
+          >
+            {googleLoading ? (
+              'Đang kết nối...'
+            ) : (
+              <>
+                <svg className="h-4 w-4" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
+                  <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                  <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+                  <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+                </svg>
+                Đăng nhập bằng Google
+              </>
+            )}
+          </Button>
+
+          {/* Divider */}
+          <div className="mb-4 flex items-center gap-3">
+            <div className="h-px flex-1 bg-gold/15" />
+            <span className="text-[10px] font-heading tracking-[0.15em] uppercase text-text-muted">hoặc email</span>
+            <div className="h-px flex-1 bg-gold/15" />
+          </div>
+
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label htmlFor="email" className="mb-2 block text-[10px] font-heading tracking-[0.15em] uppercase text-text-muted/70">
+              <label htmlFor="email" className="mb-2 block text-xs font-heading tracking-[0.1em] uppercase text-text-muted">
                 Email
               </label>
               <input
@@ -182,37 +177,49 @@ function LoginForm() {
                 autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                disabled={loading || magicLoading}
-                className="w-full rounded-md border border-[#4D4635] bg-[#1F1B13] px-4 py-3 text-sm text-[#D0C5AF] placeholder:text-[#D0C5AF]/30 focus:border-gold/50 focus:outline-none transition-colors disabled:opacity-50"
+                disabled={loading || googleLoading}
+                className="w-full rounded-md border border-gold/30 bg-background px-4 py-3 text-sm text-text-base placeholder:text-text-disabled/50 focus:border-gold focus:outline-none focus:ring-2 focus:ring-gold/10 transition-colors disabled:opacity-50"
                 placeholder="ban@email.com"
               />
             </div>
 
             <div>
               <div className="mb-2 flex items-center justify-between">
-                <label htmlFor="password" className="block text-[10px] font-heading tracking-[0.15em] uppercase text-text-muted/70">
+                <label htmlFor="password" className="block text-xs font-heading tracking-[0.1em] uppercase text-text-muted">
                   Mật khẩu
                 </label>
                 <Link
                   href="/tai-khoan/quen-mat-khau"
-                  className="text-[10px] font-heading tracking-[0.15em] uppercase text-text-muted/70 hover:text-gold transition-colors"
+                  className="text-xs font-heading tracking-[0.1em] uppercase text-text-muted hover:text-gold transition-colors"
                 >
                   Quên?
                 </Link>
               </div>
-              <input
-                id="password"
-                name="password"
-                type="password"
-                required
-                minLength={6}
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                disabled={loading || magicLoading}
-                className="w-full rounded-md border border-[#4D4635] bg-[#1F1B13] px-4 py-3 text-sm text-[#D0C5AF] placeholder:text-[#D0C5AF]/30 focus:border-gold/50 focus:outline-none transition-colors disabled:opacity-50"
-                placeholder="••••••••"
-              />
+              <div className="relative">
+                <input
+                  id="password"
+                  name="password"
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  minLength={6}
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  disabled={loading || googleLoading}
+                  className="w-full rounded-md border border-gold/30 bg-background px-4 py-3 pr-10 text-sm text-text-base placeholder:text-text-disabled/50 focus:border-gold focus:outline-none focus:ring-2 focus:ring-gold/10 transition-colors disabled:opacity-50"
+                  placeholder="••••••••"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  disabled={loading || googleLoading}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-gold transition-colors disabled:opacity-50"
+                  tabIndex={-1}
+                  aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
 
             {error && (
@@ -221,33 +228,10 @@ function LoginForm() {
               </div>
             )}
 
-            {magicSent && (
-              <div role="status" className="rounded-md border border-success/30 bg-success/10 px-4 py-3 text-xs text-success">
-                Đã gửi liên kết đăng nhập. Vui lòng kiểm tra email.
-              </div>
-            )}
-
-            <Button type="submit" variant="primary" size="md" disabled={loading || magicLoading} className="w-full">
+            <Button type="submit" variant="primary" size="md" disabled={loading || googleLoading} className="w-full">
               {loading ? 'Đang xử lý...' : 'Đăng nhập'}
             </Button>
           </form>
-
-          <div className="my-5 flex items-center gap-3">
-            <div className="h-px flex-1 bg-gold/15" />
-            <span className="text-[10px] font-heading tracking-[0.15em] uppercase text-text-muted/40">hoặc</span>
-            <div className="h-px flex-1 bg-gold/15" />
-          </div>
-
-          <Button
-            type="button"
-            variant="outline"
-            size="md"
-            onClick={handleMagicLink}
-            disabled={loading || magicLoading}
-            className="w-full"
-          >
-            {magicLoading ? 'Đang gửi...' : 'Đăng nhập bằng magic link'}
-          </Button>
 
           <div className="mt-6 text-center text-xs text-text-muted/70">
             Chưa có tài khoản?{' '}

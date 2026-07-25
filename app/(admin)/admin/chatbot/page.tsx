@@ -1896,7 +1896,7 @@ function SuggestedAnswersTab({ confirm }: { confirm: ConfirmFn }) {
           </div>
           {editing.source_question_cluster && (
             <div className="text-[10px] text-[#D0C5AF]/50">
-              Từ câu hỏi: "{editing.source_question_cluster}"
+              Từ câu hỏi: &quot;{editing.source_question_cluster}&quot;
             </div>
           )}
           <div className="flex gap-2">
@@ -1919,7 +1919,7 @@ function SuggestedAnswersTab({ confirm }: { confirm: ConfirmFn }) {
       <div className="space-y-2">
         {items.length === 0 && !editing && (
           <p className="text-center py-8 text-[#D0C5AF]/40 text-xs">
-            Chưa có mẫu trả lời nào. Bấm "Thêm" hoặc vào tab "Phân tích" để tạo từ câu hỏi của khách.
+            Chưa có mẫu trả lời nào. Bấm &quot;Thêm&quot; hoặc vào tab &quot;Phân tích&quot; để tạo từ câu hỏi của khách.
           </p>
         )}
         {items.map((it) => {
@@ -1976,7 +1976,7 @@ function SuggestedAnswersTab({ confirm }: { confirm: ConfirmFn }) {
                   )}
                   {it.source_question_cluster && (
                     <p className="text-[10px] text-[#D0C5AF]/40 mt-1 italic">
-                      Từ câu hỏi: "{it.source_question_cluster}"
+                      Từ câu hỏi: &quot;{it.source_question_cluster}&quot;
                     </p>
                   )}
                 </div>
