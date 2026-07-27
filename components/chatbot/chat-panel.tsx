@@ -33,9 +33,11 @@ export function ChatPanel({ open, onClose, messages, status, error, onSend, onCl
   return (
     <div
       className={cn(
-        'fixed bottom-24 right-6 z-40 flex flex-col overflow-hidden',
-        'h-[480px] w-[360px] max-w-[calc(100vw-3rem)]',
+        // Mobile: position above the 64px MobileBottomNav + spacing; cap height by viewport
+        'fixed bottom-20 right-4 z-40 flex flex-col overflow-hidden',
+        'h-[min(480px,calc(100dvh-6rem))] w-[360px] max-w-[calc(100vw-2rem)]',
         'rounded-2xl border border-gold/30 bg-surface shadow-2xl',
+        'sm:right-6',
         'lg:bottom-28 lg:right-8',
         'transition-all duration-200 origin-bottom-right',
         open ? 'scale-100 opacity-100' : 'pointer-events-none scale-95 opacity-0'

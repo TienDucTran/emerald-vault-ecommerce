@@ -281,7 +281,7 @@ export function MediaPicker({
       <div
         ref={contentRef}
         className={cn(
-          'relative w-full max-w-5xl max-h-[90vh] flex flex-col rounded-sm overflow-hidden',
+          'relative w-full max-w-full sm:max-w-5xl max-h-screen sm:max-h-[90vh] flex flex-col rounded-sm overflow-hidden',
           'shadow-2xl'
         )}
         style={glassStrong}

@@ -5,6 +5,7 @@ import { GoogleAnalytics } from '@next/third-parties/google';
 import { AnnouncementBar } from '@/components/layout/announcement-bar';
 import { Navbar } from '@/components/layout/navbar';
 import { Footer } from '@/components/layout/footer';
+import { MobileFooter } from '@/components/home/mobile/mobile-footer';
 import { MobileBottomNav } from '@/components/home/mobile/mobile-bottom-nav';
 import { ChatWidget } from '@/components/chatbot/chat-widget';
 import { ConsentBanner } from '@/components/analytics/consent-banner';
@@ -72,20 +73,26 @@ gtag('consent', 'default', { ad_storage: 'denied', analytics_storage: 'denied', 
         <OrganizationJsonLd />
         {/* Desktop: AnnouncementBar + Navbar dính cùng 1 cụm ở đỉnh viewport.
             Cụm cha `sticky top-0 z-50` — khi scroll, cả 2 cùng cuộn, không bị tách rời. */}
-        <div className="sticky top-0 z-50 hidden lg:block bg-background">
+        <div className="sticky top-0 z-[60] hidden lg:block bg-background">
           <AnnouncementBar />
           <Navbar />
         </div>
         {/* Mobile: AnnouncementBar + Navbar dính cùng cụm.
             Thứ tự: announcement trên, navbar dưới (giống desktop). */}
-        <div className="sticky top-0 z-50 lg:hidden bg-background">
+        <div className="sticky top-0 z-[60] lg:hidden bg-background">
           <AnnouncementBar />
           <Navbar />
         </div>
-        <main className="min-h-[calc(100vh-4rem)] pb-20 lg:pb-0">{children}</main>
-        {/* Desktop footer */}
+        {/* Mobile: pt-[96px] để clear sticky header (announcement 36 + navbar 60).
+            Desktop: pt-0 vì header chỉ sticky trên mobile qua class ở trên. */}
+        <main className="min-h-[calc(100vh-4rem)] pb-20 pt-[96px] lg:pb-0 lg:pt-0">{children}</main>
+        {/* Desktop footer (chỉ hiện >=lg) */}
         <div className="hidden lg:block">
           <Footer />
+        </div>
+        {/* Mobile footer (chỉ hiện <lg) */}
+        <div className="lg:hidden">
+          <MobileFooter />
         </div>
         {/* Mobile bottom nav + chatbot */}
         <MobileBottomNav />

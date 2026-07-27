@@ -1,11 +1,15 @@
 'use client';
 
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2, AlertTriangle } from 'lucide-react';
 import { useCartStore } from '@/lib/store/cart';
 import { useAnonymousId } from '@/hooks/use-anonymous-id';
 import { createClient } from '@/lib/supabase/client';
+import {
+  AddressPicker,
+  type PickedAddress,
+} from '@/components/checkout/address-picker';
 
 export type PaymentOption = 'MOMO' | 'COD' | 'BANK_TRANSFER';
 
@@ -94,6 +98,7 @@ export function CheckoutForm({ payment, onPaymentChange, isBankConfigured }: Che
   const [address, setAddress] = useState('');
   const [province, setProvince] = useState('');
   const [district, setDistrict] = useState('');
+  const [ward, setWard] = useState('');
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -102,6 +107,17 @@ export function CheckoutForm({ payment, onPaymentChange, isBankConfigured }: Che
     { productId: string; title: string; reason: string }[]
   >([]);
   const validateRanRef = useRef(false);
+
+  // Nhận diện: AddressPicker có propagate live value khi user chọn saved address
+  // hoặc gõ tay. Parent form lưu vào state form chính để submit cùng order.
+  const handleAddressChange = useCallback((picked: PickedAddress) => {
+    setName((prev) => prev || picked.recipient_name);
+    setPhone((prev) => prev || picked.recipient_phone);
+    setAddress((prev) => prev || picked.address_line);
+    setProvince((prev) => prev || picked.province);
+    setDistrict((prev) => prev || picked.district);
+    setWard((prev) => prev || picked.ward);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -113,39 +129,22 @@ export function CheckoutForm({ payment, onPaymentChange, isBankConfigured }: Che
           return;
         }
 
-        const [{ data: profile }, { data: defaultAddress }] = await Promise.all([
-          supabase
-            .from('profiles')
-            .select('full_name, phone')
-            .eq('id', user.id)
-            .maybeSingle(),
-          supabase
-            .from('addresses')
-            .select('recipient_name, recipient_phone, address_line, province, district, ward')
-            .eq('user_id', user.id)
-            .eq('is_default', true)
-            .maybeSingle(),
-        ]) as any;
+        // Chỉ load profile (full_name + phone + email). Address giờ do
+        // <AddressPicker/> xử lý (saved addresses + manual + auto-select default).
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('full_name, phone')
+          .eq('id', user.id)
+          .maybeSingle() as any;
 
         if (cancelled) return;
 
         const profileName = (profile?.full_name ?? '').toString().trim();
         const profilePhone = (profile?.phone ?? '').toString().trim();
-        const addressName = (defaultAddress?.recipient_name ?? '').toString().trim();
-        const addressPhone = (defaultAddress?.recipient_phone ?? '').toString().trim();
 
-        setName((prev) => prev || profileName || addressName);
-        setPhone((prev) => prev || profilePhone || addressPhone);
+        setName((prev) => prev || profileName);
+        setPhone((prev) => prev || profilePhone);
         setEmail((prev) => prev || (user.email ?? ''));
-
-        if (defaultAddress) {
-          const addressLine = (defaultAddress.address_line ?? '').toString();
-          const provinceVal = (defaultAddress.province ?? '').toString();
-          const districtVal = (defaultAddress.district ?? '').toString();
-          setAddress((prev) => prev || addressLine);
-          setProvince((prev) => prev || provinceVal);
-          setDistrict((prev) => prev || districtVal);
-        }
       } catch (err) {
         console.error('Failed to auto-fill checkout form from profile:', err);
       } finally {
@@ -261,7 +260,7 @@ export function CheckoutForm({ payment, onPaymentChange, isBankConfigured }: Che
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           items: orderItems,
-          customer: { name, phone, email, address, province, district, notes },
+          customer: { name, phone, email, address, province, district, ward, notes },
           payment,
           clientId: clientId ?? undefined,
         }),
@@ -414,50 +413,15 @@ export function CheckoutForm({ payment, onPaymentChange, isBankConfigured }: Che
             </FieldWrapper>
           </div>
 
-          {/* Địa chỉ giao hàng */}
+          {/* Địa chỉ giao hàng — AddressPicker chọn từ sổ địa chỉ đã lưu
+              hoặc inline-form nhập tay (sẽ lưu vào sổ sau khi submit). */}
           <div>
             <FieldLabel>ĐỊA CHỈ GIAO HÀNG *</FieldLabel>
-            <FieldWrapper>
-              <input
-                type="text"
-                name="address"
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                placeholder="Số nhà, Tên đường, Phường/Xã"
-                className={inputClass}
-                required
-              />
-            </FieldWrapper>
-          </div>
-
-          {/* Tỉnh/Thành phố & Quận/Huyện */}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
-              <FieldLabel>TỈNH / THÀNH PHỐ</FieldLabel>
-              <FieldWrapper>
-                <input
-                  type="text"
-                  name="province"
-                  value={province}
-                  onChange={(e) => setProvince(e.target.value)}
-                  placeholder="TP. Hồ Chí Minh"
-                  className={inputClass}
-                />
-              </FieldWrapper>
-            </div>
-            <div>
-              <FieldLabel>QUẬN / HUYỆN</FieldLabel>
-              <FieldWrapper>
-                <input
-                  type="text"
-                  name="district"
-                  value={district}
-                  onChange={(e) => setDistrict(e.target.value)}
-                  placeholder="Quận 1"
-                  className={inputClass}
-                />
-              </FieldWrapper>
-            </div>
+            <AddressPicker
+              defaultName={name}
+              defaultPhone={phone}
+              onChange={handleAddressChange}
+            />
           </div>
 
           {/* Ghi chú riêng */}

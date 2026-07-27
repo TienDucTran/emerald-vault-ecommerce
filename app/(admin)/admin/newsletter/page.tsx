@@ -227,7 +227,7 @@ export default function NewsletterPage() {
         }}
       >
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px]">
+          <table className="w-full min-w-[640px] text-xs sm:text-sm">
             <thead>
               <tr
                 style={{ background: 'rgba(31, 27, 19, 0.5)' }}

@@ -6,7 +6,7 @@ import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-export type ModalSize = 'sm' | 'md' | 'lg';
+export type ModalSize = 'sm' | 'md' | 'lg' | 'full';
 export type ModalVariant = 'default' | 'danger';
 
 export interface ModalProps {
@@ -28,6 +28,8 @@ const sizeClass: Record<ModalSize, string> = {
   sm: 'max-w-sm',
   md: 'max-w-md',
   lg: 'max-w-lg',
+  // Full-screen on mobile (good for media picker, long product forms), capped at lg on desktop.
+  full: 'max-w-full sm:max-w-lg h-full sm:h-auto',
 };
 
 const FOCUSABLE =
@@ -139,7 +141,7 @@ export function Modal(props: ModalProps): React.JSX.Element | null {
   return createPortal(
     <div
       className={cn(
-        'fixed inset-0 z-50 flex items-center justify-center p-4',
+        'fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4',
         'bg-black/70 backdrop-blur-sm',
         'transition-opacity duration-200',
         visible ? 'opacity-100' : 'opacity-0'

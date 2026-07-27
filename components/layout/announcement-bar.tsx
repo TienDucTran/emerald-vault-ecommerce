@@ -21,7 +21,7 @@ export function AnnouncementBar() {
       <div className="container mx-auto flex h-9 items-center justify-center px-4">
         <p
           key={index}
-          className="animate-fade-in text-xs font-medium tracking-wider text-gold/90 sm:text-sm"
+          className="truncate animate-fade-in text-xs font-medium tracking-wider text-gold/90 sm:text-sm"
         >
           ✦ {MESSAGES[index]} ✦
         </p>

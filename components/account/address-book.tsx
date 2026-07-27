@@ -14,9 +14,24 @@ type Status = 'loading' | 'ready' | 'error' | 'empty';
 
 export interface AddressBookProps {
   userId: string;
+  /**
+   * Khi true, render kèm header (h1 + mô tả + button "Thêm địa chỉ").
+   * Mặc định false — header được render bởi page wrapper (tránh duplicate text
+   * khi page đã có header riêng).
+   */
+  showHeader?: boolean;
+  /**
+   * Khi true, KHÔNG render button "Thêm địa chỉ" ở header — dùng cho
+   * AddressPicker trong checkout (vì picker có UI riêng để chọn/thêm).
+   */
+  hideAddButton?: boolean;
 }
 
-export function AddressBook({ userId }: AddressBookProps) {
+export function AddressBook({
+  userId,
+  showHeader = false,
+  hideAddButton = false,
+}: AddressBookProps) {
   const [status, setStatus] = useState<Status>('loading');
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -152,22 +167,24 @@ export function AddressBook({ userId }: AddressBookProps) {
 
   return (
     <div className="flex flex-col gap-8">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-        <div className="flex flex-col gap-2">
-          <h1 className="font-heading text-[28px] font-normal leading-tight tracking-[0.1em] text-gold">
-            SỔ ĐỊA CHỈ
-          </h1>
-          <p className="text-base text-text-muted">
-            Lưu địa chỉ giao hàng để thanh toán nhanh hơn.
-          </p>
+      {showHeader ? (
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div className="flex flex-col gap-2">
+            <h1 className="font-heading text-[28px] font-normal leading-tight tracking-[0.1em] text-gold">
+              SỔ ĐỊA CHỈ
+            </h1>
+            <p className="text-base text-text-muted">
+              Lưu địa chỉ giao hàng để thanh toán nhanh hơn.
+            </p>
+          </div>
+          {status !== 'loading' && !showForm && !hideAddButton ? (
+            <Button type="button" variant="gold" size="md" onClick={handleAdd}>
+              <Plus className="h-4 w-4" />
+              Thêm địa chỉ
+            </Button>
+          ) : null}
         </div>
-        {status !== 'loading' && !showForm ? (
-          <Button type="button" variant="gold" size="md" onClick={handleAdd}>
-            <Plus className="h-4 w-4" />
-            Thêm địa chỉ
-          </Button>
-        ) : null}
-      </div>
+      ) : null}
 
       {errorMsg ? (
         <div
@@ -199,7 +216,7 @@ export function AddressBook({ userId }: AddressBookProps) {
             Thử lại
           </Button>
         </div>
-      ) : status === 'empty' ? (
+      ) : status === 'empty' && !showForm ? (
         <div className="flex flex-col items-center gap-4 rounded-md border border-gold/20 bg-surface-emerald p-12 text-center">
           <div className="grid h-16 w-16 place-items-center rounded-full border border-gold/30 bg-surface">
             <Inbox className="h-7 w-7 text-gold" />
@@ -211,12 +228,14 @@ export function AddressBook({ userId }: AddressBookProps) {
             Lưu địa chỉ giao hàng để việc thanh toán nhanh hơn ở những lần mua
             sau.
           </p>
-          <Button type="button" variant="gold" size="md" onClick={handleAdd}>
-            <Plus className="h-4 w-4" />
-            Thêm địa chỉ
-          </Button>
+          {!hideAddButton ? (
+            <Button type="button" variant="gold" size="md" onClick={handleAdd}>
+              <Plus className="h-4 w-4" />
+              Thêm địa chỉ
+            </Button>
+          ) : null}
         </div>
-      ) : (
+      ) : status !== 'empty' ? (
         <div className="flex flex-col gap-4">
           {addresses.map((a) => (
             <AddressCard
@@ -229,11 +248,7 @@ export function AddressBook({ userId }: AddressBookProps) {
             />
           ))}
         </div>
-      )}
-
-      <div className="flex justify-center pt-4">
-        <div className="h-px w-24 bg-gradient-to-r from-transparent via-gold/40 to-transparent" />
-      </div>
+      ) : null}
     </div>
   );
 }

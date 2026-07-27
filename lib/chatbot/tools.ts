@@ -2,11 +2,75 @@
 // Tools cho AI SDK v6 (inputSchema, execute(input, options)) — §15.5
 // Dùng createAdminClient() vì tools chạy server-side trong route handler (bypass RLS).
 // Mỗi tool (trừ captureLead) được wrap với LRU cache (tool-cache.ts) + analytics logger (analytics.ts).
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { tool } from 'ai';
 import { z } from 'zod';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { cachedToolCall, buildCacheKey, getDefaultTtl } from './tool-cache';
 import { logToolCall } from './analytics';
+
+// Per-request context holder. The route handler sets this BEFORE calling
+// streamText() so every tool call can read sessionId/userId/provider/model.
+// This replaces the removed AI SDK v6 `experimental_context` option.
+//
+// Fix #3 (sprint 2026-07-27): chuyển từ module-level `let _currentCtx` sang
+// AsyncLocalStorage. Lý do: module-level state share giữa MỌI concurrent request
+// trong cùng Vercel instance (Node.js process) → race condition khi 2 request
+// song song. Request A set context → streamText fire tool calls → Request B start
+// và clearChatContext() → tool call của A chạy với B's context (hoặc null) →
+// lead capture vào sai session, analytics log sai userId/provider.
+//
+// AsyncLocalStorage (Node.js built-in) lưu context theo async execution chain
+// → mỗi request có snapshot riêng, không bị concurrent request overwrite.
+type ChatCtx = {
+  sessionId: string;
+  userId: string | null;
+  provider: string;
+  model: string;
+};
+
+const _ctxStorage = new AsyncLocalStorage<ChatCtx>();
+
+/**
+ * Run callback với context scope riêng (ALS pattern). Route handler wrap toàn bộ
+ * request logic trong đây → mọi tool call trong scope tự động có ctx riêng.
+ *
+ * Usage trong route handler:
+ *   return await runWithChatContext(initialCtx, async () => {
+ *     // ... logic handler, có thể setChatContext(updatedCtx) để update sau
+ *   });
+ */
+export function runWithChatContext<T>(ctx: ChatCtx, fn: () => T): T {
+  return _ctxStorage.run(ctx, fn);
+}
+
+/**
+ * Set/update context trong scope hiện tại. Phải gọi TRONG `runWithChatContext`.
+ * Dùng `enterWith` để các async continuation phía sau (tool call) thấy ctx mới
+ * mà không cần tạo nested scope.
+ */
+export function setChatContext(ctx: ChatCtx): void {
+  // enterWith makes subsequent reads (in same async chain) return new ctx,
+  // without creating a nested scope.
+  _ctxStorage.enterWith(ctx);
+}
+
+/**
+ * Clear context khi request xong. Vì ALS scope auto-cleanup khi `run` callback
+ * return, function này chủ yếu để tương thích API cũ + log. Không có tác dụng
+ * race-prevention thật (đã có scope-based isolation).
+ */
+export function clearChatContext(): void {
+  // No-op: ALS scope tự cleanup khi runWithChatContext return.
+  // Giữ function để tương thích route handler (gọi trong finally).
+}
+
+/**
+ * Read current context (in-scope only). Returns null nếu gọi ngoài ALS scope.
+ */
+function getChatContext(): ChatCtx | null {
+  return _ctxStorage.getStore() ?? null;
+}
 
 // Map tên tiếng Việt → enum (giúp AI hiểu "bạc 925" / "nhẫn bạc" → BAC_925 / NHAN)
 const MATERIAL_VI: Record<string, string> = {
@@ -94,21 +158,26 @@ export function formatVND(n: number): string {
   return new Intl.NumberFormat('vi-VN').format(n) + 'đ';
 }
 
-// Helper: lấy sessionId/userId/provider/model từ options.experimental_context
-function extractCtx(options: unknown): {
+// Helper: lấy sessionId/userId/provider/model từ per-request context holder.
+// (Replaces AI SDK v6-removed `options.experimental_context`.)
+//
+// Đọc từ AsyncLocalStorage (in-scope) hoặc fallback `_externalCtx` (out-of-scope
+// callbacks như onFinish chạy qua waitUntil sau khi response đã return).
+function extractCtx(): {
   sessionId: string | null;
   userId: string | null;
   provider: string | null;
   model: string | null;
 } {
-  const ctx = (options as { experimental_context?: unknown } | undefined)?.experimental_context as
-    | { sessionId?: string; userId?: string; provider?: string; model?: string }
-    | undefined;
+  const ctx = getChatContext();
+  if (!ctx) {
+    return { sessionId: null, userId: null, provider: null, model: null };
+  }
   return {
-    sessionId: ctx?.sessionId ?? null,
-    userId: ctx?.userId ?? null,
-    provider: ctx?.provider ?? null,
-    model: ctx?.model ?? null,
+    sessionId: ctx.sessionId,
+    userId: ctx.userId,
+    provider: ctx.provider,
+    model: ctx.model,
   };
 }
 
@@ -133,7 +202,7 @@ export const searchProducts = tool({
   }),
   // Wrap: LRU cache (key theo tất cả params) + analytics
   execute: async (params, options) => {
-    const { sessionId, userId, provider, model } = extractCtx(options);
+    const { sessionId, userId, provider, model } = extractCtx();
     const cacheKey = buildCacheKey('searchProducts', params as Record<string, unknown>);
     return cachedToolCall(
       cacheKey,
@@ -239,7 +308,7 @@ export const semanticSearch = tool({
   }),
   // Wrap: LRU cache (key theo query + limit) + analytics
   execute: async ({ query, limit }, options) => {
-    const { sessionId, userId, provider, model } = extractCtx(options);
+    const { sessionId, userId, provider, model } = extractCtx();
     const cacheKey = buildCacheKey('semanticSearch', { query, limit });
     return cachedToolCall(
       cacheKey,
@@ -298,7 +367,7 @@ export const getProductDetail = tool({
   }),
   // Wrap: LRU cache (key theo slug) + analytics
   execute: async ({ slug }, options) => {
-    const { sessionId, userId, provider, model } = extractCtx(options);
+    const { sessionId, userId, provider, model } = extractCtx();
     const cacheKey = buildCacheKey('getProductDetail', { slug });
     return cachedToolCall(
       cacheKey,
@@ -337,7 +406,7 @@ export const getCurrentCollections = tool({
   inputSchema: z.object({}),
   // Wrap: LRU cache (no params → key = getCurrentCollections:) + analytics
   execute: async (_params, options) => {
-    const { sessionId, userId, provider, model } = extractCtx(options);
+    const { sessionId, userId, provider, model } = extractCtx();
     const cacheKey = buildCacheKey('getCurrentCollections', {});
     return cachedToolCall(
       cacheKey,
@@ -389,7 +458,7 @@ export const getRelatedProducts = tool({
   }),
   // Wrap: LRU cache (key theo productId|category|material|excludeProductId|limit) + analytics
   execute: async ({ productId, category, material, excludeProductId, limit }, options) => {
-    const { sessionId, userId, provider, model } = extractCtx(options);
+    const { sessionId, userId, provider, model } = extractCtx();
     const cacheKey = buildCacheKey('getRelatedProducts', {
       productId,
       category,
@@ -444,7 +513,7 @@ export const getFeaturedProducts = tool({
   }),
   // Wrap: LRU cache (key theo limit) + analytics
   execute: async ({ limit }, options) => {
-    const { sessionId, userId, provider, model } = extractCtx(options);
+    const { sessionId, userId, provider, model } = extractCtx();
     const cacheKey = buildCacheKey('getFeaturedProducts', { limit });
     return cachedToolCall(
       cacheKey,
@@ -493,7 +562,7 @@ export const captureLead = tool({
   }),
   // KHÔNG cache (mỗi call unique — INSERT lead). CHỈ wrap analytics. contactValue sẽ được sanitize thành [REDACTED].
   execute: async ({ contactType, contactValue, intent, productId }, options) => {
-    const { sessionId, userId, provider, model } = extractCtx(options);
+    const { sessionId, userId, provider, model } = extractCtx();
     return logToolCall({
       toolName: 'captureLead',
       args: { contactType, contactValue, intent, productId },
@@ -550,7 +619,7 @@ export const getKnowledge = tool({
   }),
   // Wrap: LRU cache (key theo category|query|limit) + analytics
   execute: async ({ category, query, limit }, options) => {
-    const { sessionId, userId, provider, model } = extractCtx(options);
+    const { sessionId, userId, provider, model } = extractCtx();
     const cacheKey = buildCacheKey('getKnowledge', { category, query, limit });
     return cachedToolCall(
       cacheKey,
@@ -602,7 +671,7 @@ export const getFaq = tool({
   }),
   // Wrap: LRU cache (key theo query|limit) + analytics
   execute: async ({ query, limit }, options) => {
-    const { sessionId, userId, provider, model } = extractCtx(options);
+    const { sessionId, userId, provider, model } = extractCtx();
     const cacheKey = buildCacheKey('getFaq', { query, limit });
     return cachedToolCall(
       cacheKey,
@@ -655,7 +724,7 @@ export const getUpcomingProducts = tool({
   }),
   // Wrap: LRU cache (key theo category|material|limit) + analytics
   execute: async ({ category, material, limit }, options) => {
-    const { sessionId, userId, provider, model } = extractCtx(options);
+    const { sessionId, userId, provider, model } = extractCtx();
     const cacheKey = buildCacheKey('getUpcomingProducts', { category, material, limit });
     return cachedToolCall(
       cacheKey,
@@ -705,7 +774,7 @@ export const getUpcomingCollections = tool({
   }),
   // Wrap: LRU cache (key theo limit) + analytics
   execute: async ({ limit }, options) => {
-    const { sessionId, userId, provider, model } = extractCtx(options);
+    const { sessionId, userId, provider, model } = extractCtx();
     const cacheKey = buildCacheKey('getUpcomingCollections', { limit });
     return cachedToolCall(
       cacheKey,
@@ -754,7 +823,7 @@ export const getActivePromotions = tool({
   }),
   // Wrap: LRU cache (key theo category|minOrderValue) + analytics. Lưu ý: cache có thể stale nếu promo hết hạn trong TTL — TTL ngắn 60s giảm rủi ro.
   execute: async ({ category, minOrderValue }, options) => {
-    const { sessionId, userId, provider, model } = extractCtx(options);
+    const { sessionId, userId, provider, model } = extractCtx();
     const cacheKey = buildCacheKey('getActivePromotions', { category, minOrderValue });
     return cachedToolCall(
       cacheKey,
@@ -823,7 +892,7 @@ export const getSuggestedAnswers = tool({
     limit: z.number().default(3),
   }),
   execute: async ({ category, query, limit }, options) => {
-    const { sessionId, userId, provider, model } = extractCtx(options);
+    const { sessionId, userId, provider, model } = extractCtx();
     const cacheKey = buildCacheKey('getSuggestedAnswers', { category, query, limit });
     return cachedToolCall(
       cacheKey,

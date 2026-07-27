@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { Copy, Loader2, AlertTriangle, Upload, CheckCircle2 } from 'lucide-react';
 import { formatVND } from '@/lib/utils';
+import { useCountdown } from '@/hooks/use-countdown';
 import { toast } from '@/lib/toast/toast-store';
 
 interface BankPaymentClientProps {
@@ -22,21 +23,11 @@ interface BankPaymentClientProps {
   orderStatus: string;
 }
 
-function pad2(n: number): string {
-  return n.toString().padStart(2, '0');
-}
-
 function Countdown({ expiresAt }: { expiresAt: string }) {
   const target = new Date(expiresAt).getTime();
-  const [now, setNow] = useState<number>(() => Date.now());
-
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, []);
-
-  const diff = target - now;
-  const expired = diff <= 0;
+  // useCountdown hook thay cho setInterval riêng → re-render 1 lần / giây.
+  const msLeft = useCountdown(target);
+  const expired = msLeft <= 0;
 
   if (expired) {
     return (
@@ -59,10 +50,13 @@ function Countdown({ expiresAt }: { expiresAt: string }) {
     );
   }
 
-  const totalSec = Math.floor(diff / 1000);
+  const totalSec = Math.floor(msLeft / 1000);
   const h = Math.floor(totalSec / 3600);
   const m = Math.floor((totalSec % 3600) / 60);
   const s = totalSec % 60;
+
+  // Pad số thành 2 chữ số (vd 5 → "05") cho đẹp hiển thị MM:SS.
+  const pad2 = (n: number) => n.toString().padStart(2, '0');
 
   return (
     <p className="mt-4 text-center text-sm text-text-muted">

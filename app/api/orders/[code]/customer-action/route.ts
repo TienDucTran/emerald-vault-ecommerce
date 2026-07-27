@@ -9,9 +9,10 @@
 //   → set bank_transfers.rejected_at + rejected_reason (nếu BANK_TRANSFER)
 //
 // Action: 'request_refund' — áp dụng cho status ∈ {WAITING_CONFIRM, CONFIRMED, SHIPPING, DONE}.
-//   → set payment_status=REFUND_REQUESTED (status giữ nguyên)
-//   → set orders.refund_requested_at + refund_reason
-//   → admin xử lý thủ công (CK lại cho user), sau đó chuyển payment_status=REFUNDED.
+//   → INSERT row vào `order_refunds` (state='PENDING', customer_reason, customer_requested_at)
+//   → đồng thời set orders.payment_status='REFUND_REQUESTED' + refund_requested_at + refund_reason
+//     (giữ cột legacy cho admin filters / dashboard query)
+//   → admin xử lý qua POST /api/admin/orders/[id]/refund.
 //
 // Auth: requireCustomer (user đã login, order.customer_id = user.id).
 //       Guest share-link KHÔNG dùng được action này (cần login để có audit trail).
@@ -226,16 +227,19 @@ export async function POST(
         { status: 400 }
       );
     }
-    if (order.payment_status === 'REFUND_REQUESTED') {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: 'ALREADY_REQUESTED',
-          message: 'Bạn đã gửi yêu cầu hoàn tiền cho đơn này rồi. Admin sẽ xử lý trong ít giờ.',
-        },
-        { status: 409 }
-      );
-    }
+    // NOTE: KHÔNG check order.payment_status === 'REFUND_REQUESTED' ở đây.
+    //
+    //   Trước đây có block này để chặn duplicate, nhưng nó ngăn cả trường hợp
+    //   customer muốn GỬI YÊU CẦU MỚI sau khi admin REJECTED. Lý do:
+    //
+    //   - Admin action 'reject' đã reset orders.payment_status='PAID' (xem
+    //     app/api/admin/orders/[id]/refund/route.ts action reject).
+    //   - Nhưng vẫn có khả năng payment_status mirror lệch (admin reject qua
+    //     đường khác, hoặc data cũ trước refactor). Check ở đây sẽ chặn nhầm.
+    //
+    //   Source of truth cho "đã có refund active hay chưa" là bảng `order_refunds`
+    //   (query ngay dưới đây). Nếu không có row PENDING/APPROVED → cho phép
+    //   customer tạo yêu cầu mới, dù payment_status mirror có giá trị nào.
     if (order.payment_status !== 'PAID' && order.payment_status !== 'AWAITING_CONFIRM') {
       return NextResponse.json(
         {
@@ -247,13 +251,73 @@ export async function POST(
       );
     }
 
-    // 2. Set payment_status=REFUND_REQUESTED (status giữ nguyên)
+    // 2. Check no ACTIVE refund row exists (PENDING hoặc APPROVED).
+    //    Source of truth = bảng order_refunds (orders.payment_status legacy chỉ là mirror).
+    const { data: activeRefund, error: actErr } = (await db
+      .from('order_refunds')
+      .select('id, state')
+      .eq('order_id', order.id)
+      .in('state', ['PENDING', 'APPROVED'])
+      .maybeSingle()) as { data: { id: string; state: 'PENDING' | 'APPROVED' } | null; error: any };
+
+    if (actErr) {
+      console.error('[customer-action:request_refund] check active refund error:', actErr);
+      return NextResponse.json(
+        { ok: false, error: 'DB_ERROR', message: 'Không thể kiểm tra trạng thái hoàn tiền.' },
+        { status: 500 }
+      );
+    }
+    if (activeRefund) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'ALREADY_REQUESTED',
+          message: 'Bạn đã có yêu cầu hoàn tiền đang được xử lý cho đơn này.',
+        },
+        { status: 409 }
+      );
+    }
+
+    // 3. INSERT order_refunds (state=PENDING). Partial unique index sẽ chặn nếu
+    //    đã có row PENDING/APPROVED (race condition guard).
+    const customerReason = reason?.trim() || null;
+    const { data: refundRow, error: insErr } = (await db
+      .from('order_refunds')
+      .insert({
+        order_id: order.id,
+        state: 'PENDING',
+        customer_reason: customerReason,
+        customer_requested_at: now,
+      })
+      .select('id, state')
+      .single()) as { data: { id: string; state: 'PENDING' } | null; error: any };
+
+    if (insErr || !refundRow) {
+      // 23505 = unique_violation (partial unique index đã chặn 2nd insert)
+      if (insErr?.code === '23505') {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: 'ALREADY_REQUESTED',
+            message: 'Bạn đã có yêu cầu hoàn tiền đang được xử lý cho đơn này.',
+          },
+          { status: 409 }
+        );
+      }
+      console.error('[customer-action:request_refund] insert refund error:', insErr);
+      return NextResponse.json(
+        { ok: false, error: 'DB_ERROR', message: 'Không thể tạo yêu cầu hoàn tiền.' },
+        { status: 500 }
+      );
+    }
+
+    // 4. Mirror sang orders.payment_status (legacy) cho admin filters/dashboard.
     const { data: updated, error: upErr } = (await db
       .from('orders')
       .update({
         payment_status: 'REFUND_REQUESTED',
         refund_requested_at: now,
-        refund_reason: reason?.trim() || null,
+        refund_reason: customerReason,
         updated_at: now,
       })
       .eq('id', order.id)
@@ -275,6 +339,7 @@ export async function POST(
         status: updated.status,
         paymentStatus: updated.payment_status,
       },
+      refund: { id: refundRow.id, state: refundRow.state },
     });
   }
 

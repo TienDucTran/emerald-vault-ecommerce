@@ -30,7 +30,7 @@ const sizeStyles: Record<Size, string> = {
 const fullSizeStyles: Record<Size, string> = {
   sm: 'h-9 px-3 text-xs',
   md: 'h-11 px-4 text-sm',
-  lg: 'h-13 px-6 text-base',
+  lg: 'h-14 px-6 text-base',
 };
 
 const iconSizes: Record<Size, string> = {

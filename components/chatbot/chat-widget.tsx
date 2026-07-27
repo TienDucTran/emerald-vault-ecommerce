@@ -81,7 +81,7 @@ export function ChatWidget() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             messages: newMessages,
-            sessionId: sessionId ?? undefined,
+            sessionId: sessionId || undefined,
           }),
           signal: controller.signal,
         });
@@ -95,6 +95,9 @@ export function ChatWidget() {
         // 3) Đọc SSE
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
+        // SSE events are separated by a blank line ("\n\n"). We buffer the
+        // partial last-event between reads to handle multi-line `data:` payloads
+        // correctly (e.g. JSON pretty-printed error containing newlines).
         let buffer = '';
 
         while (true) {
@@ -102,14 +105,16 @@ export function ChatWidget() {
           if (done) break;
           buffer += decoder.decode(value, { stream: true });
 
-          // SSE event = lines starting with "data: ", separated by blank line
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
+          const eventBlocks = buffer.split('\n\n');
+          buffer = eventBlocks.pop() || '';
 
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed || !trimmed.startsWith('data:')) continue;
-            const payload = trimmed.slice(5).trim();
+          for (const block of eventBlocks) {
+            // Each block is one SSE event; collect all `data:` lines and join.
+            const dataLines = block
+              .split('\n')
+              .filter((l) => l.startsWith('data:'));
+            if (dataLines.length === 0) continue;
+            const payload = dataLines.map((l) => l.slice(5).trim()).join('');
             if (payload === '[DONE]') continue;
             try {
               const evt = JSON.parse(payload);

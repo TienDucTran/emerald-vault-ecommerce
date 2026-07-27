@@ -11,10 +11,15 @@
 //   SHIPPING             │ PAID│    ✅    │      ✅      │    —     │        ✅
 //   DONE                 │ PAID│    —     │      ✅      │    —     │        — (quá muộn)
 //   CANCELLED            │ FAIL│    —     │      —       │    —     │        —
-//   REFUND_REQUESTED     │ (giữ status gốc + payment=REFUND_REQUESTED) → ẩn nút refund, ẩn
-//                        │     │  THEO DÕI/TẢI HÓA ĐƠN theo status gốc như bảng trên.
 //
-// Sau action thành công → router.refresh() để server re-render với status mới.
+// Refund state machine (Phase 5 — order_refunds table):
+//   - PENDING     → banner "Đã gửi yêu cầu — admin sẽ duyệt trong 24h"
+//   - APPROVED    → banner "Admin đã duyệt — sẽ CK trong 1-3 ngày làm việc"
+//   - COMPLETED   → banner "Đã hoàn tiền X đ" + bill proof nếu có
+//   - FAILED      → banner "CK lỗi — admin đang retry"
+//   - REJECTED    → banner "Admin từ chối — [lý do]" + button "Gửi yêu cầu mới"
+//
+// Sau action thành công → router.refresh() để server re-render với state mới.
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -25,27 +30,44 @@ import {
   CheckCircle2,
   Truck,
   Receipt,
+  Clock,
+  ShieldX,
+  Banknote,
+  AlertCircle,
 } from 'lucide-react';
 import { toast } from '@/lib/toast/toast-store';
+import { formatVND } from '@/lib/utils';
+import type { OrderRefundRow } from '@/lib/supabase/types';
 
 interface CustomerActionButtonsProps {
   orderCode: string;
   status: string;
   paymentStatus: string;
+  /** Latest refund row từ bảng order_refunds (mới nhất theo created_at). */
+  latestRefund?: OrderRefundRow | null;
 }
 
 export function CustomerActionButtons({
   orderCode,
   status,
   paymentStatus,
+  latestRefund = null,
 }: CustomerActionButtonsProps) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [showReasonDialog, setShowReasonDialog] = useState<'cancel' | 'refund' | null>(null);
   const [reason, setReason] = useState('');
 
-  // Nếu đã refund-requested → coi như "đã yêu cầu" → ẩn button refund, vẫn hiện THEO DÕI / HÓA ĐƠN theo status gốc.
-  const refundAlreadyRequested = paymentStatus === 'REFUND_REQUESTED';
+  // Refund state từ order_refunds table (Phase 5). Ưu tiên latestRefund.state
+  // hơn paymentStatus (legacy), vì order_refunds có state machine đầy đủ.
+  // Chỉ treat như "đang active" khi state ∈ {PENDING, APPROVED, FAILED}.
+  const refundState = latestRefund?.state ?? null;
+  const isRefundActive =
+    refundState === 'PENDING' ||
+    refundState === 'APPROVED' ||
+    refundState === 'FAILED';
+  const isRefundCompleted = refundState === 'COMPLETED';
+  const isRefundRejected = refundState === 'REJECTED';
 
   // Bảng quyết định hiển thị theo status đơn
   // (KHÔNG phụ thuộc paymentStatus — trừ refundAlreadyRequested đã check riêng)
@@ -70,14 +92,18 @@ export function CustomerActionButtons({
   // Refund chỉ hiện khi: status cho phép AND payment đủ điều kiện AND chưa request
   const canRefund =
     v.refund &&
-    !refundAlreadyRequested &&
+    !isRefundActive &&
+    !isRefundCompleted &&
     (paymentStatus === 'PAID' || paymentStatus === 'AWAITING_CONFIRM');
 
-  // Nếu đã refund-requested → hiện banner "đang chờ admin"
-  const showRefundWaiting = refundAlreadyRequested;
+  // Sau khi REJECTED → cho phép customer gửi yêu cầu MỚI
+  const canRefundAfterRejection = isRefundRejected && v.refund && !isRefundActive;
+
+  // Hiển thị banner dynamic theo refund state (ưu tiên state machine hơn paymentStatus)
+  const showRefundBanner = isRefundActive || isRefundCompleted || isRefundRejected;
 
   // Không có button nào visible → return null
-  if (!v.track && !v.invoice && !v.cancel && !canRefund && !showRefundWaiting) {
+  if (!v.track && !v.invoice && !v.cancel && !canRefund && !canRefundAfterRejection && !showRefundBanner) {
     return null;
   }
 
@@ -157,8 +183,14 @@ export function CustomerActionButtons({
           </button>
         )}
 
-        {/* YÊU CẦU HOÀN TIỀN — WAITING_CONFIRM/CONFIRMED/SHIPPING khi đã thanh toán */}
-        {canRefund && (
+        {/* Banner refund state machine (Phase 5) — ưu tiên order_refunds.state hơn paymentStatus */}
+        {showRefundBanner && (
+          <RefundStateBanner refund={latestRefund!} />
+        )}
+
+        {/* YÊU CẦU HOÀN TIỀN — WAITING_CONFIRM/CONFIRMED/SHIPPING khi đã thanh toán
+            HOẶC sau khi admin REJECTED request cũ */}
+        {(canRefund || canRefundAfterRejection) && (
           <button
             type="button"
             onClick={() => setShowReasonDialog('refund')}
@@ -166,16 +198,8 @@ export function CustomerActionButtons({
             className="flex flex-1 items-center justify-center gap-2 border border-warning/40 bg-transparent py-3 font-heading text-[11px] tracking-[0.15em] text-warning transition-all hover:bg-warning/5 disabled:opacity-60"
           >
             <RotateCcw className="h-4 w-4" />
-            YÊU CẦU HOÀN TIỀN
+            {canRefundAfterRejection ? 'GỬI YÊU CẦU MỚI' : 'YÊU CẦU HOÀN TIỀN'}
           </button>
-        )}
-
-        {/* Banner "ĐANG CHỜ ADMIN HOÀN TIỀN" — khi đã REFUND_REQUESTED */}
-        {showRefundWaiting && (
-          <div className="flex flex-1 items-center justify-center gap-2 border border-warning/30 bg-warning/5 py-3 font-heading text-[11px] tracking-[0.15em] text-warning">
-            <Loader2 className="h-4 w-4" />
-            ĐANG CHỜ ADMIN HOÀN TIỀN
-          </div>
         )}
       </div>
 
@@ -250,5 +274,148 @@ export function CustomerActionButtons({
         </div>
       )}
     </>
+  );
+}
+
+/**
+ * Banner hiển thị trạng thái refund dựa trên order_refunds.state.
+ * Phase 5 — thay thế banner "ĐANG CHỜ ADMIN HOÀN TIỀN" đơn giản bằng state
+ * machine đầy đủ: PENDING / APPROVED / COMPLETED / FAILED / REJECTED.
+ */
+function RefundStateBanner({ refund }: { refund: OrderRefundRow }) {
+  const state = refund.state;
+  const refundAmount = refund.refund_amount != null ? Number(refund.refund_amount) : null;
+
+  // Style + icon theo state
+  switch (state) {
+    case 'PENDING':
+      return (
+        <Banner tone="warning" icon={<Clock className="h-4 w-4" />}>
+          <p className="font-heading text-[11px] tracking-[0.15em]">
+            ĐÃ GỬI YÊU CẦU HOÀN TIỀN
+          </p>
+          <p className="mt-1 text-[10px] opacity-80">
+            Admin sẽ duyệt trong vòng 24 giờ làm việc. Bạn sẽ nhận được thông báo khi có cập nhật.
+          </p>
+          {refund.customer_reason && (
+            <p className="mt-2 text-[10px] italic opacity-70">
+              Lý do của bạn: &ldquo;{refund.customer_reason}&rdquo;
+            </p>
+          )}
+        </Banner>
+      );
+    case 'APPROVED':
+      return (
+        <Banner tone="info" icon={<CheckCircle2 className="h-4 w-4" />}>
+          <p className="font-heading text-[11px] tracking-[0.15em]">
+            ADMIN ĐÃ DUYỆT HOÀN TIỀN
+          </p>
+          <p className="mt-1 text-[10px] opacity-80">
+            Số tiền{' '}
+            {refundAmount !== null ? (
+              <span className="font-bold">{formatVND(refundAmount)}</span>
+            ) : (
+              <span>đang cập nhật</span>
+            )}{' '}
+            sẽ được chuyển khoản về tài khoản của bạn trong 1-3 ngày làm việc.
+          </p>
+        </Banner>
+      );
+    case 'COMPLETED':
+      return (
+        <Banner tone="success" icon={<Banknote className="h-4 w-4" />}>
+          <p className="font-heading text-[11px] tracking-[0.15em]">
+            ĐÃ HOÀN TIỀN
+          </p>
+          {refundAmount !== null && (
+            <p className="mt-1 text-[10px] opacity-90">
+              Số tiền: <span className="font-bold">{formatVND(refundAmount)}</span>
+              {refund.completed_at && (
+                <>
+                  {' '}
+                  · Hoàn tất lúc{' '}
+                  {new Date(refund.completed_at).toLocaleString('vi-VN', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </>
+              )}
+            </p>
+          )}
+          {refund.bill_proof_url && (
+            <a
+              href={refund.bill_proof_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-2 inline-block text-[10px] underline opacity-90 hover:opacity-100"
+            >
+              Xem bill chuyển khoản →
+            </a>
+          )}
+        </Banner>
+      );
+    case 'FAILED':
+      return (
+        <Banner tone="orange" icon={<AlertCircle className="h-4 w-4" />}>
+          <p className="font-heading text-[11px] tracking-[0.15em]">
+            CHUYỂN KHOẢN HOÀN TIỀN BỊ LỖI
+          </p>
+          <p className="mt-1 text-[10px] opacity-90">
+            Admin đang xử lý và sẽ chuyển lại trong thời gian sớm nhất.
+          </p>
+          {refund.admin_decision_reason && (
+            <p className="mt-1 text-[10px] italic opacity-70">
+              Lý do: {refund.admin_decision_reason}
+            </p>
+          )}
+        </Banner>
+      );
+    case 'REJECTED':
+      return (
+        <Banner tone="muted" icon={<ShieldX className="h-4 w-4" />}>
+          <p className="font-heading text-[11px] tracking-[0.15em]">
+            YÊU CẦU HOÀN TIỀN BỊ TỪ CHỐI
+          </p>
+          {refund.admin_decision_reason && (
+            <p className="mt-1 text-[10px] italic opacity-90">
+              Lý do: {refund.admin_decision_reason}
+            </p>
+          )}
+          <p className="mt-2 text-[10px] opacity-80">
+            Bạn có thể gửi yêu cầu mới nếu có thêm thông tin.
+          </p>
+        </Banner>
+      );
+    default:
+      return null;
+  }
+}
+
+function Banner({
+  tone,
+  icon,
+  children,
+}: {
+  tone: 'warning' | 'info' | 'success' | 'orange' | 'muted';
+  icon: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const toneClass = {
+    warning: 'border-warning/30 bg-warning/5 text-warning',
+    info: 'border-blue-500/30 bg-blue-500/5 text-blue-400',
+    success: 'border-success/30 bg-success/5 text-success',
+    orange: 'border-orange-500/30 bg-orange-500/5 text-orange-400',
+    muted: 'border-zinc-500/30 bg-zinc-500/5 text-zinc-400',
+  }[tone];
+  return (
+    <div
+      className={`flex flex-1 items-start gap-2 border ${toneClass} px-4 py-3`}
+    >
+      <span className="mt-0.5 shrink-0">{icon}</span>
+      <div className="flex flex-1 flex-col gap-1">{children}</div>
+    </div>
   );
 }

@@ -22,6 +22,29 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { createGroq } from '@ai-sdk/groq';
 import { getChatConfig, type ChatProvider } from './config';
 
+// Optional Upstash Redis for cross-instance cooldown (Vercel serverless).
+// Falls back to in-memory Map when env vars are missing (dev / single-node).
+type RedisLike = {
+  get(key: string): Promise<string | null>;
+  set(key: string, value: string, opts?: { px?: number }): Promise<unknown>;
+  del(key: string): Promise<unknown>;
+};
+let _redis: RedisLike | null = null;
+try {
+  // Lazy-require so the module is optional; if not installed or env missing, keep in-memory.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { Redis } = require('@upstash/redis') as typeof import('@upstash/redis');
+  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+    _redis = new Redis({
+      url: process.env.UPSTASH_REDIS_REST_URL,
+      token: process.env.UPSTASH_REDIS_REST_TOKEN,
+    }) as unknown as RedisLike;
+    console.log('[chatbot] cooldown store: Upstash Redis');
+  }
+} catch {
+  _redis = null;
+}
+
 type ModelInstance = ReturnType<ReturnType<typeof createOpenAI>>;
 
 export interface ChatModelEntry {
@@ -41,16 +64,23 @@ export function getLastUsedProvider(): string {
 // markProviderRateLimited(); getChatModelChain() then filters those providers
 // out until the cooldown expires. This avoids wasting 25s STREAM_TIMEOUT on
 // every request just to rediscover the same provider is still rate-limited.
-const _rateLimitCooldowns = new Map<string, number>(); // provider -> cooldownUntilMs
+const _rateLimitCooldowns = new Map<string, number>(); // provider -> cooldownUntilMs (in-memory fallback)
 const DEFAULT_COOLDOWN_MS = 60_000; // 60s default if we can't parse "try again in Xs"
 const RETRY_AFTER_RE = /try again in\s+([\d.]+)\s*s/i;
 const RATE_LIMIT_DETECT_RE = /rate limit|429|tokens per minute|\btpm\b|quota|too many requests|try again in/i;
+const COOLDOWN_KEY = (p: string) => `chat:cd:${p}`;
 
 /**
  * Returns true if the provider is currently NOT in cooldown (or its cooldown
  * has already expired — in which case the stale entry is removed).
+ * Uses Upstash Redis if configured (Vercel-friendly, survives cold starts across
+ * serverless instances); otherwise falls back to in-memory Map (dev only).
  */
 export function isProviderAvailable(provider: string): boolean {
+  // In-memory check is synchronous; Redis-backed `getCooldownInfo()` is the
+  // authoritative source in production — but synchronous API is preserved here.
+  // The route handler awaits getCooldownInfo() before constructing the chain,
+  // so this sync method is only used as a last-mile guard.
   const until = _rateLimitCooldowns.get(provider);
   if (until === undefined) return true;
   if (Date.now() >= until) {
@@ -61,12 +91,35 @@ export function isProviderAvailable(provider: string): boolean {
 }
 
 /**
+ * SYNC in-memory cooldown snapshot — same shape as `getCooldownInfo()` (async,
+ * Redis-backed) but reads directly from `_rateLimitCooldowns` Map.
+ *
+ * Fix #1 (sprint 2026-07-27): `getChatModelChain()` was calling `getCooldownInfo()`
+ * without awaiting → `memCooldowns` was a Promise object → `memCooldowns[provider]`
+ * always undefined → cooldown filter was completely bypassed, defeating the entire
+ * rate-limit protection. Use this sync helper for in-process cooldown checks
+ * (per-instance). For Redis cross-instance cooldowns, callers should additionally
+ * `await getCooldownInfo()` and merge.
+ */
+export function getCooldownInfoSync(): Record<string, number> {
+  const now = Date.now();
+  const out: Record<string, number> = {};
+  for (const [provider, until] of _rateLimitCooldowns) {
+    const remaining = Math.max(0, Math.ceil((until - now) / 1000));
+    if (remaining > 0) out[provider] = remaining;
+  }
+  return out;
+}
+
+/**
  * Mark a provider as rate-limited. Parses "Please try again in 26.94s" from
  * the error message to set a precise cooldown (with 2s buffer); falls back to
  * DEFAULT_COOLDOWN_MS if the duration cannot be parsed.
+ * Persists to Upstash Redis if available so cooldowns survive across
+ * Vercel serverless instances; otherwise in-memory.
  * Returns the cooldown duration in ms (for logging).
  */
-export function markProviderRateLimited(provider: string, errorMessage?: string): number {
+export async function markProviderRateLimited(provider: string, errorMessage?: string): Promise<number> {
   let cooldownMs = DEFAULT_COOLDOWN_MS;
   if (errorMessage) {
     const m = errorMessage.match(RETRY_AFTER_RE);
@@ -78,7 +131,18 @@ export function markProviderRateLimited(provider: string, errorMessage?: string)
     }
   }
   const until = Date.now() + cooldownMs;
+
+  // Persist to Redis if configured (production).
+  if (_redis) {
+    try {
+      await _redis.set(COOLDOWN_KEY(provider), String(until), { px: cooldownMs });
+    } catch (e) {
+      console.warn('[chatbot] redis set cooldown failed, falling back to memory:', e);
+    }
+  }
+  // Always update in-memory too (sync reads + dev fallback).
   _rateLimitCooldowns.set(provider, until);
+
   console.warn(
     `[chatbot] ${provider} marked rate-limited, cooldown=${Math.round(cooldownMs / 1000)}s (until ${new Date(until).toISOString()})`
   );
@@ -87,10 +151,30 @@ export function markProviderRateLimited(provider: string, errorMessage?: string)
 
 /**
  * For observability: returns map of provider -> remaining cooldown seconds.
+ * Reads from Redis if configured, otherwise from in-memory Map.
  */
-export function getCooldownInfo(): Record<string, number> {
+export async function getCooldownInfo(): Promise<Record<string, number>> {
   const now = Date.now();
   const out: Record<string, number> = {};
+
+  if (_redis) {
+    const providers = ['groq', 'openrouter', 'cerebras', 'cloudflare', 'gemini', 'openai'];
+    await Promise.all(
+      providers.map(async (p) => {
+        try {
+          const raw = await _redis!.get(COOLDOWN_KEY(p));
+          const until = raw ? Number(raw) : 0;
+          if (until && now < until) {
+            out[p] = Math.ceil((until - now) / 1000);
+          }
+        } catch {
+          // ignore — provider treated as available
+        }
+      })
+    );
+    return out;
+  }
+
   for (const [provider, until] of _rateLimitCooldowns) {
     const remaining = Math.max(0, Math.ceil((until - now) / 1000));
     if (remaining > 0) out[provider] = remaining;
@@ -250,12 +334,23 @@ export function getChatModelChain(): ChatModelEntry[] {
   const chain: ChatModelEntry[] = [];
   const defaults = getProviderDefaults();
 
+  // Sync in-memory cooldown snapshot. Redis cooldowns are also populated into
+  // this Map by the route handler (see markProviderRateLimited), so the
+  // sync API stays accurate even in production.
+  //
+  // Fix #1 (sprint 2026-07-27): Dùng `getCooldownInfoSync()` thay vì
+  // `getCooldownInfo()` (async). Lý do: `getCooldownInfo()` returns Promise
+  // nhưng được gọi sync → `memCooldowns = Promise` → `memCooldowns[provider]`
+  // luôn undefined → cooldown filter bị bypass hoàn toàn. Hệ quả: request cứ
+  // thử provider đang cooldown → tốn 9s STREAM_TIMEOUT mỗi lần → chain fail.
+  const memCooldowns = getCooldownInfoSync();
+
   // 1) CHAT_PROVIDERS env
   const configured = parseChatProviders();
   for (const { provider, modelName } of configured) {
     if (!hasKeyFor(provider, cfg)) continue;
-    if (!isProviderAvailable(provider)) {
-      console.log(`[chatbot] skipping ${provider} (in cooldown)`);
+    if (memCooldowns[provider]) {
+      console.log(`[chatbot] skipping ${provider} (in cooldown, ${memCooldowns[provider]}s remaining)`);
       continue;
     }
     const inst = instantiateModel(provider, modelName, cfg);
@@ -284,8 +379,8 @@ export function getChatModelChain(): ChatModelEntry[] {
     for (const provider of fallbackOrder) {
       if (chain.find((e) => e.provider === provider)) continue;
       if (!hasKeyFor(provider, cfg)) continue;
-      if (!isProviderAvailable(provider)) {
-        console.log(`[chatbot] skipping ${provider} (in cooldown)`);
+      if (memCooldowns[provider]) {
+        console.log(`[chatbot] skipping ${provider} (in cooldown, ${memCooldowns[provider]}s remaining)`);
         continue;
       }
       const modelName = defaults[provider];
@@ -294,7 +389,7 @@ export function getChatModelChain(): ChatModelEntry[] {
     }
   }
 
-  const skipped = Object.entries(getCooldownInfo()).map(([p, s]) => `${p}(${s}s)`).join(', ');
+  const skipped = Object.entries(memCooldowns).map(([p, s]) => `${p}(${s}s)`).join(', ');
   if (skipped) {
     console.log(`[chatbot] chain=${chain.map((e) => e.provider).join(' → ')} | in cooldown: ${skipped}`);
   } else {

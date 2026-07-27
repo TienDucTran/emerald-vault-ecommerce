@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCountdown } from '@/hooks/use-countdown';
 import { Lock, ShieldCheck, Clock } from 'lucide-react';
 import { formatVND } from '@/lib/utils';
 import { getPaymentMethodLabel } from '@/lib/order/status';
@@ -36,31 +36,25 @@ function pad2(n: number): string {
   return n.toString().padStart(2, '0');
 }
 
-/* — Countdown driven by a real epoch ms target (re-sync every 1s) — */
+/* — Countdown wrapper dùng shared useCountdown hook.
+     Hook return ms còn lại → format thành HH:MM:SS (nếu >= 1h) hoặc MM:SS.
+     Cùng logic với phiên bản cũ nhưng không duplicate setInterval. — */
 function useCountdownFromTimestamp(targetMs: number | null | undefined): {
   display: string;
   expired: boolean;
 } {
-  const [now, setNow] = useState<number>(() => Date.now());
-
-  useEffect(() => {
-    if (targetMs == null) return;
-    const interval = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(interval);
-  }, [targetMs]);
+  const msLeft = useCountdown(targetMs);
 
   if (targetMs == null) {
     return { display: '--:--', expired: false };
   }
 
-  const diffMs = Math.max(0, targetMs - now);
-  const totalSec = Math.floor(diffMs / 1000);
-  const expired = diffMs === 0;
-
+  const expired = msLeft <= 0;
   if (expired) {
     return { display: '00:00', expired: true };
   }
 
+  const totalSec = Math.floor(msLeft / 1000);
   const h = Math.floor(totalSec / 3600);
   const m = Math.floor((totalSec % 3600) / 60);
   const s = totalSec % 60;

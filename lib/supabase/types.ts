@@ -35,6 +35,12 @@ export type PaymentStatus =
   | 'FAILED'
   | 'REFUNDED'
   | 'REFUND_REQUESTED';
+export type OrderRefundState =
+  | 'PENDING'
+  | 'APPROVED'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'REJECTED';
 
 export interface CollectionRow {
   id: string;
@@ -135,6 +141,27 @@ export interface OrderItemRow {
   snapshot_material: Material | null;
 }
 
+export interface OrderRefundRow {
+  id: string;
+  order_id: string;
+  state: OrderRefundState;
+  customer_reason: string | null;
+  customer_requested_at: string;
+  admin_id: string | null;
+  admin_decision_at: string | null;
+  admin_decision_reason: string | null;
+  refund_amount: number | null;
+  bank_account_name: string | null;
+  bank_account_number: string | null;
+  bank_name: string | null;
+  bill_proof_url: string | null;
+  completed_at: string | null;
+  rejected_at: string | null;
+  failed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ProfileRow {
   id: string;
   full_name: string | null;
@@ -205,6 +232,10 @@ export type Database = {
       inventory_locks:     { Row: InventoryLockRow;  Insert: Partial<InventoryLockRow>  & { product_id: string; client_id: string; expires_at: string }; Update: Partial<InventoryLockRow> };
       orders:              { Row: OrderRow;          Insert: Partial<OrderRow>          & { code: string; customer_name: string; customer_phone: string; total_amount: number; payment_method: PaymentMethod }; Update: Partial<OrderRow> };
       order_items:         { Row: OrderItemRow;      Insert: Partial<OrderItemRow>      & { order_id: string; product_id: string; price: number; snapshot_title: string; snapshot_image: string }; Update: Partial<OrderItemRow> };
+      // Migration 0023 — refund lifecycle tách ra bảng riêng.
+      // `id`/state/timestamps: optional (Supabase tự generate).
+      // `order_id`: required NOT NULL — caller phải cung cấp.
+      order_refunds:       { Row: OrderRefundRow;    Insert: Partial<Omit<OrderRefundRow, 'id' | 'created_at' | 'updated_at' | 'customer_requested_at'>> & { order_id: string }; Update: Partial<Omit<OrderRefundRow, 'id' | 'order_id' | 'created_at'>> };
       payment_transactions:{ Row: any;               Insert: any; Update: any };
       profiles:            { Row: ProfileRow;        Insert: Partial<ProfileRow>;        Update: Partial<ProfileRow> };
       // Migration 0009 — end-user account
@@ -246,6 +277,7 @@ export type Database = {
       order_status_enum:      OrderStatus;
       payment_method_enum:    PaymentMethod;
       payment_status_enum:    PaymentStatus;
+      order_refund_state_enum: OrderRefundState;
     };
     CompositeTypes: { [_ in never]: never };
   };

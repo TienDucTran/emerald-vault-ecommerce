@@ -1,10 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ShoppingBag, ArrowRight, Trash2, Clock, ShieldAlert } from 'lucide-react';
 import { useCartStore } from '@/lib/store/cart';
-import { formatCountdown } from '@/hooks/use-countdown';
+import { useCountdown, formatCountdown } from '@/hooks/use-countdown';
 import { useJewelryAnalytics } from '@/hooks/use-jewelry-analytics';
 import { formatVND } from '@/lib/utils';
 import { createClient } from '@/lib/supabase/client';
@@ -15,7 +15,6 @@ export default function CartPage() {
   const items = useCartStore((s) => s.items);
   const removeItem = useCartStore((s) => s.removeItem);
   const analytics = useJewelryAnalytics();
-  const [tick, setTick] = useState(0);
   const [mounted, setMounted] = useState(false);
   // 'admin' | 'customer' | 'guest' | null (= loading)
   const [userRole, setUserRole] = useState<'admin' | 'customer' | 'guest' | null>(null);
@@ -55,11 +54,16 @@ export default function CartPage() {
     };
   }, [mounted]);
 
-  useEffect(() => {
-    if (!mounted) return;
-    const t = setInterval(() => setTick((v) => v + 1), 1000);
-    return () => clearInterval(t);
-  }, [mounted]);
+  // Countdown hook thay cho setInterval riêng. Hook returns ms còn lại của
+  // expiresAt sớm nhất → trigger re-render mỗi 1 giây. Tất cả derive
+  // (active/expired filter, GA4 unlock fire) dùng Date.now() + item.expiresAt
+  // → vẫn đúng vì hook re-render đúng 1 lần / giây.
+  const nearestExpiry = useMemo(() => {
+    if (items.length === 0) return null;
+    return Math.min(...items.map((i) => i.expiresAt));
+  }, [items]);
+  // Re-render 1 lần / giây. Hook này thay thế setInterval cũ + `tick` state.
+  useCountdown(nearestExpiry);
 
   // Khi item vừa hết hạn → gọi API release lock (server-side cleanup)
   //                    + fire GA4 lock_item_timeout (1 lần / product)
@@ -90,7 +94,7 @@ export default function CartPage() {
         });
       }
     }
-  }, [tick, items, mounted, analytics]);
+  }, [items, mounted, analytics, nearestExpiry]);
 
   if (!mounted) {
     return (

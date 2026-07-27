@@ -427,7 +427,7 @@ export default function ProductsPage() {
         )}
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1024px]">
+          <table className="w-full min-w-[760px] text-xs sm:text-sm">
             <thead>
               <tr className="border-b border-[#4D4635]">
                 <th className="text-left px-6 py-4 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50 w-10">

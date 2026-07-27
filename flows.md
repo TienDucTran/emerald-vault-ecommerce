@@ -4,10 +4,11 @@
 
 ---
 
-## 0. TRẠNG THÁI TỔNG THỂ (auto-generated, cập nhật 2026-07-23 — Sprint "Customer self-service cancel/refund + Bank Payment UX + Admin Order Detail polish")
+## 0. TRẠNG THÁI TỔNG THỂ (auto-generated, cập nhật 2026-07-27 — Sprint "BUGS-AUDIT.md — Mobile UI + Chatbot deploy + Admin responsive + pg_cron")
 
 > Báo cáo tổng hợp từ audit codebase. Tổng ~155 mục trong 19 sections của file này.
 > Chi tiết đầy đủ + danh sách job pending theo priority xem **[§19. STATUS — JOB PENDING](#19-status--job-pending)** ở cuối file.
+> Báo cáo bug tập trung xem **[BUGS-AUDIT.md](./BUGS-AUDIT.md)** ở root project.
 
 | Trạng thái | Số lượng | % |
 |---|---|---|
@@ -27,10 +28,27 @@
 **🆕 Bank Payment UX + Admin Order Detail polish** (sprint 2026-07-23): ✅ done — bank-payment-client nhận thêm `billUploadedAt`; sau upload bill thành công lưu local state (`billUrl` + `billUploadedAt`) để user thấy feedback tức thì (preview thumbnail + timestamp "Đã upload lúc HH:MM DD/MM"); button đổi text "Upload lại bill" khi đã có bill; click "Tôi đã chuyển" redirect về `/tai-khoan/don-hang/[code]` (chi tiết đơn trong account) thay vì list — user thấy ngay badge "Chờ xác nhận" + Realtime toast khi admin confirm; admin order detail gỡ trùng lặp "Phương thức" + "Số tiền CK" giữa panel "Thanh toán" và card "Thanh toán ngân hàng" — bank card giờ chỉ show info RIÊNG (Ngân hàng + BIN, STK, Chủ TK, Nội dung CK).
 **🆕 Customer self-service cancel + refund request** (sprint 2026-07-23): ✅ done — `POST /api/orders/[code]/customer-action` với 2 action: `cancel` (chỉ WAITING_PAYMENT → set CANCELLED + payment=FAILED + release locks + restore products + bank_transfers.rejected_at) và `request_refund` (WAITING_CONFIRM/CONFIRMED/SHIPPING/DONE → set payment_status=REFUND_REQUESTED, admin CK lại thủ công rồi chuyển REFUNDED). Migration 0021 thêm enum value `REFUND_REQUESTED` + 4 audit fields (`customer_cancelled_at`, `customer_cancel_reason`, `refund_requested_at`, `refund_reason`). UI: trang `/tai-khoan/don-hang/[code]` thêm `<CustomerActionButtons/>` với modal nhập lý do — button "Hủy đơn hàng" (đỏ, WAITING_PAYMENT), "Yêu cầu hoàn tiền" (vàng, các status còn lại), banner "ĐANG CHỜ ADMIN HOÀN TIỀN" khi đã request.
 **🆕 Admin orders — bổ sung filter status thiếu + refund-request alert** (sprint 2026-07-23): ✅ done — admin list `/admin/orders` filter status bổ sung `WAITING_PAYMENT` + `WAITING_CONFIRM` (trước đây thiếu → admin không filter được đơn CK chờ xác nhận từ dropdown); payment status bổ sung `REFUND_REQUESTED`; API `GET /api/admin/orders` + `/api/admin/orders/export` update zod enum schema tương ứng (trước đây schema reject → 400 BAD_REQUEST nếu user pass query hợp lệ); dashboard KPI mới `pendingRefundRequests` + alert badge "Có N yêu cầu hoàn tiền → Xem" link tới `/admin/orders?paymentStatus=REFUND_REQUESTED`.
+**🆕 Refund flow refactor — tách bảng order_refunds** (sprint 2026-07-27, design choice tránh status explosion): ✅ done — Tách refund lifecycle vào bảng `order_refunds` (state machine: `PENDING → APPROVED → COMPLETED/FAILED | REJECTED`) thay vì thêm enum values vào `orders.status` (giữ nguyên 7) hoặc `payment_status_enum` (giữ nguyên 5). Migration `0023_order_refunds.sql` tạo bảng + partial unique index "1 ACTIVE refund per order" + backfill từ `orders.refund_*` fields (migration 0021). API mới `POST /api/admin/orders/[id]/refund` với 4 action: `approve` (set refund_amount + bank info), `reject` (admin từ chối, customer có thể request lại), `mark_completed` (set bill_proof_url + flip orders.payment_status='REFUNDED'), `mark_failed` (CK lỗi, retry). API cũ `/api/orders/[code]/customer-action` action `request_refund` refactor: INSERT vào `order_refunds(state='PENDING')` thay vì ghi `orders.refund_*`. Admin order detail page có panel `<RefundPanel>` với timeline + modal duyệt/từ chối/CK/đã nhận tiền + SLA countdown. Customer trang chi tiết đơn có `<RefundStateBanner>` dynamic theo state (PENDING/APPROVED/COMPLETED/FAILED/REJECTED) thay vì banner đơn giản. Cron SLA escalation (migration 0024): mỗi 4h auto-mark refund PENDING quá 24h với reason `AUTO_ESCALATED`. Cron archive (0024): mỗi ngày 03:00 xoá refund records COMPLETED/REJECTED/FAILED quá 6 tháng. Xem §10.5.
+**🆕 BUGS-AUDIT fixes — Mobile UI + Chatbot deploy + Admin responsive + pg_cron** (sprint 2026-07-27): ✅ done (xem `BUGS-AUDIT.md` ở root). Tóm tắt:
+- **Customer mobile UI** (B1-B3, H1-H4): mount `MobileFooter` trên `<lg` (đã có sẵn nhưng chưa import), đổi `h-13` → `h-14` ở `Button` + `WishlistButton` (Tailwind spacing không có `13` → button collapse), chat-bubble tránh đè bottom nav (`bottom-20` mobile → `bottom-6` tablet+), navbar padding responsive, sticky header 96px được clear bằng `pt-[96px]` mobile, body `overflow-x-hidden`, search dropdown không bị clip nữa.
+- **Chatbot deploy (B4-B8)** — fix "lỗi chat bot deploy Vercel": cooldown state chuyển sang Upstash Redis (graceful fallback in-memory nếu chưa có env) để share giữa serverless instances, `maxDuration = 25` (an toàn cho Hobby 10s), `STREAM_TIMEOUT_MS = 9_000`, drop `experimental_context` (đã bỏ trong AI SDK v6 — thay bằng `setChatContext()`/`clearChatContext()` ở `lib/chatbot/tools.ts`), bỏ `httpOnly` cookie `ev_client_id` (client cần đọc để session ổn định), defensive logging 503 list env nào thiếu, CORS OPTIONS handler.
+- **Admin responsive (B9-B11, H8, H9, M5)**: orders/products tables min-w 640/760 (giảm từ 860/1024) + padding responsive; chatbot admin `grid-cols-2/3` → `grid-cols-1 sm:grid-cols-2/3` (5 chỗ); admin header z-30 → z-40; `admin-shell main overflow-x-hidden`; MediaPicker `max-w-full sm:max-w-5xl` cho mobile.
+- **pg_cron (B12)** — migration `0022_enable_pg_cron.sql` thực sự enable extension + schedule `release-expired-locks` chạy mỗi phút (trước đây flows.md claim ✅ nhưng không có migration nào làm).
+- **Misc**: SSE parser fix multi-line `data:` (split trên `\n\n` thay vì `\n`), `useChatSession` sync generate trong `useState` initializer (fix sessionId split bug ở first POST), `onFinish` chuyển sang Vercel `waitUntil` (best-effort persist không race function ceiling), body parser có content-length guard, chat panel `h-[min(480px,calc(100dvh-6rem))]` cho landscape phone, `engines.node >=20` trong `package.json`.
+- **Migration dup fix**: `0010_product_reserved.sql` (đụng `0010_storage_jewelry_images.sql`) → content chuyển sang `0009b_product_reserved.sql`, file cũ thành no-op redirect.
+
+**🆕 Refund flow harden — payment_status reset khi admin REJECTED + admin orders filter sync URL** (sprint 2026-07-27 buổi chiều): ✅ done. Tóm tắt:
+- **Bug root**: Sau khi admin REJECTED refund, `orders.payment_status` vẫn `REFUND_REQUESTED` → customer click "GỬI YÊU CẦU MỚI" bị API `409 ALREADY_REQUESTED` (check line 230 `payment_status === 'REFUND_REQUESTED'` trước khi check `order_refunds.state`).
+- **Fix customer route** (`app/api/orders/[code]/customer-action/route.ts`): bỏ block check legacy mirror `payment_status === 'REFUND_REQUESTED'`. Rely hoàn toàn vào query `order_refunds WHERE state IN ('PENDING','APPROVED')` là source of truth cho duplicate guard. Block check `payment_status ∈ {PAID, AWAITING_CONFIRM}` còn nguyên → guard chống duplicate khi refund đang PENDING (Scenario B test matrix).
+- **Fix admin route** (`app/api/admin/orders/[id]/refund/route.ts` action `reject`): thêm UPDATE `orders` reset `payment_status='PAID'`, clear `refund_requested_at` + `refund_reason`. Error handling: refund fail → return 500 không touch order; order fail → refund vẫn giữ REJECTED (không rollback).
+- **Fix dashboard KPI** (`lib/analytics/dashboard.ts` line ~184): đổi `pendingRefundRequests` từ `orders WHERE payment_status='REFUND_REQUESTED'` (mirror có thể lệch) → `order_refunds WHERE state IN ('PENDING','APPROVED','FAILED')` (source of truth). KPI giờ phản ánh đúng số refund cần admin action.
+- **Fix customer UI chip** (`app/(store)/tai-khoan/don-hang/[code]/page.tsx`): override chip payment khi `latestRefund.state` REJECTED/active. REJECTED → "Đã thanh toán · Hoàn tiền bị từ chối" (amber); PENDING/APPROVED/FAILED → "Đang yêu cầu hoàn tiền" (amber); COMPLETED → giữ label REFUNDED gốc.
+- **Fix admin orders page sync URL** (`app/(admin)/admin/orders/page.tsx`): trước đây filter state khởi tạo `useState('')` → URL `?status=NEW` không match dropdown. Refactor: tách `OrdersPage` wrap `<Suspense>` + `OrdersPageInner` dùng `useSearchParams` (Next 14 requirement). Init state từ URL (validate enum), 2 useEffect sync state→URL (`router.replace` skip nếu đã khớp) và URL→state (cho back/forward). Nút "Xoá lọc" clear URL.
+- **Xem chi tiết**: §10.5.11 (refund flow harden) + §10.6 (admin orders URL sync).
 
 **3 gap lớn nhất**:
 1. ❌ **MoMo env chưa populate** — Phase 2 (khi có MST, cần làm theo `docs/momo-sandbox-setup.md` 8 bước ~20 phút). Hiện tại VietQR đã cover MVP payment.
-2. ❌ **End-user account §18** — auth pages + account dashboard **gần xong** (4 auth page + 5 APIs + 1 migration 0011 + UI guard), còn tab nội dung (đơn/địa chỉ/yêu thích/đánh giá) là polish Phase 2.
+2. ❌ **End-user account §18** — auth + dashboard + customer-action gần ✅ DONE (sprint 2026-07-27 audit xác nhận: 4 auth page + ~6 APIs + 2 migrations 0009/0011 + UI guard + auto-link RPC + customer-action route + CustomerActionButtons UI). Còn polish Phase 2: email confirmation flow + reviews hiển thị trên PDP.
 3. ❌ **Rate-limit + Sentry** — production hardening (xem §19.5 F1/F2).
 
 **Top 3 quick-win (< 2h)**: ~~populate MoMo env~~ (defer Phase 2) → setup VietQR env (`BANK_CODE` + `BANK_ACCOUNT_NUMBER` + `BANK_ACCOUNT_NAME`) → ~~mount GA4 + hook~~ ✅ done → ~~migration pg_cron `release_expired_locks`~~ ✅ done → **apply migration 0011** (`link_my_guest_orders` + backfill customer_id) → **add `customer_id` column to orders** (chưa làm — xem §2.4) → ~~**apply migrations 0015-0017**~~ ✅ done → **apply migration 0018** (`chat_analytics` + CHECK constraints) → **apply migration 0019** (`chat_suggested_answers` + cluster RPC).
@@ -82,21 +100,41 @@ NEXT_PUBLIC_GA_ID=G-XXXXXXXXXX
 NEXT_PUBLIC_SITE_URL=https://emerald-vault.vn
 # Server-only
 SUPABASE_SERVICE_ROLE_KEY=        # bypass RLS, KHÔNG expose
+# MoMo (Phase 2 — khi có MST)
 MOMO_PARTNER_CODE=
 MOMO_ACCESS_KEY=
 MOMO_SECRET_KEY=
 MOMO_REDIRECT_URL=https://emerald-vault.vn/momo/return
 MOMO_IPN_URL=https://emerald-vault.vn/api/momo/ipn
 # GA4 Data API (cho /admin/analytics)
-GA4_PROPERTY_ID=                  # dạng số, lấy từ GA4 Admin
-GA4_SERVICE_ACCOUNT_JSON=         # inline JSON (khuyến nghị Vercel) — hoặc GOOGLE_APPLICATION_CREDENTIALS=path
-```
+GA4_PROPERTY_ID=
+GA4_SERVICE_ACCOUNT_JSON=
+# ===== AI Chatbot (sprint 2026-07-17 + 2026-07-22) — bắt buộc cho /api/chat =====
+AI_PRIMARY=groq                    # primary provider key xem getChatConfig()
+GROQ_API_KEY=                      # free tier: https://console.groq.com
+OPENROUTER_API_KEY=                # https://openrouter.ai (free + paid models)
+CEREBRAS_API_KEY=                  # https://cloud.cerebras.ai
+CLOUDFLARE_API_KEY=                # https://dash.cloudflare.com → Workers AI
+CLOUDFLARE_ACCOUNT_ID=             # Cloudflare account ID for Workers AI URL
+GOOGLE_AI_API_KEY=                 # https://aistudio.google.com (Gemini)
+OPENAI_API_KEY=                    # optional — fallback paid cuối cùng
+# Chain CSV — format "<provider>:<model>". Thứ tự = thứ tự ưu tiên fallback.
+CHAT_PROVIDERS=groq:llama-3.1-8b-instant,openrouter:meta-llama/llama-3.3-70b-instruct:free,cerebras:llama-3.3-70b,cloudflare:@cf/meta/llama-3.1-8b-instruct,gemini:gemini-2.0-flash
+# ===== Cooldown store (sprint 2026-07-27) — optional, fallback in-memory nếu thiếu =====
+UPSTASH_REDIS_REST_URL=            # https://upstash.com → Redis database
+UPSTASH_REDIS_REST_TOKEN=          # REST API token (read+write)
+# ===== VietQR bank account (sprint 2026-07-17) — bắt buộc cho bank_transfer =====
+BANK_CODE=VCB                      # 'VCB' | 'TCB' | 'MB' | ...
+BANK_ACCOUNT_NUMBER=1234567890
+BANK_ACCOUNT_NAME=NGUYEN VAN A
+# ===== @vercel/functions waitUntil =====
+# Không cần env — package đã install (npm i @vercel/functions). Vercel auto-wires.
 
 ---
 
 ## 2. DATABASE SCHEMA (chuẩn hóa)
 
-> **Status**: ✅ 13 bảng core + 5 RPC + RLS. ✅ pg_cron `release_expired_locks` (migration 0010). ✅ pgvector/chatbot schema (migrations 0012-0014). ✅ chatbot knowledge base (migrations 0015-0017). ❌ `DRAFT` enum, ❌ `newsletter_subscribers` table.
+> **Status**: ✅ 13 bảng core + 5 RPC + RLS. ✅ pg_cron `release_expired_locks` (migration 0022 — sprint 2026-07-27, trước đó flows.md claim sai). ✅ pgvector/chatbot schema (migrations 0012-0014). ✅ chatbot knowledge base (migrations 0015-0017) + analytics (0018) + suggested answers (0019) + customer cancel/refund (0021). ✅ product_reserved (0009b). ❌ `DRAFT` enum, ✅ `newsletter_subscribers` table (0006).
 
 ### 2.1. Bảng `collections`
 ```sql
@@ -1191,6 +1229,415 @@ lib/order/status.ts                                   # PAYMENT_STATUS_META.REFU
 
 - Admin dashboard `/admin/orders` chưa có filter "Refund requested" — nên thêm filter `payment_status=REFUND_REQUESTED` để admin xử lý nhanh (sprint sau).
 - Khi admin xử lý xong (đã CK lại cho user), chỉ cần PATCH `payment_status=REFUNDED` qua dialog hiện tại — flow đã support.
+
+---
+
+## 10.5. 🆕 Refund flow refactor — tách bảng order_refunds (sprint 2026-07-27)
+
+> **Vấn đề (§10.4 limitation)**: Status order chỉ có 7 enum, payment có 5 enum. Nếu muốn phân biệt "đã duyệt nhưng chưa CK", "đã CK xong", "admin từ chối" — phải thêm 3-4 enum mới → status explosion (10 + 6 enum), khó maintain state transition, dashboard filter phình to.
+>
+> **Quyết định thiết kế**: Tách refund lifecycle ra bảng `order_refunds` riêng. `orders.status` và `payment_status_enum` giữ nguyên — chỉ dùng 2 giá trị cũ `REFUND_REQUESTED` (PENDING state) và `REFUNDED` (khi COMPLETED). State machine đầy đủ chỉ tồn tại trong `order_refunds.state`.
+>
+> **🆕 Sprint 2026-07-27 buổi chiều (§10.5.11)**: Harden lifecycle — khi admin REJECTED thì `orders.payment_status` reset về `PAID` (tiền vẫn ở shop). Customer có thể retry sau REJECTED. Dashboard KPI query từ `order_refunds` thay vì mirror. Xem §10.5.11 để biết chi tiết fix customer retry bị chặn + KPI inflated.
+
+### 10.5.1. State machine
+
+```
+                  ┌─→ APPROVED ─┬─→ COMPLETED ──── (terminal → flip orders.payment_status='REFUNDED')
+                  │             │
+PENDING ──────────┤             └─→ FAILED (CK lỗi, admin retry)
+  │               │
+  │               └─→ REJECTED (admin từ chối, customer có thể request mới)
+  │
+  └─→ admin mark REJECTED nếu không hợp lệ
+```
+
+### 10.5.2. Schema (`order_refunds`)
+
+```sql
+CREATE TYPE order_refund_state_enum AS ENUM (
+  'PENDING',      -- customer vừa request
+  'APPROVED',     -- admin duyệt, chuẩn bị CK
+  'COMPLETED',    -- admin đã CK xong → orders.payment_status='REFUNDED'
+  'FAILED',       -- CK lỗi, retry
+  'REJECTED'      -- admin từ chối
+);
+
+CREATE TABLE order_refunds (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  state order_refund_state_enum NOT NULL DEFAULT 'PENDING',
+  customer_reason TEXT,
+  customer_requested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  admin_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  admin_decision_at TIMESTAMPTZ,
+  admin_decision_reason TEXT,
+  refund_amount NUMERIC(12,0),
+  bank_account_name VARCHAR(120),
+  bank_account_number VARCHAR(20),
+  bank_name VARCHAR(80),
+  bill_proof_url TEXT,
+  completed_at TIMESTAMPTZ,
+  rejected_at TIMESTAMPTZ,
+  failed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Chỉ 1 ACTIVE refund per order (PENDING/APPROVED); terminal rows OK
+CREATE UNIQUE INDEX one_active_refund_per_order ON order_refunds(order_id)
+  WHERE state IN ('PENDING', 'APPROVED');
+
+CREATE INDEX idx_refunds_state_pending ON order_refunds(created_at)
+  WHERE state IN ('PENDING', 'APPROVED');
+CREATE INDEX idx_refunds_order ON order_refunds(order_id);
+```
+
+### 10.5.3. API mới: `POST /api/admin/orders/[id]/refund`
+
+```
+Auth: requireAdmin
+Body: { action, ...params }
+
+action='approve'      → { refund_amount, bank_account_name, bank_account_number, bank_name }
+                       State PENDING → APPROVED, set admin_id + admin_decision_at + bank info
+action='reject'       → { reason (min 10 chars) }
+                       State PENDING → REJECTED, set admin_decision_reason
+action='mark_completed' → { bill_proof_url (URL to uploaded bill) }
+                         State APPROVED|FAILED → COMPLETED, set completed_at + bill_proof_url
+                         ALSO: orders.payment_status = 'REFUNDED', orders.updated_at = NOW()
+action='mark_failed'  → { reason }
+                       State APPROVED → FAILED, set failed_at + reason (admin retry sau)
+
+Response 200: { ok: true, refund: {...} }
+Response 400: INVALID_BODY / INVALID_STATE (state transition không hợp lệ)
+Response 401: UNAUTHENTICATED
+Response 403: FORBIDDEN
+Response 404: REFUND_NOT_FOUND
+Response 500: DB_ERROR
+```
+
+### 10.5.4. API cập nhật: `POST /api/orders/[code]/customer-action`
+
+Action `request_refund` refactor:
+- Validate `order.status ∈ REFUNDABLE_STATUSES` (giữ nguyên logic cũ)
+- Validate payment_status PAID/AWAITING_CONFIRM (giữ nguyên)
+- Check `order_refunds WHERE order_id = ? AND state IN ('PENDING','APPROVED')` → nếu tồn tại return 409 ALREADY_REQUESTED
+- INSERT vào `order_refunds(state='PENDING', customer_reason, customer_requested_at)`
+- CŨNG set `orders.payment_status='REFUND_REQUESTED'` (backwards-compat cho admin filter cũ + dashboard KPI)
+- Return `{ ok: true, action: 'request_refund', refund: {...} }`
+
+### 10.5.5. UI Admin: `<RefundPanel>` ở `/admin/orders/[id]`
+
+Panel hiển thị khi order có `payment_status ∈ {REFUND_REQUESTED, REFUNDED}` hoặc có `order_refunds` row:
+- State `PENDING` → badge vàng + customer_reason + SLA countdown ("Còn X giờ trước khi escalate") + 2 button "Duyệt" / "Từ chối"
+- State `APPROVED` → badge xanh dương + refund_amount + bank info + 2 button "Đã CK" / "CK lỗi"
+- State `COMPLETED` → badge xanh lá + timeline PENDING→APPROVED→COMPLETED + bill_proof thumbnail
+- State `FAILED` → badge cam + admin_decision_reason + button "Đánh dấu CK lại" (retry)
+- State `REJECTED` → badge xám + admin_decision_reason + info "khách có thể gửi yêu cầu mới"
+
+### 10.5.6. UI Customer: `<RefundStateBanner>` ở `/tai-khoan/don-hang/[code]`
+
+Thay banner đơn giản "ĐANG CHỜ ADMIN HOÀN TIỀN" bằng dynamic banner:
+- `PENDING` → "Đã gửi yêu cầu — admin sẽ duyệt trong 24h"
+- `APPROVED` → "Admin đã duyệt — sẽ CK trong 1-3 ngày làm việc" + refund_amount
+- `COMPLETED` → "Đã hoàn tiền [amount] lúc [timestamp]" + bill_proof link
+- `FAILED` → "CK lỗi — admin đang retry"
+- `REJECTED` → "Admin từ chối — [lý do]" + button "GỬI YÊU CẦU MỚI" (cho phép retry)
+
+### 10.5.7. Cron SLA escalation (`0024_refund_sla_cron.sql`)
+
+- `escalate-stale-pending-refunds` (mỗi 4h): refund PENDING > 24h → auto-mark `admin_decision_reason = 'AUTO_ESCALATED: SLA exceeded'`. Admin thấy qua query admin/orders filter. Phase 2 sẽ tích hợp Supabase Realtime để push toast lên dashboard.
+- `archive-old-refund-records` (03:00 daily): DELETE refund COMPLETED/REJECTED/FAILED > 6 tháng. Giữ audit ngắn hạn, không phình DB.
+
+### 10.5.8. Files
+
+```
+supabase/migrations/0023_order_refunds.sql          # NEW — table + enum + indexes + backfill
+supabase/migrations/0024_refund_sla_cron.sql        # NEW — 2 cron jobs (escalate + archive)
+app/api/admin/orders/[id]/refund/route.ts          # NEW — 4 admin actions
+app/api/orders/[code]/customer-action/route.ts     # MODIFIED — request_refund INSERT order_refunds
+app/(admin)/admin/orders/[id]/page.tsx              # MODIFIED — fetch latest refund + mount <RefundPanel/>
+components/admin/orders/refund-panel.tsx            # NEW — 5-state admin UI + 4 modals
+app/(store)/tai-khoan/don-hang/[code]/page.tsx      # MODIFIED — fetch latestRefund + pass to <CustomerActionButtons/>
+app/(store)/tai-khoan/don-hang/[code]/customer-action-buttons.tsx  # MODIFIED — <RefundStateBanner/> dynamic theo state
+lib/supabase/types.ts                               # MODIFIED — OrderRefundRow + order_refunds Tables entry + OrderRefundState
+lib/types/account.ts                                # MODIFIED — export OrderRefund alias
+```
+
+### 10.5.9. Backfill caveats (sprint 2026-07-23 data)
+
+Migration 0023 backfill `INSERT ... SELECT FROM orders WHERE refund_requested_at IS NOT NULL` — tuy nhiên:
+- Orders có `payment_status='REFUNDED'` (admin đã CK qua flow cũ) sẽ bị mark PENDING → sai history. Phase 2 admin cleanup script sẽ `UPDATE order_refunds SET state='COMPLETED' WHERE order_id IN (SELECT id FROM orders WHERE payment_status='REFUNDED')`.
+- Orders có `status='CANCELLED'` + `refund_requested_at IS NOT NULL` (data inconsistency) → backfill tạo PENDING row không active khác. Cleanup: `UPDATE order_refunds SET state='REJECTED', admin_decision_reason='order was already CANCELLED' WHERE order_id IN (SELECT id FROM orders WHERE status='CANCELLED')`.
+
+### 10.5.10. Order retention tier (DEFERRED Phase 2)
+
+User hỏi về "đơn tồn tại trong user bao nhiêu ngày cho chuẩn business lên plan excellent":
+- **Standard tier** (mặc định, free): giữ 24 tháng (2 năm) — đủ cho thuế VN + kiểm toán.
+- **Excellent tier** (đề xuất, premium): giữ 5 năm — cho phép truy vết dispute với NH/VNPost/thuế năm+1.
+- **Premium tier** (tương lai): vĩnh viễn read-only — dispute pháp lý dài hạn.
+
+Implementation defer Phase 2 vì cần:
+- Thêm `order_retention_tier` enum + `archived_at` field (migration)
+- pg_cron daily 02:00 mark `archived_at=NOW()` cho orders > retention period
+- pg_cron yearly hard-delete cho STANDARD tier > 5 năm
+- Admin UI checkbox "Hiển thị đơn cũ"
+- Cost estimate Supabase storage 5 năm
+
+### 10.5.11. Refund flow harden — payment_status reset khi REJECTED (sprint 2026-07-27 buổi chiều)
+
+> **Vấn đề (§10.5.1-10.5.4 limitation)**: Khi admin REJECTED refund, `orders.payment_status` vẫn `REFUND_REQUESTED` (chỉ update `order_refunds.state='REJECTED'`). Hệ quả:
+>
+> 1. **Customer không retry được** — API customer-action check `payment_status === 'REFUND_REQUESTED'` ở line 230 trước khi check `order_refunds` → trả `409 ALREADY_REQUESTED` dù admin đã REJECTED.
+> 2. **Dashboard KPI inflated** — `pendingRefundRequests` đếm orders có `payment_status='REFUND_REQUESTED'` bao gồm cả REJECTED (admin đã xử lý xong).
+> 3. **Customer UI mismatch** — chip payment hiển thị "Yêu cầu hoàn tiền" dù admin đã từ chối.
+>
+> **Fix**: Cờ "refund lifecycle" (PENDING/APPROVED/FAILED/COMPLETED/REJECTED) thuộc về bảng `order_refunds`. Cờ `orders.payment_status` chỉ nên phản ánh **trạng thái tiền tệ** (PAID = shop đang giữ tiền; REFUNDED = shop đã trả lại; FAILED = chưa nhận).
+
+#### 10.5.11.1. Quy tắc mới — `orders.payment_status` lifecycle
+
+| Hành động | `orders.payment_status` | `order_refunds.state` |
+|---|---|---|
+| Order mới (COD/BANK) | `PENDING` → `PAID` (admin confirm) | — |
+| Customer request refund | `PAID` → `REFUND_REQUESTED` | INSERT PENDING |
+| Admin APPROVED | giữ `REFUND_REQUESTED` | PENDING → APPROVED |
+| **Admin REJECTED** | **`REFUND_REQUESTED` → `PAID` (reset)** | PENDING → REJECTED |
+| Admin mark_completed | `REFUND_REQUESTED` → `REFUNDED` | APPROVED\|FAILED → COMPLETED |
+| Admin mark_failed | giữ `REFUND_REQUESTED` | APPROVED → FAILED |
+
+> **Key insight**: `orders.payment_status` chỉ flip `REFUND_REQUESTED` → `PAID` khi admin REJECTED (tiền vẫn ở shop). Ngược lại, khi admin APPROVED/MARK_COMPLETED thì giữ `REFUND_REQUESTED` cho tới khi COMPLETED mới flip `REFUNDED`.
+
+#### 10.5.11.2. Fix customer route `request_refund`
+
+**File**: `app/api/orders/[code]/customer-action/route.ts` line 230-242.
+
+**Trước**:
+```ts
+if (order.payment_status === 'REFUND_REQUESTED') {
+  return NextResponse.json({ error: 'ALREADY_REQUESTED', ... }, { status: 409 });
+}
+```
+
+**Sau**: bỏ block. Chỉ check `payment_status ∈ {PAID, AWAITING_CONFIRM}` (line 243) + query `order_refunds` active (line 256). Lý do:
+- `orders.payment_status` là **mirror** cho admin filters, có thể lệch.
+- Source of truth cho "đã có refund active chưa" = bảng `order_refunds` (xem §10.5.4).
+- Check legacy mirror đôi khi chặn nhầm flow hợp lệ (retry sau REJECTED).
+
+**Edge cases handled**:
+| Scenario | `payment_status` | `order_refunds.state` | Kết quả API |
+|---|---|---|---|
+| Request lần 1 | `PAID` | (none) | 200, INSERT PENDING |
+| Request lần 2 (trong khi PENDING) | `REFUND_REQUESTED` | `PENDING` | 400 INVALID_PAYMENT_STATUS (guard nhờ check PAID) |
+| Request lại sau REJECTED | `PAID` (sau fix) | `REJECTED` | 200, INSERT PENDING mới |
+| Race 2 request cùng lúc | bất kỳ | (none) → INSERT PENDING → INSERT PENDING fail | 23505 → 409 ALREADY_REQUESTED |
+
+#### 10.5.11.3. Fix admin route action `reject`
+
+**File**: `app/api/admin/orders/[id]/refund/route.ts` line 217-247.
+
+Thêm UPDATE `orders` SAU khi UPDATE `order_refunds` thành công:
+
+```ts
+const { error: orderUpErr } = await db
+  .from('orders')
+  .update({
+    payment_status: 'PAID',
+    refund_requested_at: null,
+    refund_reason: null,
+    updated_at: now,
+  })
+  .eq('id', orderId);
+
+// Nếu fail → KHÔNG rollback refund (admin đã chốt quyết định).
+// Log + trả 500 để admin xử lý tay.
+```
+
+Cũng clear `refund_requested_at` + `refund_reason` (legacy columns từ migration 0021) để customer retry không bị nhầm data cũ.
+
+#### 10.5.11.4. Fix dashboard KPI source
+
+**File**: `lib/analytics/dashboard.ts` line ~180-194.
+
+**Trước**:
+```ts
+sb.from('orders').select('id', { count: 'exact', head: true })
+  .eq('payment_status', 'REFUND_REQUESTED');
+```
+
+**Sau**:
+```ts
+sb.from('order_refunds').select('id', { count: 'exact', head: true })
+  .in('state', ['PENDING', 'APPROVED', 'FAILED']);
+```
+
+`PENDING` + `APPROVED` + `FAILED` là 3 state admin cần action. `COMPLETED` (đã CK xong) + `REJECTED` (đã chốt từ chối) → không tính.
+
+#### 10.5.11.5. Fix customer UI chip payment
+
+**File**: `app/(store)/tai-khoan/don-hang/[code]/page.tsx` line 78-104.
+
+Thêm override logic khi `latestRefund.state` khác null:
+
+| `latestRefund.state` | Chip label | Tone |
+|---|---|---|
+| `null` (no refund) | `paymentMeta.label` (gốc) | gốc |
+| `PENDING` / `APPROVED` / `FAILED` | "Đang yêu cầu hoàn tiền" | `text-warning` + `amber` dot |
+| `COMPLETED` | `paymentMeta.label` (gốc = REFUNDED) | gốc (success/green) |
+| `REJECTED` | "Đã thanh toán · Hoàn tiền bị từ chối" | `text-warning` + `amber` dot |
+
+Trước fix: customer thấy chip "Yêu cầu hoàn tiền" (amber) khi admin REJECTED → confuse. Sau fix: chip truyền đạt đúng trạng thái (refund đang xử lý, hoặc đã bị từ chối, hoặc đã hoàn xong).
+
+#### 10.5.11.6. Files đã sửa (sprint 2026-07-27 buổi chiều)
+
+```
+app/api/orders/[code]/customer-action/route.ts          # MODIFIED — bỏ check legacy mirror
+app/api/admin/orders/[id]/refund/route.ts                # MODIFIED — action reject reset payment_status
+lib/analytics/dashboard.ts                               # MODIFIED — pendingRefundRequests query từ order_refunds
+app/(store)/tai-khoan/don-hang/[code]/page.tsx          # MODIFIED — chip override theo latestRefund.state
+```
+
+#### 10.5.11.7. Backfill script (nếu có prod data cũ)
+
+Nếu production đã có orders có refund REJECTED (admin dùng API cũ trước fix) + `orders.payment_status='REFUND_REQUESTED'`:
+
+```sql
+-- Reset payment_status về PAID cho orders có refund REJECTED
+UPDATE orders o
+SET payment_status = 'PAID',
+    refund_requested_at = NULL,
+    refund_reason = NULL,
+    updated_at = NOW()
+WHERE id IN (
+  SELECT order_id FROM order_refunds
+  WHERE state = 'REJECTED'
+  GROUP BY order_id
+  HAVING MAX(created_at) > NOW() - INTERVAL '30 days'  -- chỉ cleanup gần đây
+);
+-- Verify
+SELECT o.code, o.payment_status, r.state, r.created_at
+FROM orders o
+JOIN order_refunds r ON r.order_id = o.id
+WHERE r.state = 'REJECTED'
+ORDER BY r.created_at DESC LIMIT 20;
+```
+
+Không cần backfill cho orders có refund APPROVED/COMPLETED/FAILED — payment_status của họ vẫn `REFUND_REQUESTED` (chờ COMPLETED mới flip `REFUNDED`), đúng intent.
+
+---
+
+## 10.6. Admin orders filter — URL ↔ state sync (sprint 2026-07-27 buổi chiều)
+
+> **Vấn đề**: Trước fix, admin vào URL `localhost:3000/admin/orders?status=NEW` (vd click từ alert link dashboard `?paymentStatus=REFUND_REQUESTED`) → filter dropdown hiển thị "Tất cả trạng thái" rỗng, search box rỗng. Nguyên nhân: state khởi tạo `useState('')` hard-code, không đọc URL.
+
+### 10.6.1. Design choice — URL là source of truth
+
+| Action | URL update? |
+|---|---|
+| Mount page | State init từ `searchParams` (validate enum) |
+| User chọn filter | State → URL qua `router.replace()` (không push — tránh phình history) |
+| User back/forward | URL → State qua effect riêng |
+| Click "Xoá lọc" | Reset state + `router.replace('/admin/orders')` |
+
+### 10.6.2. Implementation — `app/(admin)/admin/orders/page.tsx`
+
+**Wrap `<Suspense>` bắt buộc**: Next.js 14+ App Router yêu cầu `useSearchParams()` phải nằm trong component được wrap `<Suspense>`. Tách:
+
+```tsx
+export default function OrdersPage() {
+  return (
+    <Suspense fallback={null}>
+      <OrdersPageInner />
+    </Suspense>
+  );
+}
+
+function OrdersPageInner() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  // ... logic với state sync URL
+}
+```
+
+### 10.6.3. Init state từ URL
+
+```tsx
+const initialStatus = ((): OrderStatus | '' => {
+  const v = searchParams.get('status');
+  if (v && ORDER_STATUSES.includes(v as OrderStatus)) return v as OrderStatus;
+  return '';
+})();
+const initialPaymentStatus = ((): PaymentStatus | '' => {
+  const v = searchParams.get('paymentStatus');
+  if (v && PAYMENT_STATUSES.includes(v as PaymentStatus)) return v as PaymentStatus;
+  return '';
+})();
+const initialQ = searchParams.get('q') ?? '';
+const initialPage = (() => {
+  const v = parseInt(searchParams.get('page') ?? '1', 10);
+  return Number.isFinite(v) && v > 0 ? v : 1;
+})();
+```
+
+Validate enum ngăn URL invalid (`?status=foo`) crash UI — fallback về rỗng.
+
+### 10.6.4. 2 useEffect sync
+
+```tsx
+// State → URL: khi user đổi filter/page
+useEffect(() => {
+  const next = new URLSearchParams();
+  if (q.trim()) next.set('q', q.trim());
+  if (status) next.set('status', status);
+  if (paymentStatus) next.set('paymentStatus', paymentStatus);
+  if (page > 1) next.set('page', String(page));
+  const target = next.toString();
+  const current = searchParams.toString();
+  if (target !== current) {
+    router.replace(`/admin/orders${target ? `?${target}` : ''}`, { scroll: false });
+  }
+}, [q, status, paymentStatus, page]);
+
+// URL → State: khi user back/forward
+useEffect(() => {
+  const urlQ = searchParams.get('q') ?? '';
+  const urlStatus = ...;
+  const urlPayment = ...;
+  const urlPage = ...;
+  if (urlQ !== q) setQ(urlQ);
+  if (urlStatus !== status) setStatus(urlStatus);
+  if (urlPayment !== paymentStatus) setPaymentStatus(urlPayment);
+  if (urlPage !== page) setPage(urlPage);
+}, [searchParams]);
+```
+
+**Loop prevention**: 2 effect check `target === current` / `urlX !== x` trước khi push — terminate sau 1 cycle.
+
+### 10.6.5. Risk check
+
+| Risk | Mitigation |
+|---|---|
+| 2 useEffect loop vô hạn | `if (target !== current)` skip khi URL đã match; `if (urlX !== x)` skip setState khi giống |
+| User gõ search + back/forward | URL→State effect sync, debounce cũ 350ms cancel qua cleanup |
+| Invalid query param (`?status=foo`) | Validate enum → fallback rỗng, không crash |
+| URL order canonicalization | `?status=NEW&q=foo` → effect 1 rewrite thành `?q=foo&status=NEW` (1 lần). Harmless. |
+
+### 10.6.6. Files đã sửa
+
+```
+app/(admin)/admin/orders/page.tsx          # MODIFIED — wrap Suspense + 2 useEffect sync URL
+```
+
+### 10.6.7. Test matrix (verified 2026-07-27)
+
+| Scenario | Result |
+|---|---|
+| Visit `?status=NEW` | Dropdown auto-select NEW ✅ |
+| Select "WAITING_CONFIRM" | URL update → `?status=WAITING_CONFIRM` ✅ |
+| Type "EV-2026" in search | URL update (debounced 350ms) + page reset 1 ✅ |
+| Click "Xoá lọc" | State reset + URL `/admin/orders` ✅ |
+| Visit `?status=foo` | Validate enum → dropdown rỗng (no crash) ✅ |
+| Browser back/forward | State sync theo URL ✅ |
 
 ---
 
@@ -2923,7 +3370,7 @@ docs/auto-product-pipeline.md           # Hướng dẫn sử dụng
 
 ## 18. LUỒNG 10 — TRANG TÀI KHOẢN KHÁCH HÀNG (`/tai-khoan`)
 
-> **Status**: ✅ 6 tab + 4 auth page + addresses/wishlist/reviews APIs done. ❌ xac-nhan-email, ❌ account/don-hang/[code]. ❌ auto-link guest orders on signup. ❌ reviews chưa hiển thị trên PDP.
+> **Status** (cập nhật 2026-07-27): ✅ gần như done. 6 tab + 4 auth page (Vietnamese slugs `dang-nhap/dang-ky/quen-mat-khau/dat-lai-mat-khau`) + addresses/wishlist/reviews/profile APIs ✅. ✅ `tai-khoan/don-hang/[code]` page + `<CustomerActionButtons/>` (cancel + refund request). ✅ `link_my_guest_orders()` RPC + migration 0011 auto-link orders theo email khi user đăng ký. ❌ email confirmation flow, ❌ reviews chưa hiển thị trên PDP.
 
 > Quyết định ngày 2026-07-15: BỔ SUNG flow tài khoản khách hàng (end-user) — vẫn giữ **guest checkout** cho khách không đăng ký, NHƯNG cho phép khách **tự nguyện đăng ký** để có: tra cứu đơn nhanh, wishlist sync, đánh giá, sổ địa chỉ, theo dõi đơn realtime. Không bắt buộc — tôn trọng UX đơn giản của flow cũ.
 >

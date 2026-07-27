@@ -16,7 +16,10 @@ export function ChatBubble({ open, onToggle, unreadCount = 0 }: ChatBubbleProps)
       onClick={onToggle}
       aria-label={open ? 'Đóng chat' : 'Mở chat tư vấn'}
       className={cn(
-        'fixed bottom-6 right-6 z-50',
+        // Mobile: position above the 64px MobileBottomNav + spacing.
+        // Tablet+: original positioning. Desktop: slightly larger + offset.
+        'fixed right-4 bottom-20 z-50',
+        'sm:bottom-6 sm:right-6',
         'flex h-14 w-14 items-center justify-center rounded-full',
         'bg-gradient-to-br from-gold to-gold-champagne',
         'shadow-gold-glow-lg transition-all duration-200',

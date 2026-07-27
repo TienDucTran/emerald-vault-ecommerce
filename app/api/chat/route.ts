@@ -2,23 +2,78 @@
 import { streamText, stepCountIs, type UIMessage } from 'ai';
 import { NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
+import { waitUntil } from '@vercel/functions';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { getCurrentUser } from '@/lib/auth/require-customer';
-import { getChatModelChain, setActiveProvider, markProviderRateLimited, isProviderAvailable, getCooldownInfo } from '@/lib/chatbot/client';
+import {
+  getChatModelChain,
+  setActiveProvider,
+  markProviderRateLimited,
+  getCooldownInfo,
+} from '@/lib/chatbot/client';
 import { SYSTEM_PROMPT } from '@/lib/chatbot/system-prompt';
 import { allTools } from '@/lib/chatbot/tools';
+import {
+  setChatContext,
+  clearChatContext,
+  runWithChatContext,
+} from '@/lib/chatbot/tools';
 import { getChatConfig } from '@/lib/chatbot/config';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 30;
+// Vercel Hobby plan = 10s ceiling, Pro = 60s. Setting to 25 lets Hobby silently
+// cap while giving Pro room. STREAM_TIMEOUT_MS below is the hard budget we honor.
+export const maxDuration = 25;
 
 const COOKIE_NAME = 'ev_client_id';
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 365; // 1 năm
 const UUID_V4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const CONTENT_LENGTH_LIMIT = 256 * 1024; // 256KB max chat payload
+const isProd = process.env.NODE_ENV === 'production';
+const devLog = (...args: unknown[]) => { if (!isProd) console.log(...args); };
+const devWarn = (...args: unknown[]) => { if (!isProd) console.warn(...args); };
+
+export async function OPTIONS() {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      'Access-Control-Allow-Origin': process.env.NEXT_PUBLIC_SITE_URL || '*',
+      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+      'Access-Control-Max-Age': '86400',
+    },
+  });
+}
 
 export async function POST(request: NextRequest) {
+  // Fix #3 (sprint 2026-07-27): wrap toàn bộ handler trong AsyncLocalStorage
+  // scope để per-request context (sessionId/userId/provider/model) cô lập giữa
+  // concurrent requests. Initial context tạm thời dùng placeholder — sẽ được
+  // cập nhật bằng `setChatContext()` sau khi upsert session thành công (line ~100).
+  //
+  // Lý do dùng placeholder initial: route handler cần sessionId từ RPC
+  // upsert_chat_session TRƯỚC khi set context, nhưng AsyncLocalStorage yêu cầu
+  // initial value. enterWith() sau đó sẽ update toàn bộ async chain phía sau.
+  return await runWithChatContext(
+    {
+      sessionId: 'pending',
+      userId: null,
+      provider: 'none',
+      model: 'none',
+    },
+    async () => await handleChatPost(request)
+  );
+}
+
+async function handleChatPost(request: NextRequest): Promise<Response> {
   try {
+    // 0) Payload size guard (DoS surface)
+    const contentLength = Number(request.headers.get('content-length') ?? 0);
+    if (contentLength > CONTENT_LENGTH_LIMIT) {
+      return Response.json({ error: 'PAYLOAD_TOO_LARGE' }, { status: 413 });
+    }
+
     const supabaseAdmin = createAdminClient();
     const chatCfg = getChatConfig();
 
@@ -33,14 +88,17 @@ export async function POST(request: NextRequest) {
     if (!Array.isArray(messages) || messages.length === 0) {
       return Response.json({ error: 'NO_MESSAGES' }, { status: 400 });
     }
+    if (messages.length > 50) {
+      return Response.json({ error: 'TOO_MANY_MESSAGES' }, { status: 400 });
+    }
 
-    // 2) Cookie clientId
+    // 2) Cookie clientId (NOT httpOnly — client must read it via useChatSession)
     const cookieStore = await cookies();
     let clientId = cookieStore.get(COOKIE_NAME)?.value;
     if (!clientId || !UUID_V4_REGEX.test(clientId)) {
       clientId = crypto.randomUUID();
       cookieStore.set(COOKIE_NAME, clientId, {
-        httpOnly: true,
+        // httpOnly removed — client reads via document.cookie (see hooks/use-chat-session.ts)
         sameSite: 'lax',
         path: '/',
         maxAge: COOKIE_MAX_AGE,
@@ -64,6 +122,17 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: 'SESSION_FAILED' }, { status: 500 });
     }
     const sessionId = (session as { id: string }).id;
+
+    // Fix #3 (sprint 2026-07-27): update ALS context với sessionId THẬT.
+    // Initial placeholder 'pending' đã được set khi wrap handler; giờ
+    // enterWith() sẽ làm tất cả tool call phía sau thấy sessionId chính xác.
+    // Provider/model sẽ được update trong chain loop bằng setChatContext.
+    setChatContext({
+      sessionId,
+      userId,
+      provider: 'pending',
+      model: 'pending',
+    });
 
     // 5) Save latest user message (sliding window: only newest)
     const lastUserMsg = messages[messages.length - 1];
@@ -122,7 +191,9 @@ export async function POST(request: NextRequest) {
     const TOOL_CALL_BUG_RE = /tool call|tool_use|validation|schema|getKnowledge/i;
     const TOOL_CALL_LEAK_RE = /function\s*=\s*\w+\s*>\s*[\{<]/i;
     const FUNCTION_TAG_RE = /<\/?function\s*>/i;
-    const STREAM_TIMEOUT_MS = 25_000;
+    // 9s on Vercel Hobby (10s cap) leaves 1s buffer for onFinish DB write.
+    // On Pro (60s cap), 9s is still safe because models should respond in <9s.
+    const STREAM_TIMEOUT_MS = 9_000;
     const RATE_LIMIT_RE = /rate limit|429|tokens per minute|\btpm\b|quota|too many requests|try again in/i;
 
     // 7) Sliding window: last messages from DB (anti-tampering)
@@ -146,7 +217,7 @@ export async function POST(request: NextRequest) {
                 ? m.parts
                 : '',
       })) as ChatRow[];
-      console.log(`[api/chat] first turn — using client messages directly (${orderedHistory.length})`);
+      devLog(`[api/chat] first turn — using client messages directly (${orderedHistory.length})`);
     } else {
       // Chỉ giữ 1 turn trước (user + assistant) để tránh echo duplicate response trong multi-turn.
       // Lý do: nếu load nhiều turn cũ, context có nhiều câu trả lời tương tự → model dễ generate
@@ -162,7 +233,7 @@ export async function POST(request: NextRequest) {
         console.error('[api/chat] load history failed:', histErr.message);
       }
       orderedHistory = ((history ?? []) as ChatRow[]).reverse();
-      console.log(`[api/chat] multi-turn — loaded ${orderedHistory.length} from DB (limit=2, anti-echo)`);
+      devLog(`[api/chat] multi-turn — loaded ${orderedHistory.length} from DB (limit=2, anti-echo)`);
     }
     // (type ChatRow defined above)
 
@@ -196,7 +267,7 @@ export async function POST(request: NextRequest) {
       const text = extractText(m.content).trim();
       if (!text) return false; // empty content
       if (TOOL_CALL_LEAK_RE.test(text) || FUNCTION_TAG_RE.test(text)) {
-        console.warn(`[api/chat] skipping message with tool-call leak artifact (role=${m.role})`);
+        devWarn(`[api/chat] skipping message with tool-call leak artifact (role=${m.role})`);
         return false;
       }
       return m.role === 'user' || m.role === 'assistant' || m.role === 'system';
@@ -216,7 +287,7 @@ export async function POST(request: NextRequest) {
             const shorter = curText.length < prevText.length ? curText : prevText;
             const longer = curText.length < prevText.length ? prevText : curText;
             if (shorter.length > 50 && longer.includes(shorter)) {
-              console.warn(`[api/chat] dedupe: skipping duplicate assistant message (shorter len=${shorter.length})`);
+              devWarn(`[api/chat] dedupe: skipping duplicate assistant message (shorter len=${shorter.length})`);
               continue;
             }
           }
@@ -230,29 +301,34 @@ export async function POST(request: NextRequest) {
       role: m.role as 'user' | 'assistant' | 'system',
       content: [{ type: 'text' as const, text: extractText(m.content) }],
     }));
-    console.log(`[api/chat] modelMessages count: ${modelMessages.length} (filtered from ${orderedHistory.length}), last:`, JSON.stringify(modelMessages[modelMessages.length - 1]).slice(0, 200));
+    devLog(`[api/chat] modelMessages count: ${modelMessages.length} (filtered from ${orderedHistory.length})`);
 
     // 8) Stream — thử từng provider trong chain (auto-fallback khi quota/404/401)
     const chain = getChatModelChain();
     if (chain.length === 0) {
-      const cooldowns = getCooldownInfo();
+      const cooldowns = await getCooldownInfo();
+      const cfg = chatCfg;
+      const missingKeys = [
+        !cfg.groqKey && 'GROQ_API_KEY',
+        !cfg.openrouterKey && 'OPENROUTER_API_KEY',
+        !cfg.cerebrasKey && 'CEREBRAS_API_KEY',
+        (!cfg.cloudflareKey || !cfg.cloudflareAccountId) && 'CLOUDFLARE_API_KEY/CLOUDFLARE_ACCOUNT_ID',
+        !cfg.geminiKey && 'GOOGLE_AI_API_KEY',
+        !cfg.openaiKey && 'OPENAI_API_KEY',
+      ].filter(Boolean);
       const hasCooldowns = Object.keys(cooldowns).length > 0;
-      if (hasCooldowns) {
-        console.error('[api/chat] All providers in cooldown:', cooldowns);
-        return Response.json(
-          {
-            error: 'ALL_PROVIDERS_COOLDOWN',
-            message: 'Tất cả AI provider đang trong thời gian chờ rate limit. Vui lòng thử lại sau ít phút.',
-            cooldowns,
-          },
-          { status: 503 }
-        );
-      }
-      console.error('[api/chat] No AI provider configured — check env (GROQ_API_KEY / GOOGLE_AI_API_KEY / OPENAI_API_KEY)');
+      console.error('[api/chat] No providers available.', {
+        missingKeys,
+        cooldowns,
+      });
       return Response.json(
         {
-          error: 'NO_PROVIDER',
-          message: 'Chưa cấu hình AI provider. Thêm GROQ_API_KEY / GOOGLE_AI_API_KEY / OPENAI_API_KEY vào .env.local.',
+          error: hasCooldowns ? 'ALL_PROVIDERS_COOLDOWN' : 'NO_PROVIDER',
+          message: hasCooldowns
+            ? 'Tất cả AI provider đang trong thời gian chờ rate limit. Vui lòng thử lại sau ít phút.'
+            : `Chưa cấu hình AI provider. Thiếu env: ${missingKeys.join(', ')}.`,
+          missingKeys: hasCooldowns ? undefined : missingKeys,
+          cooldowns: hasCooldowns ? cooldowns : undefined,
         },
         { status: 503 }
       );
@@ -266,39 +342,54 @@ export async function POST(request: NextRequest) {
 
     for (const entry of chain) {
       tried.push(`${entry.provider}/${entry.modelName}`);
-      console.log(`[api/chat] Trying ${entry.provider}/${entry.modelName}...`);
+      // Fix #2 (sprint 2026-07-27): reset lastStreamErrorMsg đầu mỗi iteration
+      // để catch block không nhầm với error message của provider trước.
+      // Trước đây nếu provider N timeout qua Promise.race, lastStreamErrorMsg
+      // có thể vẫn giữ message của provider N-1 → RATE_LIMIT_RE.test() mark
+      // nhầm provider khỏe → cooldown áp dụng sai.
+      lastStreamErrorMsg = null;
+      devLog(`[api/chat] Trying ${entry.provider}/${entry.modelName}...`);
       try {
+        // Set per-request context so tool calls can read sessionId/userId/etc.
+        // (Replaces removed AI SDK v6 `experimental_context` option.)
+        setChatContext({
+          sessionId,
+          userId,
+          provider: entry.provider,
+          model: entry.modelName,
+        });
         const candidate = streamText({
           model: entry.instance as unknown as Parameters<typeof streamText>[0]['model'],
           system: SYSTEM_PROMPT,
           messages: modelMessages as any,
           tools: allTools,
           stopWhen: stepCountIs(4),
-          experimental_context: {
-            sessionId: sessionId ?? 'unknown',
-            userId: userId ?? null,
-            // Truyền provider + model đang dùng cho từng tool call (analytics)
-            provider: entry.provider,
-            model: entry.modelName,
-          },
-          onFinish: async ({ text, usage }) => {
-            try {
-              await supabaseAdmin.from('chat_messages').insert({
-                session_id: sessionId,
-                role: 'assistant',
-                content: text,
-                tokens_used: usage?.totalTokens ?? null,
-              });
-              await supabaseAdmin
-                .from('chat_sessions')
-                .update({ last_message_at: new Date().toISOString() })
-                .eq('id', sessionId);
-            } catch (e) {
-              console.error(
-                '[api/chat] save assistant msg failed:',
-                e instanceof Error ? e.message : 'unknown'
-              );
-            }
+          // NOTE: `experimental_context` was removed in AI SDK v6. We pass
+          // context to tool factories via closure (see lib/chatbot/tools).
+          onFinish: ({ text, usage }) => {
+            // Fire-and-forget via Vercel waitUntil — user already received the
+            // streamed text; persisting must not race the function ceiling.
+            waitUntil(
+              (async () => {
+                try {
+                  await supabaseAdmin.from('chat_messages').insert({
+                    session_id: sessionId,
+                    role: 'assistant',
+                    content: text,
+                    tokens_used: usage?.totalTokens ?? null,
+                  });
+                  await supabaseAdmin
+                    .from('chat_sessions')
+                    .update({ last_message_at: new Date().toISOString() })
+                    .eq('id', sessionId);
+                } catch (e) {
+                  console.error(
+                    '[api/chat] persist assistant msg failed:',
+                    e instanceof Error ? e.message : 'unknown'
+                  );
+                }
+              })()
+            );
           },
           onError: ({ error }: { error: { message?: string } | Error | unknown }) => {
             const errMsg =
@@ -313,9 +404,7 @@ export async function POST(request: NextRequest) {
           },
         });
 
-        // Race consumeStream với timeout 25s (maxDuration=30, chừa 5s buffer).
-        // Runtime errors (tool call schema mismatch từ Groq 70b, quota exceeded,
-        // 401/404 mid-stream, ...) sẽ surface ở đây → fallback provider tiếp theo.
+        // Race consumeStream với timeout (STREAM_TIMEOUT_MS < maxDuration cap).
         let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
         try {
           await Promise.race([
@@ -347,7 +436,7 @@ export async function POST(request: NextRequest) {
         result = candidate;
         successProvider = `${entry.provider}/${entry.modelName}`;
         setActiveProvider(entry.provider, entry.modelName);
-        console.log(
+        devLog(
           `[api/chat] Using ${entry.provider}/${entry.modelName} (chain: ${chain.map(e => e.provider).join(' → ')})`
         );
         break;
@@ -355,7 +444,7 @@ export async function POST(request: NextRequest) {
         const msg = err instanceof Error ? err.message : String(err);
         const candidateMsg = lastStreamErrorMsg ?? msg;
         if (RATE_LIMIT_RE.test(candidateMsg)) {
-          markProviderRateLimited(entry.provider, candidateMsg);
+          await markProviderRateLimited(entry.provider, candidateMsg);
         }
         const isToolCallBug = TOOL_CALL_BUG_RE.test(msg);
         const tag = isToolCallBug ? 'tool call failure' : 'failed';
@@ -368,6 +457,8 @@ export async function POST(request: NextRequest) {
         });
         result = null;
         // Tiếp tục provider tiếp theo
+      } finally {
+        clearChatContext();
       }
     }
 
@@ -384,7 +475,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log(`[api/chat] Using ${successProvider} (of ${chain.length} available)`);
+    devLog(`[api/chat] Using ${successProvider} (of ${chain.length} available)`);
 
     // Tương thích AI SDK v6 — toUIMessageStreamResponse() trả Response stream.
     // Bọc try/catch để bắt lỗi stream init (provider abort, schema mismatch, etc.)

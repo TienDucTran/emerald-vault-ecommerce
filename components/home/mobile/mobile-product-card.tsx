@@ -50,12 +50,14 @@ export function ProductCardMobile({ product }: ProductCardMobileProps) {
         style={{ backgroundImage: `url('${product.image_url}')` }}
       />
 
-      {/* Gradient overlay bottom */}
+      {/* Gradient overlay bottom — soft fade to separate info block from image.
+          Text contrast được đảm bảo bởi solid backdrop ở .absolute bottom-0. */}
       <div
         className="absolute inset-x-0 bottom-0 pointer-events-none"
         style={{
-          height: 96,
-          background: 'linear-gradient(0deg, rgba(13,17,23,0.95) 0%, rgba(13,17,23,0) 100%)',
+          height: '50%',
+          background:
+            'linear-gradient(0deg, rgba(13,17,23,0.5) 0%, rgba(13,17,23,0) 100%)',
         }}
       />
 
@@ -79,9 +81,11 @@ export function ProductCardMobile({ product }: ProductCardMobileProps) {
         </div>
       )}
 
-      {/* Bottom info */}
-      <div className="absolute inset-x-0 bottom-0 px-3 pb-3 pt-2 flex flex-col gap-1">
-        <span className="font-heading text-[9px] tracking-[0.15em] uppercase text-[rgba(242,202,80,0.7)] truncate">
+      {/* Bottom info — gradient scrim đậm + solid backdrop cho text block
+          để text luôn đọc được trên cả image sáng (bạc/vàng trên nền trắng)
+          lẫn image tối. text-shadow chỉ là belt-and-suspenders. */}
+      <div className="absolute inset-x-0 bottom-0 px-3 pb-3 pt-2 flex flex-col gap-1 bg-[rgba(13,17,23,0.75)] backdrop-blur-[2px] border-t border-[rgba(242,202,80,0.15)]">
+        <span className="font-heading text-[9px] tracking-[0.15em] uppercase text-[rgba(242,202,80,0.85)] truncate">
           {era}
         </span>
         <h3 className="font-serif text-[13px] leading-tight text-[#EAE1D4] line-clamp-2">

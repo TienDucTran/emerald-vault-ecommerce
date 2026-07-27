@@ -1,7 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { formatVND } from '@/lib/utils';
 import { toast } from '@/lib/toast/toast-store';
 import {
@@ -70,16 +71,89 @@ function formatDate(iso: string): string {
 }
 
 export default function OrdersPage() {
-  const [q, setQ] = useState('');
-  const [debouncedQ, setDebouncedQ] = useState('');
-  const [status, setStatus] = useState<OrderStatus | ''>('');
-  const [paymentStatus, setPaymentStatus] = useState<PaymentStatus | ''>('');
-  const [page, setPage] = useState(1);
+  // useSearchParams() requires a Suspense boundary in Next.js 14+ App Router.
+  // We wrap the actual logic in OrdersPageInner below.
+  return (
+    <Suspense fallback={null}>
+      <OrdersPageInner />
+    </Suspense>
+  );
+}
+
+function OrdersPageInner() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // Initialize state từ URL query params (URL = source of truth).
+  // Validate enum values để tránh invalid query (vd ?status=foo) crash UI.
+  const initialQ = searchParams.get('q') ?? '';
+  const initialStatus = ((): OrderStatus | '' => {
+    const v = searchParams.get('status');
+    if (v && ORDER_STATUSES.includes(v as OrderStatus)) return v as OrderStatus;
+    return '';
+  })();
+  const initialPaymentStatus = ((): PaymentStatus | '' => {
+    const v = searchParams.get('paymentStatus');
+    if (v && PAYMENT_STATUSES.includes(v as PaymentStatus)) return v as PaymentStatus;
+    return '';
+  })();
+  const initialPage = (() => {
+    const v = parseInt(searchParams.get('page') ?? '1', 10);
+    return Number.isFinite(v) && v > 0 ? v : 1;
+  })();
+
+  const [q, setQ] = useState(initialQ);
+  const [debouncedQ, setDebouncedQ] = useState(initialQ);
+  const [status, setStatus] = useState<OrderStatus | ''>(initialStatus);
+  const [paymentStatus, setPaymentStatus] = useState<PaymentStatus | ''>(initialPaymentStatus);
+  const [page, setPage] = useState(initialPage);
   const [limit] = useState(20);
 
   const [data, setData] = useState<ListResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Đồng bộ state -> URL khi filter/page đổi.
+  // Dùng router.replace (không push) để không phình history stack.
+  // Skip nếu URL đã khớp state (tránh loop khi user back/forward).
+  useEffect(() => {
+    const next = new URLSearchParams();
+    if (q.trim()) next.set('q', q.trim());
+    if (status) next.set('status', status);
+    if (paymentStatus) next.set('paymentStatus', paymentStatus);
+    if (page > 1) next.set('page', String(page));
+    const target = next.toString();
+    const current = searchParams.toString();
+    if (target !== current) {
+      router.replace(`/admin/orders${target ? `?${target}` : ''}`, { scroll: false });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q, status, paymentStatus, page]);
+
+  // Đồng bộ URL -> state khi user navigate back/forward (popstate).
+  useEffect(() => {
+    const urlQ = searchParams.get('q') ?? '';
+    const urlStatus = ((): OrderStatus | '' => {
+      const v = searchParams.get('status');
+      if (v && ORDER_STATUSES.includes(v as OrderStatus)) return v as OrderStatus;
+      return '';
+    })();
+    const urlPayment = ((): PaymentStatus | '' => {
+      const v = searchParams.get('paymentStatus');
+      if (v && PAYMENT_STATUSES.includes(v as PaymentStatus)) return v as PaymentStatus;
+      return '';
+    })();
+    const urlPage = (() => {
+      const v = parseInt(searchParams.get('page') ?? '1', 10);
+      return Number.isFinite(v) && v > 0 ? v : 1;
+    })();
+    // Chỉ set khi khác để tránh loop với effect trên
+    if (urlQ !== q) setQ(urlQ);
+    if (urlStatus !== status) setStatus(urlStatus);
+    if (urlPayment !== paymentStatus) setPaymentStatus(urlPayment);
+    if (urlPage !== page) setPage(urlPage);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   // Debounce search
   useEffect(() => {
@@ -228,6 +302,7 @@ export default function OrdersPage() {
             setStatus('');
             setPaymentStatus('');
             setPage(1);
+            router.replace('/admin/orders', { scroll: false });
           }}
           className="px-4 py-2 text-[10px] text-gold/60 hover:text-gold font-heading tracking-[0.1em] uppercase transition-colors"
         >
@@ -255,31 +330,31 @@ export default function OrdersPage() {
         }}
       >
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[860px]">
+          <table className="w-full min-w-[640px] text-xs sm:text-sm">
             <thead>
               <tr className="border-b border-[#4D4635]">
-                <th className="text-left px-6 py-4 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">
+                <th className="text-left px-3 md:px-6 py-4 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">
                   Mã đơn
                 </th>
-                <th className="text-left px-6 py-4 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">
+                <th className="text-left px-3 md:px-6 py-4 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">
                   Khách hàng
                 </th>
-                <th className="text-left px-6 py-4 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">
+                <th className="text-left px-3 md:px-6 py-4 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">
                   SĐT
                 </th>
-                <th className="text-right px-6 py-4 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">
+                <th className="text-right px-3 md:px-6 py-4 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">
                   Tổng tiền
                 </th>
-                <th className="text-left px-6 py-4 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">
+                <th className="text-left px-3 md:px-6 py-4 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">
                   Thanh toán
                 </th>
-                <th className="text-left px-6 py-4 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">
+                <th className="text-left px-3 md:px-6 py-4 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">
                   Trạng thái
                 </th>
-                <th className="text-left px-6 py-4 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">
+                <th className="text-left px-3 md:px-6 py-4 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">
                   Ngày tạo
                 </th>
-                <th className="text-right px-6 py-4 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">
+                <th className="text-right px-3 md:px-6 py-4 text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50">
                   Actions
                 </th>
               </tr>
@@ -292,7 +367,7 @@ export default function OrdersPage() {
                     className="border-b border-[#4D4635]/10"
                   >
                     {Array.from({ length: 8 }).map((__, j) => (
-                      <td key={j} className="px-6 py-4">
+                      <td key={j} className="px-3 md:px-6 py-4">
                         <div
                           className="h-3 rounded animate-pulse"
                           style={{ background: 'rgba(77, 70, 53, 0.25)' }}
@@ -307,7 +382,7 @@ export default function OrdersPage() {
                     key={o.id}
                     className="border-b border-[#4D4635]/10 hover:bg-[rgba(56,52,43,0.1)] transition-colors"
                   >
-                    <td className="px-6 py-4">
+                    <td className="px-3 md:px-6 py-4">
                       <Link
                         href={`/admin/orders/${o.id}`}
                         className="text-xs text-gold font-heading hover:text-gold/80"
@@ -318,22 +393,22 @@ export default function OrdersPage() {
                         {o.items_count} sp
                       </div>
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-3 md:px-6 py-4">
                       <span className="text-xs text-[#D0C5AF]">
                         {o.customer_name}
                       </span>
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-3 md:px-6 py-4">
                       <span className="text-xs text-[#D0C5AF]/70">
                         {o.customer_phone}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-right">
+                    <td className="px-3 md:px-6 py-4 text-right">
                       <span className="text-xs text-[#EAE1D4] font-medium whitespace-nowrap">
                         {formatVND(o.total_amount)}
                       </span>
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-3 md:px-6 py-4">
                       <span className="text-xs text-[#D0C5AF]">
                         {getPaymentMethodLabel(o.payment_method)}
                         <span className="text-[#D0C5AF]/40"> · </span>
@@ -342,19 +417,19 @@ export default function OrdersPage() {
                         </span>
                       </span>
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-3 md:px-6 py-4">
                       <span
                         className={`inline-block px-2 py-0.5 text-[10px] font-medium rounded border ${getOrderStatusPill(o.status)}`}
                       >
                         {getOrderStatusMeta(o.status).label}
                       </span>
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-3 md:px-6 py-4">
                       <span className="text-[10px] text-[#D0C5AF]/50">
                         {formatDate(o.created_at)}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-right">
+                    <td className="px-3 md:px-6 py-4 text-right">
                       <Link
                         href={`/admin/orders/${o.id}`}
                         className="inline-flex items-center gap-1.5 rounded border border-gold/30 bg-gold/5 px-4 py-2 text-xs font-heading font-bold tracking-[0.1em] uppercase text-gold transition-colors hover:bg-gold/15 hover:border-gold/60"
@@ -380,7 +455,7 @@ export default function OrdersPage() {
         </div>
 
         {/* Pagination */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-4 sm:px-6 py-4 border-t border-[#4D4635]/30">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-4 sm:px-3 md:px-6 py-4 border-t border-[#4D4635]/30">
           <span className="text-[10px] text-[#D0C5AF]/40">
             {data
               ? `Trang ${data.page}/${totalPages} · ${data.total} đơn`

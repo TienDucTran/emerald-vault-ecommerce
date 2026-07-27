@@ -17,10 +17,12 @@
   html {
     @apply bg-background text-text-base antialiased;
     scroll-behavior: smooth;
+    scroll-padding-top: 110px;
   }
 
   body {
     @apply min-h-screen bg-background;
+    overflow-x: hidden;
     background-image:
       radial-gradient(ellipse at top, rgba(212, 175, 55, 0.04) 0%, transparent 50%),
       linear-gradient(180deg, #0D1117 0%, #051C12 100%);

@@ -33,7 +33,7 @@ export function Navbar() {
   return (
     <header className="w-full border-b border-gold/10 bg-background/90 backdrop-blur-2xl">
       <WishlistBootstrap />
-      <div className="flex h-[60px] items-center justify-between px-8">
+      <div className="flex h-[60px] min-w-0 items-center justify-between px-4 sm:px-6 lg:px-8">
         {/* Logo */}
         <Link
           href="/"
@@ -120,14 +120,14 @@ export function Navbar() {
       <div
         data-open={mobileOpen}
         className={cn(
-          'overflow-hidden border-gold/10 bg-background transition-all duration-300 ease-out lg:hidden',
+          'overflow-visible border-gold/10 bg-background transition-all duration-300 ease-out lg:hidden',
           'border-t',
           mobileOpen
             ? 'max-h-[500px] opacity-100'
             : 'pointer-events-none max-h-0 opacity-0'
         )}
       >
-        <nav className="flex flex-col px-8 py-4">
+        <nav className="flex flex-col px-4 py-4 sm:px-6 lg:px-8">
           <SearchAutocomplete
             mobile
             className="mb-2 w-full"

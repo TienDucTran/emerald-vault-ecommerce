@@ -28,6 +28,8 @@ import {
   toneToDotBg,
 } from '@/lib/order/status';
 import { CustomerActionButtons } from './customer-action-buttons';
+import { createAdminClient } from '@/lib/supabase/admin';
+import type { OrderRefundRow } from '@/lib/supabase/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -61,8 +63,44 @@ export default async function CustomerOrderDetailPage({ params }: PageProps) {
     notFound();
   }
 
+  // Fetch latest refund (if any) để hiển thị banner state đúng
+  // (PENDING / APPROVED / COMPLETED / FAILED / REJECTED).
+  const adminDb = createAdminClient();
+  const { data: latestRefund } = await (adminDb as any)
+    .from('order_refunds')
+    .select('*')
+    .eq('order_id', order.id)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
   const statusMeta = getOrderStatusMeta(order.status);
   const paymentMeta = getPaymentStatusMeta(order.payment_status);
+
+  // Điều chỉnh chip payment khi có refund state REJECTED.
+  //
+  // Sau fix Phase 1 (2026-07-27), khi admin REJECTED → orders.payment_status='PAID'
+  // nên chip gốc sẽ hiển thị "Đã thanh toán" — gây nhầm lẫn vì customer đang có
+  // yêu cầu hoàn tiền bị từ chối. Override label/textColor để truyền đạt rõ context:
+  //   - latestRefund.state='REJECTED' → "Đã thanh toán · Hoàn tiền bị từ chối"
+  //   - latestRefund.state='COMPLETED' → dùng REFUNDED label (đã match) nhưng giữ fallback
+  //   - Còn lại → paymentMeta gốc
+  const refundState = latestRefund?.state ?? null;
+  let paymentChipLabel = paymentMeta.label;
+  let paymentChipTextColor = paymentMeta.textColor;
+  let paymentChipDotTone = paymentMeta.tone;
+  if (refundState === 'REJECTED') {
+    paymentChipLabel = 'Đã thanh toán · Hoàn tiền bị từ chối';
+    // Dùng tone amber cho rõ "không phải PAID thành công" mà là "có tranh chấp"
+    paymentChipTextColor = 'text-warning';
+    paymentChipDotTone = 'amber';
+  } else if (refundState === 'PENDING' || refundState === 'APPROVED' || refundState === 'FAILED') {
+    // Active refund → giữ REFUND_REQUESTED label (đã match paymentMeta) nhưng ưu tiên rõ ràng
+    paymentChipLabel = 'Đang yêu cầu hoàn tiền';
+    paymentChipTextColor = 'text-warning';
+    paymentChipDotTone = 'amber';
+  }
+
   const methodLabel = getPaymentMethodLabel(order.payment_method);
   const createdDate = new Date(order.created_at);
   const dateLabel = createdDate.toLocaleDateString('vi-VN', {
@@ -175,8 +213,8 @@ export default async function CustomerOrderDetailPage({ params }: PageProps) {
                 TRẠNG THÁI
               </p>
               <div className="flex items-center gap-2">
-                <span className={`h-1.5 w-1.5 rounded-full ${toneToDotBg(paymentMeta.tone)}`} />
-                <p className={`font-sans ${paymentMeta.textColor}`}>{paymentMeta.label}</p>
+                <span className={`h-1.5 w-1.5 rounded-full ${toneToDotBg(paymentChipDotTone)}`} />
+                <p className={`font-sans ${paymentChipTextColor}`}>{paymentChipLabel}</p>
               </div>
             </div>
           </div>
@@ -277,6 +315,7 @@ export default async function CustomerOrderDetailPage({ params }: PageProps) {
             orderCode={order.code}
             status={order.status}
             paymentStatus={order.payment_status}
+            latestRefund={(latestRefund ?? null) as OrderRefundRow | null}
           />
         </div>
       </section>

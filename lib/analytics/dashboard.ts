@@ -177,11 +177,21 @@ export async function getDashboardData(): Promise<DashboardData> {
       .select('id', { count: 'exact', head: true })
       .eq('status', 'WAITING_CONFIRM')
       .eq('payment_method', 'BANK_TRANSFER'),
-    // Refund requests pending (customer yêu cầu hoàn tiền, admin chưa xử lý)
+    // Refund requests pending (customer yêu cầu hoàn tiền, admin chưa xử lý).
+    //
+    // Count từ bảng `order_refunds` (source of truth) — state PENDING/APPROVED/FAILED
+    // là các refund cần admin action. Bỏ REJECTED (đã chốt) + COMPLETED (đã CK).
+    //
+    // KHÔNG dùng `orders WHERE payment_status='REFUND_REQUESTED'` nữa vì:
+    //   - Sau khi admin REJECTED qua API mới (2026-07-27), payment_status reset về PAID
+    //     → query cũ sẽ missed các refund REJECTED cần cleanup. Tuy nhiên cũng inflated
+    //     bởi data cũ (admin reject trước refactor) vẫn còn REFUND_REQUESTED.
+    //   - Source of truth cho refund lifecycle là `order_refunds.state`, không phải
+    //     `orders.payment_status` (xem flows.md §10.5).
     sb
-      .from('orders')
+      .from('order_refunds')
       .select('id', { count: 'exact', head: true })
-      .eq('payment_status', 'REFUND_REQUESTED'),
+      .in('state', ['PENDING', 'APPROVED', 'FAILED']),
     // Products counts
     sb.from('products').select('id', { count: 'exact', head: true }),
     sb

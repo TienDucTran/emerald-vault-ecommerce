@@ -245,7 +245,7 @@ function KnowledgeTab({ confirm }: { confirm: ConfirmFn }) {
 
       {editing && (
         <div className="space-y-3 p-4 rounded border border-gold/20 bg-[#1F1B13]">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className={labelCls}>Category</label>
               <select
@@ -471,7 +471,7 @@ function FaqsTab({ confirm }: { confirm: ConfirmFn }) {
               onChange={(e) => setEditing({ ...editing, answer: e.target.value })}
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className={labelCls}>Category</label>
               <input
@@ -670,7 +670,7 @@ function UpcomingProductsTab({
 
       {editing && (
         <div className="space-y-3 p-4 rounded border border-gold/20 bg-[#1F1B13]">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className={labelCls}>Title</label>
               <input
@@ -704,7 +704,7 @@ function UpcomingProductsTab({
               onChange={(e) => setEditing({ ...editing, description: e.target.value })}
             />
           </div>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className={labelCls}>Material</label>
               <select
@@ -928,7 +928,7 @@ function UpcomingCollectionsTab({
 
       {editing && (
         <div className="space-y-3 p-4 rounded border border-gold/20 bg-[#1F1B13]">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className={labelCls}>Name</label>
               <input
@@ -1138,7 +1138,7 @@ function PromotionsTab({ confirm }: { confirm: ConfirmFn }) {
               onChange={(e) => setEditing({ ...editing, description: e.target.value })}
             />
           </div>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className={labelCls}>Type</label>
               <select
@@ -1187,7 +1187,7 @@ function PromotionsTab({ confirm }: { confirm: ConfirmFn }) {
               onChange={(e) => setEditing({ ...editing, code: e.target.value })}
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className={labelCls}>Valid from</label>
               <input
@@ -1831,7 +1831,7 @@ function SuggestedAnswersTab({ confirm }: { confirm: ConfirmFn }) {
 
       {editing && (
         <div className="space-y-3 p-4 rounded border border-gold/20 bg-[#1F1B13]">
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className={labelCls}>Category</label>
               <select

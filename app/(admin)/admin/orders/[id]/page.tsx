@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { StatusUpdateDialog } from '@/components/admin/orders/status-update-dialog';
 import { BankPaymentActions } from '@/components/admin/orders/bank-payment-actions';
+import { RefundPanel } from '@/components/admin/orders/refund-panel';
 import { requireAdmin } from '@/lib/auth/require-admin';
 import { formatVND, MATERIAL_LABELS } from '@/lib/utils';
 import { getBankByCode } from '@/lib/bank/types';
@@ -19,6 +20,7 @@ import {
 } from '@/lib/order/status';
 import type {
   Material,
+  OrderRefundRow,
   OrderRow,
   PaymentMethod,
 } from '@/lib/supabase/types';
@@ -157,6 +159,20 @@ export default async function OrderDetailPage({
     } else if (btRaw) {
       bankTransfer = btRaw as BankTransferRow;
     }
+  }
+
+  // Lấy refund row mới nhất (PENDING/APPROVED active, hoặc terminal cuối).
+  // Phase 3: admin panel đọc trực tiếp từ bảng order_refunds (source of truth).
+  let refund: OrderRefundRow | null = null;
+  const { data: refundRaw } = await (adminClient as any)
+    .from('order_refunds')
+    .select('*')
+    .eq('order_id', order.id)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (refundRaw) {
+    refund = refundRaw as OrderRefundRow;
   }
 
   const subtotal = order.total_amount - order.shipping_fee;
@@ -323,6 +339,18 @@ export default async function OrderDetailPage({
           currentStatus={order.status}
         />
       )}
+
+      {/* Hoàn tiền (khi order.payment_status = REFUND_REQUESTED/REFUNDED hoặc đã có refund row) */}
+      {order.payment_status === 'REFUND_REQUESTED' ||
+      order.payment_status === 'REFUNDED' ||
+      refund ? (
+        <RefundPanel
+          orderId={order.id}
+          orderCode={order.code}
+          orderTotal={order.total_amount}
+          refund={refund}
+        />
+      ) : null}
 
       {/* Sản phẩm */}
       <section

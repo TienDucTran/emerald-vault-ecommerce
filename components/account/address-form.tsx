@@ -23,6 +23,11 @@ export interface AddressFormProps {
   onCancel: () => void;
   submitLabel?: string;
   isLoading?: boolean;
+  /**
+   * Optional: emit form values on every change. Useful cho AddressPicker
+   * trong checkout cần propagate live value lên parent state.
+   */
+  onChange?: (data: AddressFormValues) => void;
 }
 
 const inputClass = cn(
@@ -72,6 +77,7 @@ export function AddressForm({
   onCancel,
   submitLabel,
   isLoading,
+  onChange,
 }: AddressFormProps) {
   const isEdit = Boolean(initial?.id);
   const [form, setForm] = useState<AddressFormValues>(() => fromInitial(initial));
@@ -81,7 +87,11 @@ export function AddressForm({
     field: K,
     value: AddressFormValues[K]
   ) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
+    setForm((prev) => {
+      const next = { ...prev, [field]: value };
+      onChange?.(next);
+      return next;
+    });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {

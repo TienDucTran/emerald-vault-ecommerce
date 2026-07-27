@@ -7,12 +7,19 @@
  * re-export + giữ alias cũ (`Address`, `WishlistItem`, `Review`) cho code đã import.
  */
 
-import type { ProductRow, AddressRow, WishlistItemRow, ReviewRow } from '@/lib/supabase/types';
+import type {
+  ProductRow,
+  AddressRow,
+  WishlistItemRow,
+  ReviewRow,
+  OrderRefundRow,
+} from '@/lib/supabase/types';
 
 // Aliases để giữ tương thích với code đã dùng `Address` / `WishlistItem` / `Review`.
 export type Address = AddressRow;
 export type WishlistItem = WishlistItemRow;
 export type Review = ReviewRow;
+export type OrderRefund = OrderRefundRow;
 
 export type AddressInsert = Omit<Address, 'id' | 'created_at' | 'updated_at'> & {
   id?: string;

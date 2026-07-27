@@ -69,18 +69,18 @@ export function HeroSection() {
 
         {/* CTA buttons */}
         <div
-          className="flex flex-wrap items-center justify-center gap-2 pt-2 sm:gap-4 sm:pt-4 motion-safe:animate-fadeInUp"
+          className="flex w-full max-w-md flex-col items-stretch justify-center gap-2 pt-2 sm:flex-row sm:items-center sm:gap-4 sm:pt-4 motion-safe:animate-fadeInUp"
           style={{ animationDelay: '300ms', animationFillMode: 'backwards' }}
         >
           <Link
             href="/san-pham"
-            className="bg-gold px-5 py-2.5 font-heading text-[10px] font-bold uppercase tracking-[0.1em] text-background transition-all duration-300 hover:bg-gold-champagne hover:-translate-y-0.5 hover:shadow-lg sm:px-10 sm:py-4 sm:text-xs"
+            className="bg-gold px-5 py-2.5 text-center font-heading text-[10px] font-bold uppercase tracking-[0.1em] text-background transition-all duration-300 hover:bg-gold-champagne hover:-translate-y-0.5 hover:shadow-lg sm:px-10 sm:py-4 sm:text-xs"
           >
             Khám phá ngay
           </Link>
           <Link
             href="/bo-suu-tap"
-            className="border border-gold px-5 py-2.5 font-heading text-[10px] font-bold uppercase tracking-[0.1em] text-gold transition-all duration-300 hover:bg-gold/10 hover:-translate-y-0.5 sm:px-10 sm:py-4 sm:text-xs"
+            className="border border-gold px-5 py-2.5 text-center font-heading text-[10px] font-bold uppercase tracking-[0.1em] text-gold transition-all duration-300 hover:bg-gold/10 hover:-translate-y-0.5 sm:px-10 sm:py-4 sm:text-xs"
           >
             Xem bộ sưu tập
           </Link>

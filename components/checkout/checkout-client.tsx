@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useCartStore } from '@/lib/store/cart';
+import { useCountdown } from '@/hooks/use-countdown';
 import { useJewelryAnalytics } from '@/hooks/use-jewelry-analytics';
 import type {
   ProductCategory,
@@ -58,14 +59,10 @@ export function CheckoutClient({ item, isBankConfigured }: CheckoutClientProps) 
   // Fire begin_checkout đúng 1 lần khi displayItem sẵn sàng.
   const beginFiredRef = useRef(false);
 
-  // Tick mỗi giây để `minExpiresAt` + `itemCount` được recompute theo thời gian thực
-  // (cart store chỉ emit khi items[] thay đổi, không tick theo đồng hồ).
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    const interval = setInterval(() => setTick((t) => t + 1), 1000);
-    return () => clearInterval(interval);
-  }, []);
-
+  // useCountdown hook thay cho setInterval riêng. Hook return ms còn lại của
+  // minExpiresAt → trigger re-render mỗi 1 giây, giúp activeItems filter
+  // (dựa trên Date.now()) luôn đúng. Khi tất cả items expire → hook trả về 0,
+  // activeItems.filter loại bỏ hết → CheckoutForm hiển thị empty state.
   const activeItems = useCartStore((s) =>
     s.items.filter((i) => Date.now() < i.expiresAt)
   );
@@ -74,6 +71,8 @@ export function CheckoutClient({ item, isBankConfigured }: CheckoutClientProps) 
     activeItems.length > 0
       ? Math.min(...activeItems.map((i) => i.expiresAt))
       : null;
+  // Gọi hook ở top-level (không điều kiện) để giữ React rules-of-hooks.
+  useCountdown(minExpiresAt);
 
   const allCheckoutItems: CheckoutItem[] =
     activeItems.length > 0

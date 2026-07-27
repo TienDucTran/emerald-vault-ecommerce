@@ -135,7 +135,7 @@ export function AdminHeader() {
 
   return (
     <header
-      className="fixed top-0 right-0 z-30 h-16 flex items-center justify-between px-4 md:px-6 bg-[rgba(13,17,23,0.8)] backdrop-blur-[6px] border-b border-[#4D4635] transition-[left] duration-300 ease-in-out"
+      className="fixed top-0 right-0 z-40 h-16 flex items-center justify-between px-4 md:px-6 bg-[rgba(13,17,23,0.8)] backdrop-blur-[6px] border-b border-[#4D4635] transition-[left] duration-300 ease-in-out"
       style={{ left: headerLeft }}
     >
       {/* Left: Toolbar + Breadcrumb */}
