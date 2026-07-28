@@ -33,6 +33,10 @@ import {
   buildAddPaymentInfoEvent,
   buildPurchaseEvent,
   buildViewCollectionEvent,
+  buildChatOpenedEvent,
+  buildChatMessageSentEvent,
+  buildChatProductClickedEvent,
+  buildChatLeadCapturedEvent,
   type AddPaymentInfoParams,
   type BeginCheckoutParams,
   type LockSuccessParams,
@@ -42,6 +46,12 @@ import {
   type ViewCollectionParams,
   type ViewItemParams,
   type AddToCartParams,
+  type ChatOpenedParams,
+  type ChatMessageSentParams,
+  type ChatProductClickedParams,
+  type ChatProductSource,
+  type ChatLeadCapturedParams,
+  type ChatContactType,
 } from '@/lib/analytics/events';
 import type { OrderRow, OrderItemRow } from '@/lib/supabase/types';
 import type { Product } from '@/lib/types';
@@ -64,6 +74,18 @@ function hasAnalyticsConsent(): boolean {
   if (typeof window === 'undefined') return false;
   try {
     return window.localStorage.getItem(CONSENT_KEY) === 'granted';
+  } catch {
+    return false;
+  }
+}
+
+/** Đánh dấu user đã từng mở chat trước đó (cho event `chat_opened`). */
+const CHAT_SEEN_KEY = 'ev_chat_seen';
+
+function readReturningUser(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(CHAT_SEEN_KEY) === '1';
   } catch {
     return false;
   }
@@ -129,6 +151,56 @@ export function useJewelryAnalytics() {
     []
   );
 
+  // 4 chatbot events — wrappers tối giản cho caller, build params ngay tại đây
+  // để giữ API đơn giản (positional args). SSR-safe qua `push()`.
+  const trackChatOpened = useCallback(
+    (sessionId: string) =>
+      push(
+        buildChatOpenedEvent({
+          session_id: sessionId,
+          is_returning_user: readReturningUser(),
+        } as ChatOpenedParams)
+      ),
+    []
+  );
+
+  const trackChatMessageSent = useCallback(
+    (sessionId: string, content: string, hasProductInHistory: boolean = false) =>
+      push(
+        buildChatMessageSentEvent({
+          session_id: sessionId,
+          message_length: content.length,
+          has_product_in_history: hasProductInHistory,
+        } as ChatMessageSentParams)
+      ),
+    []
+  );
+
+  const trackChatProductClicked = useCallback(
+    (productId: string, slug: string, price: number, source: ChatProductSource) =>
+      push(
+        buildChatProductClickedEvent({
+          product_id: productId,
+          product_slug: slug,
+          product_price: price,
+          source,
+        } as ChatProductClickedParams)
+      ),
+    []
+  );
+
+  const trackChatLeadCaptured = useCallback(
+    (sessionId: string, contactType: ChatContactType, hasMatchedProduct: boolean) =>
+      push(
+        buildChatLeadCapturedEvent({
+          session_id: sessionId,
+          contact_type: contactType,
+          has_matched_product: hasMatchedProduct,
+        } as ChatLeadCapturedParams)
+      ),
+    []
+  );
+
   // Tiện ích debug — chỉ dùng khi dev.
   const debugConsent = useCallback(() => {
     if (typeof window === 'undefined') return 'ssr';
@@ -149,6 +221,10 @@ export function useJewelryAnalytics() {
       addPaymentInfo,
       purchase,
       viewCollection,
+      trackChatOpened,
+      trackChatMessageSent,
+      trackChatProductClicked,
+      trackChatLeadCaptured,
       /** Trả về 'granted' | 'denied' | 'unset' | 'ssr' | 'unavailable' */
       debugConsent,
       /** Currency code chuẩn của app (cho caller muốn override). */
@@ -163,6 +239,10 @@ export function useJewelryAnalytics() {
       addPaymentInfo,
       purchase,
       viewCollection,
+      trackChatOpened,
+      trackChatMessageSent,
+      trackChatProductClicked,
+      trackChatLeadCaptured,
       debugConsent,
     ]
   );
@@ -182,6 +262,12 @@ export type {
   ViewCollectionParams,
   ViewItemParams,
   AddToCartParams,
+  ChatOpenedParams,
+  ChatMessageSentParams,
+  ChatProductClickedParams,
+  ChatProductSource,
+  ChatLeadCapturedParams,
+  ChatContactType,
 };
 
 export type UseJewelryAnalytics = ReturnType<typeof useJewelryAnalytics>;

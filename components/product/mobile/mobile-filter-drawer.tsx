@@ -167,7 +167,7 @@ export function MobileFilterDrawer({ open, onClose, priceRange }: MobileFilterDr
                 type="number"
                 value={minVal}
                 onChange={(e) => setMinVal(Number(e.target.value) || 0)}
-                className="h-10 w-full rounded-sm border border-gold/20 bg-surface px-3 text-sm text-text-base focus:border-gold/50 focus:outline-none"
+                className="h-10 w-full appearance-none rounded-sm border border-gold/20 bg-surface px-3 text-sm text-text-base focus:border-gold/50 focus:outline-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-inner-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0"
                 placeholder="Từ"
               />
               <span className="text-text-muted">—</span>
@@ -175,13 +175,13 @@ export function MobileFilterDrawer({ open, onClose, priceRange }: MobileFilterDr
                 type="number"
                 value={maxVal}
                 onChange={(e) => setMaxVal(Number(e.target.value) || priceRange.max)}
-                className="h-10 w-full rounded-sm border border-gold/20 bg-surface px-3 text-sm text-text-base focus:border-gold/50 focus:outline-none"
+                className="h-10 w-full appearance-none rounded-sm border border-gold/20 bg-surface px-3 text-sm text-text-base focus:border-gold/50 focus:outline-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-inner-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0"
                 placeholder="Đến"
               />
             </div>
             <div className="mt-2 flex justify-between text-xs text-text-muted">
-              <span>{(priceRange.min / 1_000_000).toFixed(0)}M</span>
-              <span>{(priceRange.max / 1_000_000).toFixed(0)}M+</span>
+              <span>{Math.round(priceRange.min / 1_000)}K</span>
+              <span>{Math.round(priceRange.max / 1_000)}K+</span>
             </div>
           </div>
         </div>

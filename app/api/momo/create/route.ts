@@ -12,10 +12,31 @@ import { randomUUID } from 'node:crypto';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createMoMoPayment, isMoMoConfigured } from '@/lib/momo/client';
 import { getOrderByCode } from '@/lib/supabase/queries/orders';
+import { rateLimit } from '@/lib/middleware';
 
 const Body = z.object({ orderCode: z.string().min(1) });
 
 export async function POST(req: Request) {
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0].trim() ?? 'unknown';
+  const limit = await rateLimit('momo-create', {
+    identifier: ip,
+    limit: 5,
+    window: '1 m',
+  });
+  if (!limit.ok) {
+    return NextResponse.json(
+      { ok: false, error: 'RATE_LIMITED', retryAfter: limit.retryAfter },
+      {
+        status: 429,
+        headers: {
+          'Retry-After': String(limit.retryAfter ?? 60),
+          'X-RateLimit-Remaining': '0',
+          'X-RateLimit-Reset': String(limit.resetAt),
+        },
+      }
+    );
+  }
+
   if (!isMoMoConfigured()) {
     return NextResponse.json(
       { ok: false, error: 'MOMO_NOT_CONFIGURED' },

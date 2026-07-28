@@ -28,6 +28,7 @@ import { generateOrderCode } from '@/lib/supabase/queries/orders';
 import { getBankConfig } from '@/lib/bank/config';
 import { generateVietQRUrl, formatTransferContent } from '@/lib/bank/vietqr';
 import { getBankByCode } from '@/lib/bank/types';
+import { rateLimit } from '@/lib/middleware';
 
 const ItemSchema = z.object({
   productId: z.string().uuid(),
@@ -70,6 +71,26 @@ const Body = z.object({
 });
 
 export async function POST(req: Request) {
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0].trim() ?? 'unknown';
+  const limit = await rateLimit('orders', {
+    identifier: ip,
+    limit: 5,
+    window: '1 m',
+  });
+  if (!limit.ok) {
+    return NextResponse.json(
+      { ok: false, error: 'RATE_LIMITED', retryAfter: limit.retryAfter },
+      {
+        status: 429,
+        headers: {
+          'Retry-After': String(limit.retryAfter ?? 60),
+          'X-RateLimit-Remaining': '0',
+          'X-RateLimit-Reset': String(limit.resetAt),
+        },
+      }
+    );
+  }
+
   let raw: unknown;
   try {
     raw = await req.json();
@@ -316,13 +337,38 @@ export async function POST(req: Request) {
 
   // 5b. (MOMO / BANK_TRANSFER) Mark products as RESERVED
   //     → prevents other users from buying during async payment
+  // MED #15: set_products_reserved failure trước đây bị bỏ qua (chỉ console.error)
+  //   → nếu RPC throw, sản phẩm vẫn AVAILABLE trong khi order đã tạo + lock tồn tại
+  //   → user khác có thể checkout trùng sản phẩm. Cho BANK_TRANSFER đặc biệt
+  //   nguy hiểm vì admin confirm sau 24h, lock có thể đã expire → race.
+  //   Fix: fail fast + cleanup toàn bộ (order + bank_transfers + locks + products).
   if (payment === 'MOMO' || payment === 'BANK_TRANSFER') {
     const { error: reserveErr } = await db.rpc('set_products_reserved', {
       p_order_id: order.id,
     });
     if (reserveErr) {
       console.error('[orders] set_products_reserved failed:', reserveErr.message);
-      // Non-fatal — the lock still blocks other clients via lock_item RPC
+      // Cleanup: xóa order, release locks, đưa products về AVAILABLE.
+      // Thứ tự: locks trước (tránh race), products, order cuối.
+      // bank_transfers chưa tồn tại ở bước này (insert ở step 7).
+      await cleanupFailedBankOrder({
+        orderId: order.id,
+        productIds,
+        locks,
+        bankDb,
+        ordersDb,
+        locksDb,
+        prodDb,
+      });
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'RESERVE_FAILED',
+          message:
+            'Không thể giữ chỗ sản phẩm. Vui lòng thử lại hoặc liên hệ admin.',
+        },
+        { status: 500 }
+      );
     }
   }
 
@@ -365,13 +411,39 @@ export async function POST(req: Request) {
       qr_expires_at: expiresAt,
     });
     if (btErr) {
-      // Rollback order nếu tạo bank_transfers fail
-      await ordersDb.delete().eq('id', order.id);
-      for (const l of locks) {
-        await locksDb
-          .update({ status: 'RELEASED', released_at: new Date().toISOString() })
-          .eq('id', l.lockId);
+      // MED #6: Duplicate order_id (constraint 0026) sẽ trả code 23505.
+      //   Coi như idempotent success — trả order hiện có để client không retry.
+      if (btErr.code === '23505' || /unique/i.test(btErr.message)) {
+        const { data: existingBt } = await bankDb
+          .select('id, qr_expires_at')
+          .eq('order_id', order.id)
+          .maybeSingle();
+        if (existingBt) {
+          // Order đã có bank_transfer từ trước → trả success với data hiện có.
+          return NextResponse.json({
+            ok: true,
+            order: {
+              id: order.id,
+              code: order.code,
+              status: order.status,
+              paymentMethod: order.payment_method,
+              paymentStatus: order.payment_status,
+              totalAmount: order.total_amount,
+            },
+            redirectUrl: `/don-hang/${order.code}/thanh-toan`,
+          });
+        }
       }
+      // Rollback order nếu tạo bank_transfers fail
+      await cleanupFailedBankOrder({
+        orderId: order.id,
+        productIds,
+        locks,
+        bankDb,
+        ordersDb,
+        locksDb,
+        prodDb,
+      });
       return NextResponse.json(
         { ok: false, error: 'BANK_TRANSFER_INIT_FAILED', message: btErr.message },
         { status: 500 }
@@ -399,4 +471,69 @@ export async function POST(req: Request) {
     },
     redirectUrl,
   });
+}
+
+// ----------------------------------------------------------------------------
+// Helper: cleanupFailedBankOrder
+// ----------------------------------------------------------------------------
+// Dọn dẹp khi /api/orders POST fail giữa chừng (set_products_reserved throw,
+// bank_transfers insert fail, ...) cho BANK_TRANSFER / MOMO flow.
+//
+// Thứ tự cleanup (an toàn cho race):
+//   1. bank_transfers: xóa nếu đã insert (cascade cũng xóa nếu order bị xóa,
+//      nhưng gọi tường minh để idempotent nếu chỉ cleanup partial).
+//   2. inventory_locks: RELEASED để lock_item RPC có thể cấp lại ngay.
+//   3. products: RESERVED → AVAILABLE (CHỈ touch RESERVED, không đụng SOLD_OUT
+//      vì có thể product đã được finalize từ flow khác).
+//   4. orders: xóa cuối cùng. CASCADE cũng xóa order_items.
+//
+// Best-effort: log lỗi từng bước nhưng KHÔNG throw — caller đã trả 500 cho user.
+// ----------------------------------------------------------------------------
+async function cleanupFailedBankOrder(args: {
+  orderId: string;
+  productIds: string[];
+  locks: { productId: string; lockId: string | null }[];
+  bankDb: any;
+  ordersDb: any;
+  locksDb: any;
+  prodDb: any;
+}): Promise<void> {
+  const { orderId, productIds, locks, bankDb, ordersDb, locksDb, prodDb } = args;
+  const nowIso = new Date().toISOString();
+
+  // 1. bank_transfers (nếu có)
+  const { error: btDelErr } = await bankDb.delete().eq('order_id', orderId);
+  if (btDelErr) {
+    console.error('[cleanup] bank_transfers delete failed:', btDelErr.message);
+  }
+
+  // 2. inventory_locks
+  if (locks.length > 0) {
+    const lockIds = locks.map((l) => l.lockId).filter((x): x is string => !!x);
+    if (lockIds.length > 0) {
+      const { error: lockErr } = await locksDb
+        .update({ status: 'RELEASED', released_at: nowIso })
+        .in('id', lockIds);
+      if (lockErr) {
+        console.error('[cleanup] inventory_locks release failed:', lockErr.message);
+      }
+    }
+  }
+
+  // 3. products RESERVED → AVAILABLE (chỉ touch RESERVED)
+  if (productIds.length > 0) {
+    const { error: prodErr } = await prodDb
+      .update({ status: 'AVAILABLE' })
+      .in('id', productIds)
+      .eq('status', 'RESERVED');
+    if (prodErr) {
+      console.error('[cleanup] products rollback failed:', prodErr.message);
+    }
+  }
+
+  // 4. orders (cascade xóa order_items)
+  const { error: orderDelErr } = await ordersDb.delete().eq('id', orderId);
+  if (orderDelErr) {
+    console.error('[cleanup] orders delete failed:', orderDelErr.message);
+  }
 }

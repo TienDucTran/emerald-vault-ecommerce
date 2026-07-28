@@ -19,6 +19,7 @@ import {
   runWithChatContext,
 } from '@/lib/chatbot/tools';
 import { getChatConfig } from '@/lib/chatbot/config';
+import { rateLimit } from '@/lib/middleware';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -68,7 +69,28 @@ export async function POST(request: NextRequest) {
 
 async function handleChatPost(request: NextRequest): Promise<Response> {
   try {
-    // 0) Payload size guard (DoS surface)
+    // 0) Rate-limit (IP) — chặn spam và bảo vệ AI provider quota.
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0].trim() ?? 'unknown';
+    const limit = await rateLimit('chat', {
+      identifier: ip,
+      limit: 20,
+      window: '1 m',
+    });
+    if (!limit.ok) {
+      return Response.json(
+        { error: 'RATE_LIMITED', retryAfter: limit.retryAfter },
+        {
+          status: 429,
+          headers: {
+            'Retry-After': String(limit.retryAfter ?? 60),
+            'X-RateLimit-Remaining': '0',
+            'X-RateLimit-Reset': String(limit.resetAt),
+          },
+        }
+      );
+    }
+
+    // 0b) Payload size guard (DoS surface)
     const contentLength = Number(request.headers.get('content-length') ?? 0);
     if (contentLength > CONTENT_LENGTH_LIMIT) {
       return Response.json({ error: 'PAYLOAD_TOO_LARGE' }, { status: 413 });

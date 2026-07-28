@@ -11,6 +11,7 @@ const AUTH_PATHS = [
   '/tai-khoan/dang-ky',
   '/tai-khoan/quen-mat-khau',
   '/tai-khoan/dat-lai-mat-khau',
+  '/tai-khoan/xac-nhan-email',
 ];
 
 export default function AccountLayout({ children }: { children: React.ReactNode }) {

@@ -303,3 +303,104 @@ export function buildViewCollectionEvent(
     },
   };
 }
+
+/* -------------------------------------------------------------------------- */
+/*  9) chat_opened — User mở chat panel (bubble click)                          */
+/* -------------------------------------------------------------------------- */
+
+export interface ChatOpenedParams {
+  session_id: string;
+  /** User đã từng mở chat trước đó (đánh dấu qua localStorage). */
+  is_returning_user: boolean;
+}
+
+export function buildChatOpenedEvent(
+  params: ChatOpenedParams
+): { name: string; params: Record<string, unknown> } {
+  return {
+    name: 'chat_opened',
+    params: {
+      session_id: params.session_id,
+      is_returning_user: params.is_returning_user,
+    },
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/*  10) chat_message_sent — User gửi 1 message qua input                        */
+/* -------------------------------------------------------------------------- */
+
+export interface ChatMessageSentParams {
+  session_id: string;
+  /** Độ dài message (ký tự, content.length). */
+  message_length: number;
+  /** Lịch sử trước đó đã có assistant message render product card chưa. */
+  has_product_in_history: boolean;
+}
+
+export function buildChatMessageSentEvent(
+  params: ChatMessageSentParams
+): { name: string; params: Record<string, unknown> } {
+  return {
+    name: 'chat_message_sent',
+    params: {
+      session_id: params.session_id,
+      message_length: params.message_length,
+      has_product_in_history: params.has_product_in_history,
+    },
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/*  11) chat_product_clicked — Click vào product card trong chat                */
+/* -------------------------------------------------------------------------- */
+
+export type ChatProductSource = 'inline_card' | 'featured' | 'related';
+
+export interface ChatProductClickedParams {
+  product_id: string;
+  product_slug: string;
+  product_price: number;
+  /** Vị trí card xuất hiện trong panel. */
+  source: ChatProductSource;
+}
+
+export function buildChatProductClickedEvent(
+  params: ChatProductClickedParams
+): { name: string; params: Record<string, unknown> } {
+  return {
+    name: 'chat_product_clicked',
+    params: {
+      product_id: params.product_id,
+      product_slug: params.product_slug,
+      product_price: params.product_price,
+      source: params.source,
+    },
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/*  12) chat_lead_captured — Tool captureLead thành công                         */
+/* -------------------------------------------------------------------------- */
+
+export type ChatContactType = 'phone' | 'email' | 'zalo';
+
+export interface ChatLeadCapturedParams {
+  session_id: string;
+  contact_type: ChatContactType;
+  /** Có match với product nào user đang quan tâm không. */
+  has_matched_product: boolean;
+}
+
+export function buildChatLeadCapturedEvent(
+  params: ChatLeadCapturedParams
+): { name: string; params: Record<string, unknown> } {
+  return {
+    name: 'chat_lead_captured',
+    params: {
+      session_id: params.session_id,
+      contact_type: params.contact_type,
+      has_matched_product: params.has_matched_product,
+    },
+  };
+}

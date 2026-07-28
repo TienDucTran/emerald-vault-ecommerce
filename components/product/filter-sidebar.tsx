@@ -137,8 +137,10 @@ function AvailableToggle({ delay = 0 }: { delay?: number }) {
         >
           <span
             className={cn(
-              'inline-block h-4 w-4 transform rounded-full bg-gold transition-transform',
-              showAll ? 'translate-x-1' : 'translate-x-6'
+              'inline-block h-4 w-4 transform rounded-full transition-transform',
+              showAll
+                ? 'translate-x-1 bg-gold'
+                : 'translate-x-6 bg-background'
             )}
           />
         </button>
@@ -196,7 +198,7 @@ function PriceRange({ min, max, currentMin, currentMax, delay = 0 }: PriceRangeP
               type="number"
               value={minVal}
               onChange={(e) => setMinVal(Number(e.target.value) || 0)}
-              className="h-9 w-full rounded-md border border-gold/30 bg-background px-2 text-text-base focus:border-gold focus:outline-none"
+              className="h-9 w-full appearance-none rounded-md border border-gold/30 bg-background px-2 text-text-base focus:border-gold focus:outline-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-inner-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0"
               placeholder="Từ"
             />
             <span className="text-text-muted">—</span>
@@ -204,7 +206,7 @@ function PriceRange({ min, max, currentMin, currentMax, delay = 0 }: PriceRangeP
               type="number"
               value={maxVal}
               onChange={(e) => setMaxVal(Number(e.target.value) || max)}
-              className="h-9 w-full rounded-md border border-gold/30 bg-background px-2 text-text-base focus:border-gold focus:outline-none"
+              className="h-9 w-full appearance-none rounded-md border border-gold/30 bg-background px-2 text-text-base focus:border-gold focus:outline-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-inner-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0"
               placeholder="Đến"
             />
           </div>
@@ -216,7 +218,7 @@ function PriceRange({ min, max, currentMin, currentMax, delay = 0 }: PriceRangeP
             Áp dụng
           </button>
           <p className="text-xs text-text-muted">
-            {(min / 1_000_000).toFixed(1)}tr — {(max / 1_000_000).toFixed(1)}tr
+            Từ {(min / 1_000_000).toFixed(2)}tr — {(max / 1_000_000).toFixed(1)}tr
           </p>
         </div>
       )}

@@ -63,3 +63,7 @@ gcp-*.json
 service-account*.json
 gcp-credentials*.json
 *-service-account*.json
+
+# Sentry
+.sentryclirc
+**/sentry-debug.log

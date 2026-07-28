@@ -165,7 +165,11 @@ export function BankPaymentClient(props: BankPaymentClientProps) {
       // Update local state ngay để user thấy feedback tức thì
       // (không cần đợi router.refresh() → server fetch → re-render).
       if (json.billUrl) setBillUrl(json.billUrl);
-      if (json.userConfirmedAt) setBillUploadedAt(json.userConfirmedAt);
+      if (json.billUploadedAt) {
+        setBillUploadedAt(json.billUploadedAt);
+      } else if (json.billUrl) {
+        setBillUploadedAt(new Date().toISOString());
+      }
       toast.success('Đã upload bill', {
         description: 'Admin sẽ xác nhận trong ít phút.',
       });
@@ -179,6 +183,11 @@ export function BankPaymentClient(props: BankPaymentClientProps) {
 
   const isWaitingConfirm = props.orderStatus === 'WAITING_CONFIRM';
   const userConfirmed = !!props.userConfirmedAt;
+  // MED #4: Disable action buttons khi QR đã hết hạn (>24h) để user không submit bill
+  // sau khi admin không còn chấp nhận thanh toán. Server cũng enforce (410 QR_EXPIRED).
+  const qrExpired = props.qrExpiresAt
+    ? new Date(props.qrExpiresAt).getTime() <= Date.now()
+    : false;
 
   return (
     <div>
@@ -316,12 +325,34 @@ export function BankPaymentClient(props: BankPaymentClientProps) {
         </div>
       )}
 
+      {/* MED #4: Banner riêng khi QR expired — hiển thị ngay trên action buttons
+          để user hiểu rõ tại sao bị disable (Countdown đã có alert bên trong QR card,
+          nhưng user có thể scroll xuống không thấy). */}
+      {qrExpired && (
+        <div
+          role="alert"
+          className="mt-6 flex items-start gap-2 rounded-md border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-300"
+        >
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            QR đã hết hạn, vui lòng liên hệ admin qua Zalo hoặc email{' '}
+            <a
+              href="mailto:support@emerald-vault.vn"
+              className="font-semibold underline underline-offset-2"
+            >
+              support@emerald-vault.vn
+            </a>
+            .
+          </span>
+        </div>
+      )}
+
       {/* Action buttons */}
       <div className="mt-6 flex flex-col gap-3 sm:flex-row">
         <button
           type="button"
           onClick={onConfirmPaid}
-          disabled={confirming || isWaitingConfirm}
+          disabled={confirming || isWaitingConfirm || qrExpired}
           className="flex flex-1 items-center justify-center gap-2 rounded-md bg-gold px-5 py-3 text-sm font-semibold text-background transition-colors hover:bg-gold-champagne disabled:cursor-not-allowed disabled:opacity-60"
         >
           {confirming ? (
@@ -329,13 +360,17 @@ export function BankPaymentClient(props: BankPaymentClientProps) {
           ) : (
             <CheckCircle2 className="h-4 w-4" />
           )}
-          {isWaitingConfirm ? 'Đã ghi nhận' : 'Tôi đã chuyển'}
+          {qrExpired
+            ? 'QR đã hết hạn'
+            : isWaitingConfirm
+              ? 'Đã ghi nhận'
+              : 'Tôi đã chuyển'}
         </button>
 
         <button
           type="button"
           onClick={onPickFile}
-          disabled={uploading}
+          disabled={uploading || qrExpired}
           className="flex flex-1 items-center justify-center gap-2 rounded-md border border-gold/40 bg-transparent px-5 py-3 text-sm font-semibold text-gold transition-colors hover:bg-gold/10 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {uploading ? (
@@ -343,7 +378,7 @@ export function BankPaymentClient(props: BankPaymentClientProps) {
           ) : (
             <Upload className="h-4 w-4" />
           )}
-          {billUrl ? 'Upload lại bill' : 'Upload bill'}
+          {qrExpired ? 'QR đã hết hạn' : billUrl ? 'Upload lại bill' : 'Upload bill'}
         </button>
 
         <input

@@ -4,7 +4,7 @@
 
 ---
 
-## 0. TRẠNG THÁI TỔNG THỂ (auto-generated, cập nhật 2026-07-27 — Sprint "BUGS-AUDIT.md — Mobile UI + Chatbot deploy + Admin responsive + pg_cron")
+## 0. TRẠNG THÁI TỔNG THỂ (auto-generated, cập nhật 2026-07-28 — Sprint "Production hardening + QR checkout audit fixes")
 
 > Báo cáo tổng hợp từ audit codebase. Tổng ~155 mục trong 19 sections của file này.
 > Chi tiết đầy đủ + danh sách job pending theo priority xem **[§19. STATUS — JOB PENDING](#19-status--job-pending)** ở cuối file.
@@ -12,9 +12,9 @@
 
 | Trạng thái | Số lượng | % |
 |---|---|---|
-| ✅ DONE | ~99 | 64% |
-| 🟡 PARTIAL | ~20 | 13% |
-| ❌ NOT STARTED | ~36 | 23% |
+| ✅ DONE | ~111 | 71% |
+| 🟡 PARTIAL | ~17 | 11% |
+| ❌ NOT STARTED | ~27 | 18% |
 
 **Customer flow** (mua hàng, thanh toán, tài khoản): gần như end-to-end, chạy được — **đã có VietQR làm payment chính (MVP)**.
 **Admin products CRUD + bulk import**: xong thật (real data).
@@ -37,6 +37,27 @@
 - **Misc**: SSE parser fix multi-line `data:` (split trên `\n\n` thay vì `\n`), `useChatSession` sync generate trong `useState` initializer (fix sessionId split bug ở first POST), `onFinish` chuyển sang Vercel `waitUntil` (best-effort persist không race function ceiling), body parser có content-length guard, chat panel `h-[min(480px,calc(100dvh-6rem))]` cho landscape phone, `engines.node >=20` trong `package.json`.
 - **Migration dup fix**: `0010_product_reserved.sql` (đụng `0010_storage_jewelry_images.sql`) → content chuyển sang `0009b_product_reserved.sql`, file cũ thành no-op redirect.
 
+**🆕 Production hardening + Account polish** (sprint 2026-07-28): ✅ done. Tóm tắt:
+- **Env validation** (`lib/env.ts`) — zod schema validate required vars (Supabase, AI, Site) lúc startup với friendly error message listing missing vars. Helpers: `getServerEnv()`, `getClientEnv()`, `getBankConfig({isConfigured})`, `getChatProviderConfig()`, `getMoMoConfig({isConfigured})`, `isProduction`, `vercelEnv`, `SKIP_ENV_VALIDATION` escape hatch cho build time. Optional vars warn nhưng không throw.
+- **Rate-limit middleware** (`lib/middleware/rate-limit.ts`) — Upstash Redis sliding-window 10 req/min/IP áp dụng cho 4 routes high-risk: `/api/lock-item` (10/min), `/api/orders` (5/min), `/api/momo/create` (5/min), `/api/chat` (20/min). `/api/momo/ipn` identify bằng `orderId`. Graceful fallback `{ok:true, degraded:true}` khi thiếu `UPSTASH_REDIS_REST_URL` (dev local) — không break.
+- **Sentry setup** — 3 config files (`sentry.client.config.ts` / `.server.config.ts` / `.edge.config.ts`) + `instrumentation.ts` load theo `NEXT_RUNTIME` + `app/global-error.tsx` catch-all UI. Replay integration (1.0 sample on error), traces 0.1, dev errors dropped. Server `beforeSend` redact 11 sensitive fields (phone/email/token/apiKey/cookies/authorization) cho event.extra/contexts/request/user. Graceful khi thiếu `SENTRY_DSN` (init skip + warn).
+- **GA4 chatbot events** — 4 custom events wired: `chat_opened` (bubble click + `is_returning_user` từ localStorage `ev_chat_seen`), `chat_message_sent` (sau khi append user message, scan history cho product context), `chat_product_clicked` (event-delegation match `[href^="/san-pham/"]`, tra cứu slug trong messages map), `chat_lead_captured` (stream `tool-output-available` cho `captureLead` success, extract `contact_type` từ tool input). Builders trong `lib/analytics/events.ts`, wrappers trong `use-jewelry-analytics.ts`, wire points trong `chat-widget.tsx`.
+- **`/tai-khoan/xac-nhan-email` page** (sprint ticket I10) — post-signup confirmation fallback: Suspense wrap `useSearchParams`, đọc `?email=` query, countdown 60s cho nút "Gửi lại email" (gọi `/api/auth/resend-confirmation`), toast success/error. Layout thêm path vào `AUTH_PATHS` để render không sidebar (chỉ `<main>`). API route POST `{email}` → `supabase.auth.resend({type:'signup', emailRedirectTo:'/tai-khoan/ho-so'})`.
+
+**🆕 QR checkout audit fixes — VietQR flow security + UX hardening** (sprint 2026-07-28 buổi chiều): ✅ done. Audit phát hiện 19 issues (4 HIGH + 5 MED + 8 LOW + 2 OK), fix hết HIGH/MED. Tóm tắt:
+- **HIGH #1+#2 — bill upload timestamp sai field** (`bank-proof/route.ts` + `bank-payment-client.tsx`): backend response giờ trả `billUploadedAt: now` riêng (không dùng `userConfirmedAt`). Frontend đọc đúng field → render "Đã upload lúc HH:MM" timestamp chính xác thời điểm upload bill, không phải tick "đã chuyển". Re-upload cũng cập nhật đúng.
+- **HIGH #3+#8 — phone normalization 84↔0 mismatch** (share link `?phone=84924825726` fail API): tạo `lib/phone/normalize.ts` helper digit-only + `84` prefix (11 số) → `0xxx`. Apply cho `bank-proof` + `confirm-paid` API. Fix bug guest share URL ngắn gọn hơn so với user.
+- **HIGH #9+#10 — auth bypass trên bank-proof + confirm-paid**: defense-in-depth branch logic. User login: check `order.customer_id === user.id` → 403 nếu không. Guest (không login): fallback `normalizePhone(input) === normalizePhone(order.customer_phone)` → 404. Trước fix: attacker biết `orderCode` + `phone` bất kỳ → bypass.
+- **MED #4+#5 — QR expired check** (`qrExpiresAt = NOW()+24h`): client `bank-payment-client.tsx` disable 2 buttons (`disabled={qrExpired || ...}`) + banner đỏ "QR đã hết hạn, vui lòng liên hệ admin". Server 2 routes check `qr_expires_at < NOW()` → return **410 QR_EXPIRED** (defense-in-depth chống curl bypass UI).
+- **MED #6 — UNIQUE(order_id) cho bank_transfers**: migration `0026_bank_transfers_unique_order.sql` với `DO $$ ... IF NOT EXISTS ...` idempotency. 1 order BANK chỉ có 1 row, retry POST không tạo duplicate.
+- **MED #13+#14+#15 — failure handling khi set_products_reserved fail + lock 10m vs order 24h mismatch** (`/api/orders` POST): helper `cleanupFailedBankOrder` rollback order (delete order, RELEASED locks, AVAILABLE products, delete bank_transfers) khi step `set_products_reserved` throw → trả 500 `RESERVE_FAILED` thay vì âm thầm tạo order mồ côi. Handle `23505 unique_violation` ở step 7 như idempotent success (query existing row → return ok).
+- Còn lại 8 LOW (MIME mismatch heif, QR template segment order, race upload 2 lần liên tiếp, ...) — không block flow, để cleanup sau.
+- **Migration apply pending (cần user chạy tay trên Supabase Dashboard, ~11 phút tổng)**:
+  - `0011_link_orders_by_email.sql` — backfill `customer_id` cho orders cũ theo email → `/tai-khoan/don-hang` thấy đơn.
+  - `0018_chat_analytics_and_validation.sql` — bảng `chat_analytics` + 3 RPCs aggregation + CHECK constraints cho `chat_knowledge.category` + `chat_faqs.category`. **Trước khi apply**: `SELECT DISTINCT category FROM chat_knowledge;` và `chat_faqs` — nếu có giá trị ngoài 9 enum, phải UPDATE trước.
+  - `0019_chat_suggested_answers.sql` — bảng `chat_suggested_answers` + RPC `get_user_question_clusters`.
+  - `0026_bank_transfers_unique_order.sql` — UNIQUE constraint cho `bank_transfers.order_id` (idempotency, sửa retry-after-fail).
+
 **🆕 Refund flow harden — payment_status reset khi admin REJECTED + admin orders filter sync URL** (sprint 2026-07-27 buổi chiều): ✅ done. Tóm tắt:
 - **Bug root**: Sau khi admin REJECTED refund, `orders.payment_status` vẫn `REFUND_REQUESTED` → customer click "GỬI YÊU CẦU MỚI" bị API `409 ALREADY_REQUESTED` (check line 230 `payment_status === 'REFUND_REQUESTED'` trước khi check `order_refunds.state`).
 - **Fix customer route** (`app/api/orders/[code]/customer-action/route.ts`): bỏ block check legacy mirror `payment_status === 'REFUND_REQUESTED'`. Rely hoàn toàn vào query `order_refunds WHERE state IN ('PENDING','APPROVED')` là source of truth cho duplicate guard. Block check `payment_status ∈ {PAID, AWAITING_CONFIRM}` còn nguyên → guard chống duplicate khi refund đang PENDING (Scenario B test matrix).
@@ -48,10 +69,10 @@
 
 **3 gap lớn nhất**:
 1. ❌ **MoMo env chưa populate** — Phase 2 (khi có MST, cần làm theo `docs/momo-sandbox-setup.md` 8 bước ~20 phút). Hiện tại VietQR đã cover MVP payment.
-2. ❌ **End-user account §18** — auth + dashboard + customer-action gần ✅ DONE (sprint 2026-07-27 audit xác nhận: 4 auth page + ~6 APIs + 2 migrations 0009/0011 + UI guard + auto-link RPC + customer-action route + CustomerActionButtons UI). Còn polish Phase 2: email confirmation flow + reviews hiển thị trên PDP.
-3. ❌ **Rate-limit + Sentry** — production hardening (xem §19.5 F1/F2).
+2. ❌ **End-user account §18** — auth + dashboard + customer-action gần ✅ DONE. Sprint 2026-07-28 polish: `/tai-khoan/xac-nhan-email` page + resend API done. Còn Phase 2: reviews hiển thị trên PDP (table có sẵn, thiếu UI I14).
+3. ✅ ~~**Rate-limit + Sentry** — production hardening~~ ✅ DONE sprint 2026-07-28: rate-limit Upstash × 5 routes + Sentry 3-config + instrumentation + global-error. Còn bật env trên Vercel.
 
-**Top 3 quick-win (< 2h)**: ~~populate MoMo env~~ (defer Phase 2) → setup VietQR env (`BANK_CODE` + `BANK_ACCOUNT_NUMBER` + `BANK_ACCOUNT_NAME`) → ~~mount GA4 + hook~~ ✅ done → ~~migration pg_cron `release_expired_locks`~~ ✅ done → **apply migration 0011** (`link_my_guest_orders` + backfill customer_id) → **add `customer_id` column to orders** (chưa làm — xem §2.4) → ~~**apply migrations 0015-0017**~~ ✅ done → **apply migration 0018** (`chat_analytics` + CHECK constraints) → **apply migration 0019** (`chat_suggested_answers` + cluster RPC).
+**Top 3 quick-win (< 2h)**: ~~populate MoMo env~~ (defer Phase 2) → setup VietQR env → ~~mount GA4 + hook~~ ✅ done → ~~migration pg_cron `release_expired_locks`~~ ✅ done → ~~migration 0011 backfill customer_id~~ (file sẵn) **chờ apply Dashboard** → ~~**apply migrations 0015-0017**~~ ✅ done → ~~migration 0018 `chat_analytics`~~ (file sẵn) **chờ apply Dashboard** → ~~migration 0019 `chat_suggested_answers`~~ (file sẵn) **chờ apply Dashboard**. Tất cả code / routes / UI / APIs cho 3 migrations này đã chạy được ở app — chỉ thiếu bước user paste SQL vào Supabase SQL Editor.
 
 ---
 
@@ -4422,6 +4443,9 @@ async publish(event: DomainEvent) {
 | **I15** | **§15.17** | **🆕 AI Chatbot Knowledge Base** ✅ DONE 2026-07-21 | `lib/chatbot/static-knowledge.ts`, `components/chatbot/chat-collection-card.tsx`, `app/(admin)/admin/chatbot/page.tsx`, `app/api/admin/chatbot/{knowledge,faqs,upcoming,promotions,leads}/route.ts`, migrations `0015_chat_leads.sql` + `0016_chatbot_knowledge.sql` + `0017_chatbot_seed.sql` | 4–5h | 5 bảng DB mới (chat_knowledge/chat_faqs/upcoming_products/upcoming_collections/chat_promotions) + 1 bảng leads (chat_leads) + 5 tools mới (getKnowledge/getFaq/getUpcomingProducts/getUpcomingCollections/getActivePromotions) + 1 static file SHOP_INFO + admin UI 5 tabs + sidebar menu + lead capture. Routing tool theo intent trong system prompt. Xem §15.17. |
 | **I16** | **§15.18** | **🆕 Chatbot Suggested Answers + Cluster Analytics + Multi-provider rate-limit cooldown** ✅ DONE 2026-07-22 | `supabase/migrations/0019_chat_suggested_answers.sql`, `app/api/admin/chatbot/suggested-answers/route.ts`, `app/api/admin/chatbot/clusters/route.ts`, sửa `lib/chatbot/{tools,analytics,client,system-prompt}.ts` + `app/api/chat/route.ts` + `app/(admin)/admin/chatbot/page.tsx` | 3h | Bảng `chat_suggested_answers` (UUID, category enum 11, trigger_keywords TEXT[], GIN index, RLS service_role) + RPC `get_user_question_clusters` (normalize tiếng Việt: lowercase + bỏ dấu + bỏ punct + collapse whitespace → GROUP BY → ORDER BY ask_count) + tool `getSuggestedAnswers` (12 tool total, ưu tiên trước getKnowledge cho chính sách) + 2 tab mới trong `/admin/chatbot` (Phân tích: SummaryCards 4 ô + Top tools + Top clusters với nút "Tạo mẫu trả lời" + Failed calls, day filter 1/7/30; Mẫu trả lời: CRUD form + list inline edit/delete/publish) + multi-provider rate-limit cooldown (Groq/Or/Cb/Cf 429/STREAM_TIMEOUT → mark cooldown với parse "try again in Xs", skip N giây thay vì waste 25s STREAM_TIMEOUT mỗi request; response `ALL_PROVIDERS_COOLDOWN` 503 với cooldowns map). Xem §15.18. |
 | **I17** | **§15.19** | **🆕 Tool Cache + Analytics Tracking + Sidebar Widget + Cache Invalidation Hooks** ✅ DONE 2026-07-22 (buổi chiều) | `supabase/migrations/0018_chat_analytics_and_validation.sql`, `lib/chatbot/{tool-cache,analytics,cache-invalidation}.ts`, `components/admin/chatbot-analytics-widget.tsx`, `app/api/admin/chat-analytics/{route,widget/route}.ts`, sửa `lib/chatbot/tools.ts` + `components/layout/admin-sidebar.tsx` + 6 admin CRUD routes | 3h | In-memory LRU cache (200 entries, TTL 1-10 phút per tool) cho 11/12 tools (trừ `captureLead`) → giảm tải DB khi cùng câu hỏi lặp lại. Bảng `chat_analytics` (BIGSERIAL, session_id, user_id, tool_name, tool_args JSONB, tool_result_count, tool_result_status, tool_error, latency_ms, provider, model) + 3 RPCs aggregation (`get_chat_analytics_summary`, `get_top_user_questions`, `get_failed_tool_calls`) + indexes + RLS service_role. Logger `logToolCall` (fire-and-forget, silent fail) wrap 12 tools. `sanitizeArgs` redact 11 sensitive keys (phone/email/apiKey/...). Defense-in-depth CHECK constraints cho `chat_knowledge.category` + `chat_faqs.category` (9 giá trị enum). Component `ChatbotAnalyticsWidget` glass-morphism nhúng vào `AdminSidebar` (chỉ expanded): tổng calls 24h, error rate % (color-coded), top 3 tools, failed 24h badge, cache size + hit rate, auto-refresh 30s. API endpoint `/api/admin/chat-analytics/widget` trả compact JSON. 12 cache invalidation hooks trong 6 admin CRUD routes (products/collections/promotions/knowledge) gọi `invalidateTool(...)` sau success → user thấy data mới ngay, không phải đợi TTL expire. Xem §15.19. |
+| **I18** | **§13/§19.5** | **🆕 Production hardening — env validation + rate-limit + Sentry** ✅ DONE 2026-07-28 | `lib/env.ts`, `lib/middleware/{rate-limit,index}.ts`, `lib/middleware/rate-limit.ts` wire vào 5 routes (`lock-item`, `orders`, `momo/create`, `momo/ipn`, `chat`), `sentry.{client,server,edge}.config.ts`, `instrumentation.ts`, `app/global-error.tsx`, package thêm `@upstash/ratelimit@^2` + `@sentry/nextjs@^8.40.0` | 5h | **Env validation**: zod schema + friendly error listing missing vars + 6 helpers (`getServerEnv`/`getClientEnv`/`getBankConfig`/`getChatProviderConfig`/`getMoMoConfig`/`vercelEnv`) + `SKIP_ENV_VALIDATION` escape hatch. **Rate-limit**: Upstash sliding-window 10/min `/api/lock-item`, 5/min `/api/orders`+`/api/momo/create`, 20/min `/api/chat`, IP cho 4 routes thường + `orderId` cho IPN. Graceful fallback khi thiếu `UPSTASH_REDIS_REST_URL`. **Sentry**: 3 config files + `instrumentation.ts` switch theo `NEXT_RUNTIME` + global-error catch-all + server `beforeSend` redact sensitive (phone/email/token/...). All 3 graceful khi thiếu env. |
+| **I19** | **§15/§9** | **🆕 GA4 chatbot events** ✅ DONE 2026-07-28 | `lib/analytics/events.ts` (+4 builders), `hooks/use-jewelry-analytics.ts` (+4 wrappers), `components/chatbot/chat-widget.tsx` (4 wire points) | 2h | 4 custom events: `chat_opened` (bubble click + `is_returning_user` localStorage `ev_chat_seen`), `chat_message_sent` (post-append, scan history for product context), `chat_product_clicked` (event-delegation match `[href^="/san-pham/"]`, lookup slug in messages), `chat_lead_captured` (stream `tool-output-available` for `captureLead` success, extract `contact_type` from tool input). Consent-gated + SSR-safe + no-op nếu thiếu GA ID. |
+| **I20** | **§18.4** | **🆕 `/tai-khoan/xac-nhan-email` + `/api/auth/resend-confirmation`** ✅ DONE 2026-07-28 | `app/(store)/tai-khoan/xac-nhan-email/page.tsx` (Suspense + countdown 60s + resend), `app/api/auth/resend-confirmation/route.ts` (zod + supabase.auth.resend), `app/(store)/tai-khoan/layout.tsx` (add to AUTH_PATHS) | 1.5h | Post-signup confirmation fallback page. Suspense wrap `useSearchParams`, đọc `?email=`, 60s countdown cho nút "Gửi lại email", toast success/error. API route POST `{email}` → `supabase.auth.resend({type:'signup', emailRedirectTo:'/tai-khoan/ho-so'})`. Auth path → render bare `<main>` không sidebar. |
 
 ### 19.4. Nice-to-have (UX polish)
 
@@ -4440,14 +4464,14 @@ async publish(event: DomainEvent) {
 | N11 | §16.2 | **mobile-menu (slide-out)** | `components/layout/mobile-menu.tsx` | 1.5h |
 | N12 | §6 | **`use-gsap-sparkle` hook** | `hooks/use-gsap-sparkle.ts` | 1h |
 | N13 | §7 | **Cron: cancel PENDING orders > 30 min** ✅ DONE | gộp trong `supabase/migrations/0010_pg_cron_jobs.sql` | 1h | RPC `cancel_pending_momo_orders()` + cron `cancel-pending-momo-orders` mỗi phút. Đồng thời giải phóng `inventory_locks` ACTIVE trỏ về product của order bị hủy (match qua `order_items` vì `lock_item` RPC hiện chưa set `order_id`). |
-| N14 | §9 / §18 | **GA4 account events** | `lib/analytics/events.ts` extensions | 1h |
+| **N14** | §9 / §18 | **GA4 account events** | `lib/analytics/events.ts` extensions | 1h |
 | N15 | §18.7 | **account-mobile-tabs** | `components/account/account-mobile-tabs.tsx` | 30m |
 | N16 | §3.3 | **account order list filter UI** | `components/account/order-list-filters.tsx` | 1h |
 | N17 | §12 | **Hero image preload** | `app/(store)/layout.tsx` | 30m |
 | N18 | §13 | **Structured logging với redaction** | `lib/log.ts` | 2h |
 | N19 | §13 | **Cleanup 39 pre-existing TypeScript errors** | `docs/ts-errors-cleanup.md` (đã liệt kê) | 2-3h | Phát hiện 2026-07-16 sau khi `tsc --noEmit` toàn project. 6 nhóm: Supabase generic narrowing (14 errors), Lucide IconComp (7), mobile-bottom-nav prop (1), account-sidebar getInitials (2), Postgrest update/insert never (8), queries row type (7). `next build` vẫn pass vì file lỗi nằm ngoài route graph hiện tại. |
 | N20 | §15.17 | **🆕 Knowledge base: embed columns auto-fill** | `lib/chatbot/embed-knowledge.ts` + cron | 1h | Bảng `chat_knowledge.embedding` và `chat_faqs.embedding` hiện chưa auto-fill. Khi semantic search KB được bật, cần batch embed tất cả rows + trigger on UPDATE. Hiện keyword ILIKE đủ dùng. |
-| N21 | §15.17 | **🆕 GA4 chatbot events** | `components/chatbot/chat-widget.tsx` + `lib/analytics/events.ts` | 1h | 4 events chưa fire: `chat_opened` (mở panel), `chat_message_sent` (gửi), `chat_product_clicked` (click card), `chat_lead_captured` (captureLead success). Xem §15.12. |
+| **N21** | **§15.17** | **✅ GA4 chatbot events** DONE 2026-07-28 (xem I19) | `lib/analytics/events.ts` + `hooks/use-jewelry-analytics.ts` + `components/chatbot/chat-widget.tsx` | 1h | 4 events: `chat_opened`, `chat_message_sent`, `chat_product_clicked`, `chat_lead_captured`. Xem §15.12 / I19. |
 | N22 | §15.19 | **🆕 Per-user cache cho semantic search** | `lib/chatbot/tool-cache.ts` | 30m | Hiện `semanticSearch` cache theo `query` text chung (2 user hỏi cùng "nhẫn vintage" hit cache chung). Nếu muốn personalization → thêm `userId` vào `buildCacheKey`. Trade-off: cache size tăng 10x. Cần confirm nhu cầu thực. |
 | N23 | §15.19 | **🆕 External analytics (PostHog / Plausible)** | TBD | 2h | Nếu cần analytics external (session replay, funnel chi tiết, A/B test). Hiện `chat_analytics` nội bộ + GA4 events (N21) đủ dùng cho MVP. Cần tài khoản + API key + quyết định track event nào. |
 
@@ -4455,8 +4479,8 @@ async publish(event: DomainEvent) {
 
 | # | § | Job | Effort |
 |---|---|---|---|
-| F1 | §13 | **Sentry** — install `@sentry/nextjs`, `sentry.{client,server}.config.ts`, env `SENTRY_DSN` | 2h |
-| F2 | §13 | **Upstash Redis** — install `@upstash/ratelimit` + `@upstash/redis` | 30m |
+| **F1** | **§13** | ✅ **Sentry** DONE 2026-07-28 (xem I18) — install `@sentry/nextjs@^8.40.0`, 3 config files + `instrumentation.ts` + `app/global-error.tsx`. Env `SENTRY_DSN` optional (graceful khi missing). | DONE |
+| **F2** | **§13** | ✅ **Upstash Redis** DONE 2026-07-28 (xem I18) — install `@upstash/ratelimit@^2` + `@upstash/redis`. Wire rate-limit 5 routes. Graceful fallback khi thiếu env. | DONE |
 | F3 | §13 | **PITR** — enable trong Supabase Dashboard (Pro plan) | 5m |
 | F4 | §14 | **Production env switch** — MoMo test → production endpoint | 30m |
 | F5 | §13 | **Admin write RLS** — explicit policies cho `products`/`collections` | 1h |
@@ -4478,12 +4502,13 @@ async publish(event: DomainEvent) {
 | 6 | Wire admin Order detail `[id]` | Hoàn thiện admin loop | 1–2h | ✅ DONE |
 | 7 | Add `POST/PATCH/DELETE /api/admin/collections` + wire page | Quản lý collection | 2h | ✅ DONE |
 | 8 | `newsletter_subscribers` table + public subscribe API + footer form | Capture email pre-launch | 1h | ✅ DONE |
-| 9 | `/xac-nhan-email` page + auto-link guest orders on signup | Account flow polish | 30m | 🟡 PARTIAL (auto-link done, /xac-nhan-email page pending) |
+| 9 | `/xac-nhan-email` page + auto-link guest orders on signup | Account flow polish | 30m | ✅ DONE 2026-07-28 (xem I20) |
 | 10 | 5 UI primitives còn thiếu | Unblock nhiều job khác | 2–3h | 🟡 PARTIAL |
 | 11 | **🆕 Fix login kẹt loading + Admin block mua hàng** | UX critical | 1h | ✅ DONE 2026-07-17 |
-| 12 | **🆕 Apply migration 0011 (customer_id backfill theo email)** | `/tai-khoan/don-hang` thấy đơn | 5m | ❌ PENDING (file sẵn, cần apply) |
-| 13 | **🆕 Apply migration 0018 (chat_analytics + CHECK constraints)** | Sidebar widget hoạt động, analytics tracking | 2m | ❌ PENDING (file sẵn, cần apply — kiểm tra category trước) |
-| 14 | **🆕 Apply migration 0019 (chat_suggested_answers + cluster RPC)** | Admin dùng được Suggested Answers + Cluster Analytics tab | 2m | ❌ PENDING (file sẵn, cần apply) |
+| 12 | **🆕 Apply migration 0011 (customer_id backfill theo email)** | `/tai-khoan/don-hang` thấy đơn | 5m | ❌ PENDING (file sẵn, cần apply Dashboard — xem §10.3.5) |
+| 13 | **🆕 Apply migration 0018 (chat_analytics + CHECK constraints)** | Sidebar widget hoạt động, analytics tracking | 2m | ❌ PENDING (file sẵn, cần apply — kiểm tra category DISTINCT trước — xem §15.19.11) |
+| 14 | **🆕 Apply migration 0019 (chat_suggested_answers + cluster RPC)** | Admin dùng được Suggested Answers + Cluster Analytics tab | 2m | ❌ PENDING (file sẵn, cần apply — xem §15.18.10) |
+| **15** | **🆕 Sprint 2026-07-28 — Production hardening** (env validation + rate-limit + Sentry) | Production readiness + observation | 5h | ✅ DONE 2026-07-28 (xem I18) |
 
 **Top 3 ưu tiên cao nhất** cho launch: #1 (payment), #2+#3 (analytics), #4 (lock expiry). Xong 3 cái này → launch v1.
 
@@ -4511,6 +4536,8 @@ async publish(event: DomainEvent) {
 
 | Ngày | Sprint | Highlights |
 |---|---|---|
+| 2026-07-28 (PM) | **🆕 QR checkout audit fixes — VietQR flow security + UX hardening** | Audit 19 issues (4 HIGH + 5 MED + 8 LOW + 2 OK), fix hết HIGH/MED. **HIGH**: `billUploadedAt` response field riêng (không trộn `userConfirmedAt`), `lib/phone/normalize.ts` shared helper áp dụng cho `bank-proof` + `confirm-paid`, auth bypass fix — branch user/guest (`customer_id` check khi login, `normalizePhone` fallback khi guest). **MED**: QR expired enforce cả client (button disabled + banner đỏ) + server (410 `QR_EXPIRED`); migration `0026_bank_transfers_unique_order` UNIQUE(order_id); `cleanupFailedBankOrder` helper rollback order khi `set_products_reserved` fail + handle 23505 unique_violation như idempotent success. Audit đầy đủ §0 buổi chiều. |
+| 2026-07-28 (AM) | **🆕 Production hardening + Account polish** | `lib/env.ts` zod validation + 6 helpers. `lib/middleware/rate-limit.ts` (Upstash sliding window) wire vào 5 routes: `/api/lock-item` (10/min), `/api/orders` (5/min), `/api/momo/create` (5/min), `/api/chat` (20/min), `/api/momo/ipn` (orderId). Sentry 3-config + `instrumentation.ts` + `app/global-error.tsx` (graceful khi thiếu DSN). GA4 chatbot events: `chat_opened` + `chat_message_sent` + `chat_product_clicked` + `chat_lead_captured`. `/tai-khoan/xac-nhan-email` page + `/api/auth/resend-confirmation` route. Xem §I18/I19/I20 + §F1/F2. |
 | 2026-07-22 (PM) | **🆕 Tool Cache + Analytics Tracking + Sidebar Widget + Cache Invalidation** | Bảng `chat_analytics` + 3 RPCs aggregation (summary/top-questions/failed-calls) + CHECK constraints defense-in-depth cho `chat_knowledge.category` + `chat_faqs.category`. In-memory LRU cache (200 entries, TTL 1-10 phút per tool) cho 11/12 tools (trừ `captureLead`). Fire-and-forget logger wrap mỗi tool call với latency, status, error. Widget analytics nhúng vào `AdminSidebar` (chỉ expanded): tổng calls 24h + error rate % + top 3 tools + failed 24h badge + cache stats, auto-refresh 30s. 12 cache invalidation hooks trong 6 admin CRUD routes (products/collections/promotions/knowledge) để user thấy data mới ngay. Multi-provider chain mở rộng 6 providers (groq/openrouter/cerebras/cloudflare/gemini/openai), ưu tiên free. Xem §15.19. |
 | 2026-07-22 (AM) | **Chatbot Suggested Answers + Cluster Analytics + Rate-limit cooldown** | Bảng `chat_suggested_answers` + RPC `get_user_question_clusters` (gom câu hỏi thật) + tool `getSuggestedAnswers` (model gọi trước `getKnowledge`) + 2 tab mới trong `/admin/chatbot` (Phân tích + Mẫu trả lời). Multi-provider rate-limit cooldown (Groq/Or/Cb/Cf 429/STREAM_TIMEOUT → skip N giây). Xem §15.18. |
 | 2026-07-21 | **Chatbot Knowledge Base** | 5 bảng DB + 5 tools + admin UI 5 tabs + lead capture + sidebar menu. xem §15.17. |

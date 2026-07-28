@@ -24,6 +24,11 @@ const VALID_TIERS = ['SSS', 'SS', 'S'] as const;
 const VALID_SORTS = ['newest', 'price-asc', 'price-desc', 'featured'] as const;
 type ValidSort = 'newest' | 'price-asc' | 'price-desc' | 'featured';
 
+// Khoảng giá cố định cho shop trang sức thường (50k — 300k VND).
+// Tránh dynamic range bị scale theo sản phẩm premium (55tr) kéo UI filter.
+const PRICE_RANGE_MIN = 50_000;
+const PRICE_RANGE_MAX = 300_000;
+
 interface Props {
   searchParams: {
     keyword?: string;
@@ -124,8 +129,12 @@ export default async function ProductsPage({ searchParams }: Props) {
     ? (searchParams.tier as QualityTier)
     : undefined;
 
-  const minPrice = searchParams.min ? Number(searchParams.min) : undefined;
-  const maxPrice = searchParams.max ? Number(searchParams.max) : undefined;
+  const minPrice = searchParams.min
+    ? Math.max(PRICE_RANGE_MIN, Math.min(PRICE_RANGE_MAX, Number(searchParams.min)))
+    : undefined;
+  const maxPrice = searchParams.max
+    ? Math.max(PRICE_RANGE_MIN, Math.min(PRICE_RANGE_MAX, Number(searchParams.max)))
+    : undefined;
   const trimmedKeyword = searchParams.keyword?.trim() || undefined;
 
   const sort = mapSort(searchParams.sort);
@@ -172,12 +181,9 @@ export default async function ProductsPage({ searchParams }: Props) {
   const featuredCollections = publishedCollections.slice(0, 3);
   const errorMsg = filteredRes.error ?? allRes.error ?? collectionsRes.error;
 
-  // Price range (toàn bộ available, để filter sidebar có min/max chuẩn)
-  const prices = allProducts.map((p) => p.price);
-  const priceRange = {
-    min: prices.length ? Math.min(...prices) : 0,
-    max: prices.length ? Math.max(...prices) : 0,
-  };
+  // Price range cố định theo business intent (50k — 300k VND) thay vì compute dynamic
+  // từ max price sản phẩm (ví dụ "Cái nổi rách" 55tr kéo UI filter không đúng).
+  const priceRange = { min: PRICE_RANGE_MIN, max: PRICE_RANGE_MAX };
 
   const activeCount = [
     trimmedKeyword,

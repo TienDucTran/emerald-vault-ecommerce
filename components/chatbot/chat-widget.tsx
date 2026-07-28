@@ -8,10 +8,11 @@
 //   - error (stream error)
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { ChatBubble } from './chat-bubble';
 import { ChatPanel } from './chat-panel';
 import { useChatSession } from '@/hooks/use-chat-session';
+import { useJewelryAnalytics } from '@/hooks/use-jewelry-analytics';
 import type { UIMessage } from 'ai';
 
 type ChatStatus = 'submitted' | 'streaming' | 'ready' | 'error';
@@ -43,6 +44,43 @@ function isCollectionArray(x: unknown): x is any[] {
   );
 }
 
+const CHAT_SEEN_KEY = 'ev_chat_seen';
+
+/** Lấy tất cả product objects từ mọi assistant message trong lịch sử. */
+function collectProductsFromHistory(messages: UIMessage[]): any[] {
+  const out: any[] = [];
+  const seen = new Set<string>();
+  for (const m of messages) {
+    if (m.role !== 'assistant' || !m.parts) continue;
+    for (const part of m.parts as any[]) {
+      if (
+        part.type === 'tool-invocation' &&
+        part.state === 'result' &&
+        Array.isArray(part.result)
+      ) {
+        for (const item of part.result) {
+          if (item && item.id && item.slug && item.title && item.price != null) {
+            if (!seen.has(item.id)) {
+              seen.add(item.id);
+              out.push(item);
+            }
+          }
+        }
+      }
+    }
+  }
+  return out;
+}
+
+function normalizeContactType(raw: unknown): 'phone' | 'email' | 'zalo' | null {
+  if (typeof raw !== 'string') return null;
+  const v = raw.trim().toLowerCase();
+  if (v === 'phone' || v === 'sdt' || v === 'tel' || v === 'mobile') return 'phone';
+  if (v === 'email' || v === 'mail') return 'email';
+  if (v === 'zalo') return 'zalo';
+  return null;
+}
+
 export function ChatWidget() {
   const [open, setOpen] = useState(false);
   const sessionId = useChatSession();
@@ -50,6 +88,50 @@ export function ChatWidget() {
   const [status, setStatus] = useState<ChatStatus>('ready');
   const [error, setError] = useState<Error | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const analytics = useJewelryAnalytics();
+
+  // Track `chat_opened` khi bubble click flip false→true.
+  const handleToggle = useCallback(() => {
+    setOpen((prev) => {
+      if (prev) return false;
+      if (typeof window !== 'undefined') {
+        analytics.trackChatOpened(sessionId);
+        try {
+          window.localStorage.setItem(CHAT_SEEN_KEY, '1');
+        } catch {
+          // ignore — storage có thể bị block
+        }
+      }
+      return true;
+    });
+  }, [analytics, sessionId]);
+
+  // Track `chat_product_clicked` qua event delegation trên document.
+  // ChatProductCard render `<a href="/san-pham/{slug}">` — match theo href,
+  // tra cứu product trong toàn bộ `messages` state để lấy id + price.
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      const anchor = target.closest('a[href]') as HTMLAnchorElement | null;
+      if (!anchor) return;
+      const href = anchor.getAttribute('href') || '';
+      const match = href.match(/^\/san-pham\/([^/?#]+)/);
+      if (!match) return;
+      const slug = decodeURIComponent(match[1]);
+      const allProducts = collectProductsFromHistory(messages);
+      const found = allProducts.find((p) => p.slug === slug);
+      if (!found) return;
+      const price =
+        typeof found.price === 'number'
+          ? found.price
+          : Number(found.price) || 0;
+      analytics.trackChatProductClicked(found.id, slug, price, 'inline_card');
+    };
+    document.addEventListener('click', handler);
+    return () => document.removeEventListener('click', handler);
+  }, [analytics, messages]);
 
   const handleSend = useCallback(
     async (text: string) => {
@@ -65,6 +147,11 @@ export function ChatWidget() {
       setStatus('submitted');
       setError(null);
 
+      // Track `chat_message_sent` ngay sau khi user message được append.
+      // `has_product_in_history` check lịch sử TRƯỚC khi gửi (assistant cũ đã có product card).
+      const hasProductInHistory = collectProductsFromHistory(messages).length > 0;
+      analytics.trackChatMessageSent(sessionId, text, hasProductInHistory);
+
       // 2) Setup abort + fetch
       const controller = new AbortController();
       abortRef.current = controller;
@@ -74,6 +161,9 @@ export function ChatWidget() {
       let accumulatedText = '';
       const products = new Map<string, any>();
       const collections = new Map<string, any>();
+      // Forward tool input → output để biết `captureLead` được gọi với contact_type nào.
+      // Cũng dùng để detect `chat_lead_captured` event.
+      const toolMeta = new Map<string, { toolName: string; input: any }>();
 
       try {
         const res = await fetch('/api/chat', {
@@ -136,9 +226,14 @@ export function ChatWidget() {
                     state: 'call',
                     input: evt.input,
                   });
+                  // Nhớ input để map sang output ở case dưới (cần cho captureLead).
+                  toolMeta.set(evt.toolCallId, {
+                    toolName: evt.toolName,
+                    input: evt.input,
+                  });
                   break;
 
-                case 'tool-output-available':
+                case 'tool-output-available': {
                   // Tool call finished. evt = { type, toolCallId, output }
                   // Update last matching tool-invocation part
                   const toolOut = evt.output;
@@ -171,7 +266,39 @@ export function ChatWidget() {
                       products.set(p.id, p);
                     }
                   }
+                  // Track `chat_lead_captured` khi captureLead hoàn tất thành công.
+                  const meta = toolMeta.get(toolCallId);
+                  if (meta && meta.toolName === 'captureLead') {
+                    const result = toolOut as any;
+                    const success =
+                      result &&
+                      typeof result === 'object' &&
+                      (result.success === true ||
+                        result.ok === true ||
+                        result.status === 'ok' ||
+                        result.captured === true);
+                    if (success) {
+                      const input = (meta.input || {}) as Record<string, unknown>;
+                      const contactType =
+                        normalizeContactType(input.contact_type) ||
+                        normalizeContactType(input.type) ||
+                        normalizeContactType(input.channel) ||
+                        'phone';
+                      const matchedProductId =
+                        input.product_id || input.matched_product_id || input.productId;
+                      const hasMatchedProduct = Boolean(
+                        matchedProductId && products.has(String(matchedProductId))
+                      );
+                      analytics.trackChatLeadCaptured(
+                        sessionId,
+                        contactType,
+                        hasMatchedProduct
+                      );
+                    }
+                    toolMeta.delete(toolCallId);
+                  }
                   break;
+                }
 
                 case 'error':
                   console.error('[ChatWidget] stream error event:', evt);
@@ -266,7 +393,7 @@ export function ChatWidget() {
         abortRef.current = null;
       }
     },
-    [messages, sessionId]
+    [messages, sessionId, analytics]
   );
 
   const handleClear = useCallback(() => {
@@ -297,7 +424,7 @@ export function ChatWidget() {
         onSend={handleSend}
         onClear={handleClear}
       />
-      <ChatBubble open={open} onToggle={() => setOpen((v) => !v)} />
+      <ChatBubble open={open} onToggle={handleToggle} />
     </>
   );
 }

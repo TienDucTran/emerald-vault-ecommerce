@@ -8,6 +8,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { rateLimit } from '@/lib/middleware';
 
 const Body = z.object({
   productId: z.string().uuid('productId must be UUID'),
@@ -15,6 +16,26 @@ const Body = z.object({
 });
 
 export async function POST(req: Request) {
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0].trim() ?? 'unknown';
+  const limit = await rateLimit('lock-item', {
+    identifier: ip,
+    limit: 10,
+    window: '1 m',
+  });
+  if (!limit.ok) {
+    return NextResponse.json(
+      { ok: false, error: 'RATE_LIMITED', retryAfter: limit.retryAfter },
+      {
+        status: 429,
+        headers: {
+          'Retry-After': String(limit.retryAfter ?? 60),
+          'X-RateLimit-Remaining': '0',
+          'X-RateLimit-Reset': String(limit.resetAt),
+        },
+      }
+    );
+  }
+
   let body: unknown;
   try {
     body = await req.json();

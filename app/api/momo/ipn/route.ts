@@ -9,6 +9,7 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { verifyIpnSignature } from '@/lib/momo/client';
+import { rateLimit } from '@/lib/middleware';
 
 interface IpnBody {
   partnerCode: string;
@@ -46,6 +47,20 @@ export async function POST(req: Request) {
   try {
     body = (await req.json()) as IpnBody;
   } catch {
+    return new NextResponse(null, { status: 204 });
+  }
+
+  // Rate-limit IPN theo MoMo orderId (không IP — MoMo gọi từ backend của họ).
+  // Nếu body thiếu orderId, fallback unknown key. Mục đích: chặn replay attack
+  // hoặc spam khi MoMo bug / bị abuse.
+  const ipnIdentifier = body.orderId || 'unknown';
+  const limit = await rateLimit('momo-ipn', {
+    identifier: ipnIdentifier,
+    limit: 10,
+    window: '1 m',
+  });
+  if (!limit.ok) {
+    console.warn('[momo/ipn] rate-limited, orderId=', body.orderId);
     return new NextResponse(null, { status: 204 });
   }
 
