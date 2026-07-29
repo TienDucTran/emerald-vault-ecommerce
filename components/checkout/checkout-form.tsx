@@ -1,8 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Loader2, AlertTriangle } from 'lucide-react';
+import { Loader2, AlertTriangle, AlertCircle, MapPin } from 'lucide-react';
 import { useCartStore } from '@/lib/store/cart';
 import { useAnonymousId } from '@/hooks/use-anonymous-id';
 import { createClient } from '@/lib/supabase/client';
@@ -72,6 +73,7 @@ const ORDER_ERROR_MAP: Record<string, string> = {
   PRODUCT_NOT_FOUND: 'Sản phẩm không tồn tại.',
   PRODUCT_LOCKED_BY_OTHER: 'Có người khác đang giữ món này. Thử lại sau vài phút nhé.',
   PRODUCT_RESERVED: 'Món này đang được người khác thanh toán. Vui lòng thử lại sau ít phút.',
+  OWN_PRODUCT_RESERVED: 'Bạn đang có đơn chờ thanh toán cho sản phẩm này.',
   MOMO_NOT_CONFIGURED: 'Hệ thống MoMo chưa được cấu hình. Vui lòng chọn COD.',
   MOMO_FAILED: 'Không thể tạo thanh toán MoMo. Vui lòng thử lại hoặc chọn COD.',
   BANK_NOT_CONFIGURED: 'Ngân hàng chưa được cấu hình. Vui lòng chọn phương thức khác.',
@@ -101,22 +103,35 @@ export function CheckoutForm({ payment, onPaymentChange, isBankConfigured }: Che
   const [ward, setWard] = useState('');
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // error chứa string thường + trường hợp đặc biệt là ReactNode (link tới đơn cũ).
+  const [error, setError] = useState<ReactNode | null>(null);
   const [profileLoaded, setProfileLoaded] = useState(false);
   const [invalidItems, setInvalidItems] = useState<
     { productId: string; title: string; reason: string }[]
   >([]);
   const validateRanRef = useRef(false);
+  const errorRef = useRef<HTMLDivElement | null>(null);
+  const submitStartRef = useRef<number>(0);
 
-  // Nhận diện: AddressPicker có propagate live value khi user chọn saved address
-  // hoặc gõ tay. Parent form lưu vào state form chính để submit cùng order.
+  // Auto-scroll error vào viewport khi error thay đổi — đảm bảo user
+  // thấy banner đỏ ngay cả khi submit button ở dưới màn hình.
+  useEffect(() => {
+    if (error && errorRef.current) {
+      errorRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [error]);
+
+  // Nhận diện: AddressPicker propagate live value mỗi khi user chọn saved address
+  // hoặc gõ tay. Parent form luôn overwrite state với giá trị mới nhất từ picker
+  // — nếu giữ `prev || picked` thì click chọn address khác sau khi đã auto-load
+  // mặc định sẽ không cập nhật form (user bị kẹt với address cũ).
   const handleAddressChange = useCallback((picked: PickedAddress) => {
-    setName((prev) => prev || picked.recipient_name);
-    setPhone((prev) => prev || picked.recipient_phone);
-    setAddress((prev) => prev || picked.address_line);
-    setProvince((prev) => prev || picked.province);
-    setDistrict((prev) => prev || picked.district);
-    setWard((prev) => prev || picked.ward);
+    setName(picked.recipient_name);
+    setPhone(picked.recipient_phone);
+    setAddress(picked.address_line);
+    setProvince(picked.province);
+    setDistrict(picked.district);
+    setWard(picked.ward);
   }, []);
 
   useEffect(() => {
@@ -238,6 +253,7 @@ export function CheckoutForm({ payment, onPaymentChange, isBankConfigured }: Che
 
     setError(null);
     setSubmitting(true);
+    submitStartRef.current = performance.now();
     try {
       // 0. Đánh dấu tất cả active items đã bắt đầu checkout
       //    → server /api/orders có thể re-use lock thay vì re-lock
@@ -273,12 +289,53 @@ export function CheckoutForm({ payment, onPaymentChange, isBankConfigured }: Che
           router.push('/tai-khoan/dang-nhap?next=/thanh-toan');
           return;
         }
+        // OWN_PRODUCT_RESERVED: user đang có đơn WAITING_PAYMENT cũ cho đúng sp này.
+        // → Hiển thị message rõ ràng + link tới đơn cũ để user thanh toán / huỷ.
+        if (
+          orderJson.error === 'OWN_PRODUCT_RESERVED' &&
+          orderJson.existingOrderCode
+        ) {
+          const orderCode: string = orderJson.existingOrderCode;
+          const productTitle: string = orderJson.productTitle ?? 'sản phẩm này';
+          const serverMessage: string | undefined = orderJson.message;
+          setError(
+            <span>
+              {serverMessage ?? (
+                <>
+                  Bạn đang có đơn chờ thanh toán cho{' '}
+                  <strong className="text-red-300">{productTitle}</strong>.
+                </>
+              )}
+              {' '}
+              <Link
+                href={`/tai-khoan/don-hang/${orderCode}`}
+                className="font-semibold text-gold underline decoration-gold/40 underline-offset-2 hover:text-gold-champagne hover:decoration-gold-champagne"
+              >
+                Mở đơn {orderCode}
+              </Link>
+              {' '}để thanh toán hoặc huỷ trước khi đặt lại.
+            </span>
+          );
+          return;
+        }
         const msg = orderJson.error || 'ORDER_FAILED';
+        console.error('[checkout] POST /api/orders failed:', {
+          fetchMs: Math.round(performance.now() - submitStartRef.current),
+          status: orderRes.status,
+          error: orderJson.error,
+          message: orderJson.message,
+          existingOrderCode: orderJson.existingOrderCode,
+        });
         setError(translateOrderError(msg));
         return;
       }
       const { code, paymentMethod } = orderJson.order;
       const redirectUrl: string | undefined = orderJson.redirectUrl;
+      console.info('[checkout] POST /api/orders success:', {
+        fetchMs: Math.round(performance.now() - submitStartRef.current),
+        code,
+        paymentMethod,
+      });
 
       // 2. Phân luồng
       if (paymentMethod === 'MOMO') {
@@ -319,7 +376,7 @@ export function CheckoutForm({ payment, onPaymentChange, isBankConfigured }: Che
         }
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'NETWORK_ERROR');
+      setError(translateOrderError(e instanceof Error ? e.message : 'NETWORK_ERROR'));
     } finally {
       setSubmitting(false);
     }
@@ -422,6 +479,24 @@ export function CheckoutForm({ payment, onPaymentChange, isBankConfigured }: Che
               defaultPhone={phone}
               onChange={handleAddressChange}
             />
+            {/* Tóm tắt địa chỉ đã chọn (read-only) — giúp user confirm trước
+                khi submit vì province/district/ward không có input riêng. */}
+            {(address || province) && (
+              <div className="mt-2 rounded-sm border border-gold/20 bg-background/10 p-3 text-xs">
+                <div className="mb-1 flex items-center gap-2">
+                  <MapPin className="h-3.5 w-3.5 text-gold" />
+                  <span className="font-heading uppercase tracking-wider text-gold/80">
+                    Địa chỉ đã chọn
+                  </span>
+                </div>
+                <p className="text-text-base">{address || '(chưa có địa chỉ chi tiết)'}</p>
+                {(ward || district || province) && (
+                  <p className="text-text-muted">
+                    {[ward, district, province].filter(Boolean).join(', ')}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Ghi chú riêng */}
@@ -528,6 +603,20 @@ export function CheckoutForm({ payment, onPaymentChange, isBankConfigured }: Che
         </div>
       </section>
 
+      {/* Error banner — đặt TRƯỚC submit button để user thấy ngay khi fail.
+          Auto-scroll vào viewport qua errorRef (useEffect ở trên). */}
+      {error && (
+        <div
+          ref={errorRef}
+          role="alert"
+          aria-live="assertive"
+          className="flex items-start gap-3 rounded-md border-2 border-red-500/60 bg-red-500/15 px-4 py-3 text-sm font-medium text-red-300 shadow-md"
+        >
+          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-400" />
+          <div className="flex-1">{error}</div>
+        </div>
+      )}
+
       {/* — Submit button — */}
       <button
         type="submit"
@@ -543,12 +632,6 @@ export function CheckoutForm({ payment, onPaymentChange, isBankConfigured }: Che
           'XÁC NHẬN ĐẶT HÀNG'
         )}
       </button>
-
-      {error && (
-        <p className="-mt-6 rounded border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-400" role="alert">
-          {error}
-        </p>
-      )}
     </form>
   );
 }

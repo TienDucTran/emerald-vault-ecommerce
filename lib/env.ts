@@ -20,15 +20,25 @@ import { z } from 'zod';
 // ---------------------------------------------------------------------------
 
 /**
- * Optional URL: empty string → undefined; non-empty → phải là URL hợp lệ.
- * Cho phép optional env vars kiểu URL mà user có thể bỏ trống mà không cần
- * cung cấp fallback constant.
+ * Optional URL: empty/invalid → undefined; valid URL → string.
+ * Dùng cho optional env vars kiểu URL (UPSTASH_REDIS_REST_URL).
+ *
+ * Lý do KHÔNG dùng `.pipe(z.string().url().optional())`: nếu user khai báo
+ * env nhưng value không phải URL hợp lệ (vd placeholder "123" trong .env.local
+ * khi chưa setup Upstash), zod sẽ throw → fatal ở route. Behavior đúng là
+ * treat invalid value như missing → caller tự check `isConfigured` để fallback.
+ *
+ * Pattern: validate URL với z.string().url() trong safeParse bên trong
+ * transform; nếu fail → trả undefined.
  */
 const optionalUrl = z
   .string()
   .optional()
-  .transform((v) => (v && v.trim().length > 0 ? v : undefined))
-  .pipe(z.string().url().optional());
+  .transform((v) => {
+    if (!v || v.trim().length === 0) return undefined;
+    const urlCheck = z.string().url().safeParse(v);
+    return urlCheck.success ? v : undefined;
+  });
 
 /**
  * Optional non-empty string: empty/missing → undefined; có giá trị → string.

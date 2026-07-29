@@ -20,6 +20,7 @@ import {
 } from '@/lib/chatbot/tools';
 import { getChatConfig } from '@/lib/chatbot/config';
 import { rateLimit } from '@/lib/middleware';
+import { redactPII } from '@/lib/log/redact';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -78,7 +79,12 @@ async function handleChatPost(request: NextRequest): Promise<Response> {
     });
     if (!limit.ok) {
       return Response.json(
-        { error: 'RATE_LIMITED', retryAfter: limit.retryAfter },
+        {
+          error: 'RATE_LIMITED',
+          retryAfter: limit.retryAfter,
+          userMessage: 'Em nhắn nhiều quá rồi, chờ một chút rồi hỏi tiếp nhé! 🙏',
+          retryable: true,
+        },
         {
           status: 429,
           headers: {
@@ -93,7 +99,14 @@ async function handleChatPost(request: NextRequest): Promise<Response> {
     // 0b) Payload size guard (DoS surface)
     const contentLength = Number(request.headers.get('content-length') ?? 0);
     if (contentLength > CONTENT_LENGTH_LIMIT) {
-      return Response.json({ error: 'PAYLOAD_TOO_LARGE' }, { status: 413 });
+      return Response.json(
+        {
+          error: 'PAYLOAD_TOO_LARGE',
+          userMessage: 'Tin nhắn quá lớn, em vui lòng rút gọn rồi gửi lại nhé!',
+          retryable: false,
+        },
+        { status: 413 }
+      );
     }
 
     const supabaseAdmin = createAdminClient();
@@ -104,14 +117,35 @@ async function handleChatPost(request: NextRequest): Promise<Response> {
     try {
       body = await request.json();
     } catch {
-      return Response.json({ error: 'INVALID_JSON' }, { status: 400 });
+      return Response.json(
+        {
+          error: 'INVALID_JSON',
+          userMessage: 'Tin nhắn bị lỗi định dạng, em thử gửi lại nhé!',
+          retryable: false,
+        },
+        { status: 400 }
+      );
     }
     const { messages = [] } = body;
     if (!Array.isArray(messages) || messages.length === 0) {
-      return Response.json({ error: 'NO_MESSAGES' }, { status: 400 });
+      return Response.json(
+        {
+          error: 'NO_MESSAGES',
+          userMessage: 'Em chưa nhập tin nhắn nào, em hỏi Bà Chủ điều gì đi nào!',
+          retryable: false,
+        },
+        { status: 400 }
+      );
     }
     if (messages.length > 50) {
-      return Response.json({ error: 'TOO_MANY_MESSAGES' }, { status: 400 });
+      return Response.json(
+        {
+          error: 'TOO_MANY_MESSAGES',
+          userMessage: 'Cuộc trò chuyện đã quá dài rồi, em hãy bắt đầu cuộc mới nhé! 🙏',
+          retryable: false,
+        },
+        { status: 400 }
+      );
     }
 
     // 2) Cookie clientId (NOT httpOnly — client must read it via useChatSession)
@@ -121,7 +155,8 @@ async function handleChatPost(request: NextRequest): Promise<Response> {
       clientId = crypto.randomUUID();
       cookieStore.set(COOKIE_NAME, clientId, {
         // httpOnly removed — client reads via document.cookie (see hooks/use-chat-session.ts)
-        sameSite: 'lax',
+        sameSite: 'strict',
+        secure: process.env.NODE_ENV === 'production',
         path: '/',
         maxAge: COOKIE_MAX_AGE,
       });
@@ -140,8 +175,15 @@ async function handleChatPost(request: NextRequest): Promise<Response> {
       }
     );
     if (sessErr || !session) {
-      console.error('[api/chat] session upsert failed:', sessErr?.message ?? 'no session');
-      return Response.json({ error: 'SESSION_FAILED' }, { status: 500 });
+      console.error('[api/chat] session upsert failed:', redactPII(sessErr?.message ?? 'no session'));
+      return Response.json(
+        {
+          error: 'SESSION_FAILED',
+          userMessage: 'Bà Chủ gặp chút trục trặc, em thử lại sau ít phút nhé! 🙏',
+          retryable: true,
+        },
+        { status: 500 }
+      );
     }
     const sessionId = (session as { id: string }).id;
 
@@ -161,6 +203,19 @@ async function handleChatPost(request: NextRequest): Promise<Response> {
     if (lastUserMsg && (lastUserMsg as { role?: string }).role === 'user') {
       const rawContent = (lastUserMsg as { content?: unknown }).content;
       const content = typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent);
+      // Per-message content size guard (Issue C4): chặn client bypass maxLength
+      // hoặc gửi array of parts vượt giới hạn. Tính trên JSON-stringified length
+      // (bao gồm wrapper) để cover cả string lẫn array-of-parts.
+      if (content.length > 2000) {
+        return Response.json(
+          {
+            error: 'MESSAGE_TOO_LONG',
+            userMessage: 'Tin nhắn quá dài (tối đa 2000 ký tự). Em hãy rút gọn nhé!',
+            retryable: false,
+          },
+          { status: 400 }
+        );
+      }
       const { error: insertErr } = await supabaseAdmin
         .from('chat_messages')
         .insert({
@@ -169,7 +224,7 @@ async function handleChatPost(request: NextRequest): Promise<Response> {
           content,
         });
       if (insertErr) {
-        console.error('[api/chat] save user msg failed:', insertErr.message);
+        console.error('[api/chat] save user msg failed:', redactPII(insertErr.message));
       }
     }
 
@@ -191,7 +246,7 @@ async function handleChatPost(request: NextRequest): Promise<Response> {
           content: fakeText,
         });
       if (fallbackErr) {
-        console.error('[api/chat] save fallback msg failed:', fallbackErr.message);
+        console.error('[api/chat] save fallback msg failed:', redactPII(fallbackErr.message));
       }
       const encoder = new TextEncoder();
       const stream = new ReadableStream({
@@ -210,12 +265,17 @@ async function handleChatPost(request: NextRequest): Promise<Response> {
     // Khai báo regex/timeout ở đầu function (sau khi đã chắc chắn `extractText` cũng ở scope
     // này). Cẩn thận thứ tự declaration: các const dùng trong `orderedFiltered.filter(...)` ở
     // dòng ~188 phải được khai báo TRƯỚC khi filter chạy.
-    const TOOL_CALL_BUG_RE = /tool call|tool_use|validation|schema|getKnowledge/i;
+    // Match cụ thể schema validation error từ AI SDK. Tránh match standalone
+    // 'validation' / 'schema' (có thể xuất hiện trong message hợp lệ) hoặc tên
+    // tool riêng lẻ như 'getKnowledge' (false positive).
+    const TOOL_CALL_BUG_RE = /parameters.*did not match|Invalid input for tool|tool_call.*failed|tool use.*validation/i;
     const TOOL_CALL_LEAK_RE = /function\s*=\s*\w+\s*>\s*[\{<]/i;
     const FUNCTION_TAG_RE = /<\/?function\s*>/i;
-    // 9s on Vercel Hobby (10s cap) leaves 1s buffer for onFinish DB write.
-    // On Pro (60s cap), 9s is still safe because models should respond in <9s.
-    const STREAM_TIMEOUT_MS = 9_000;
+    // Llama 3.1/3.3 + tool calling + reasoning thường mất >9s. Timeout 9s cũ
+    // fail toàn bộ chain vì model chưa kịp trả về chunk đầu tiên. Tăng lên 25s
+    // để cover Vercel Hobby (30s cap, còn 5s buffer cho onFinish DB write).
+    // Override qua env CHAT_STREAM_TIMEOUT_MS nếu cần tune runtime (đơn vị ms).
+    const STREAM_TIMEOUT_MS = Number(process.env.CHAT_STREAM_TIMEOUT_MS) || 25_000;
     const RATE_LIMIT_RE = /rate limit|429|tokens per minute|\btpm\b|quota|too many requests|try again in/i;
 
     // 7) Sliding window: last messages from DB (anti-tampering)
@@ -252,7 +312,7 @@ async function handleChatPost(request: NextRequest): Promise<Response> {
         .order('created_at', { ascending: false })
         .limit(2); // chỉ giữ 1 turn trước (user + assistant) để tránh echo
       if (histErr) {
-        console.error('[api/chat] load history failed:', histErr.message);
+        console.error('[api/chat] load history failed:', redactPII(histErr.message));
       }
       orderedHistory = ((history ?? []) as ChatRow[]).reverse();
       devLog(`[api/chat] multi-turn — loaded ${orderedHistory.length} from DB (limit=2, anti-echo)`);
@@ -262,17 +322,24 @@ async function handleChatPost(request: NextRequest): Promise<Response> {
     // AI SDK v6 yêu cầu `content` là array of parts (ModelMessage format), không phải string thuần.
     // Convert từ format DB {role, content: string} sang {role, content: [{type:'text', text}]}.
     // Nếu content là JSON string (do client lưu UIMessage với content là array), unwrap text từ parts.
+    // Heuristic (Issue M4): chỉ parse JSON khi có structure rõ ràng (length >= 100 + starts with
+    // [ hoặc {) để tránh mangle text ngắn/Vietnamese hợp lệ bắt đầu bằng ký tự đặc biệt.
     const extractText = (raw: string): string => {
       if (!raw) return '';
       const trimmed = raw.trim();
+      // Text ngắn: gần như chắc chắn là plain text, không phải UIMessage parts JSON.
+      if (trimmed.length < 100) return raw;
+      // Phải bắt đầu bằng [ hoặc { mới thử parse JSON.
       if (!trimmed.startsWith('[') && !trimmed.startsWith('{')) return raw;
       try {
         const parsed = JSON.parse(trimmed);
         if (Array.isArray(parsed)) {
-          return parsed
+          // UIMessage parts format
+          const textParts = parsed
             .filter((p: any) => p && p.type === 'text' && typeof p.text === 'string')
             .map((p: any) => p.text)
             .join('\n');
+          if (textParts) return textParts;
         }
         if (parsed && typeof parsed === 'object' && typeof parsed.text === 'string') {
           return parsed.text;
@@ -282,12 +349,31 @@ async function handleChatPost(request: NextRequest): Promise<Response> {
       }
       return raw;
     };
+    /**
+     * Detect cross-language leak trong message content.
+     * Tiếng Việt có thể chứa 1 số Hán tự Hán Việt (rất hiếm trong chat).
+     * Nếu > 30% chars là CJK Unified Ideographs (U+4E00-U+9FFF) → treat như tiếng Trung → drop.
+     * @returns true nếu message có ngôn ngữ sai cần bỏ qua.
+     */
+    function isCrossLanguageLeak(text: string): boolean {
+      if (!text || text.length < 10) return false;
+      const cjkCount = (text.match(/[\u4E00-\u9FFF]/g) || []).length;
+      const hiraganaKatakanaCount = (text.match(/[\u3040-\u30FF]/g) || []).length;
+      const foreignCount = cjkCount + hiraganaKatakanaCount;
+      return foreignCount / text.length > 0.3;
+    }
     // Filter messages: bỏ message rỗng + bỏ assistant không có text (chỉ gọi tool).
     // Groq/OpenAI reject 400 khi có 2 assistant empty content liên tiếp.
     // Bug 2: cũng skip nếu text chỉ chứa tool-call leak pattern (function=... hoặc <function> tag).
+    // Bug 3: drop message có cross-language leak (>30% CJK) — model có thể follow pattern sai
+    // từ history bị nhiễm ngôn ngữ Trung/Anh/Nhật.
     const orderedFiltered = orderedHistory.filter((m) => {
       const text = extractText(m.content).trim();
       if (!text) return false; // empty content
+      if (isCrossLanguageLeak(text)) {
+        devWarn(`[api/chat] dropping message with cross-language leak (role=${m.role}, length=${text.length})`);
+        return false;
+      }
       if (TOOL_CALL_LEAK_RE.test(text) || FUNCTION_TAG_RE.test(text)) {
         devWarn(`[api/chat] skipping message with tool-call leak artifact (role=${m.role})`);
         return false;
@@ -349,6 +435,13 @@ async function handleChatPost(request: NextRequest): Promise<Response> {
           message: hasCooldowns
             ? 'Tất cả AI provider đang trong thời gian chờ rate limit. Vui lòng thử lại sau ít phút.'
             : `Chưa cấu hình AI provider. Thiếu env: ${missingKeys.join(', ')}.`,
+          userMessage: hasCooldowns
+            ? 'Bà Chủ đang bận một chút xíu, em chờ khoảng 30 giây rồi hỏi lại nhé! 🙏'
+            : 'Bà Chủ đang bận chút, em quay lại sau nha.',
+          retryable: hasCooldowns,
+          retryAfterSeconds: hasCooldowns
+            ? Math.max(...Object.values(cooldowns).map(ms => Math.ceil(ms / 1000)))
+            : 60,
           missingKeys: hasCooldowns ? undefined : missingKeys,
           cooldowns: hasCooldowns ? cooldowns : undefined,
         },
@@ -380,12 +473,26 @@ async function handleChatPost(request: NextRequest): Promise<Response> {
           provider: entry.provider,
           model: entry.modelName,
         });
+        // Fix S1: AbortController riêng cho mỗi provider iteration. Khi
+        // Promise.race timeout hoặc client disconnect, gọi controller.abort()
+        // để AI SDK v6 cancel underlying stream → tránh waste quota + tool call
+        // ghi DB sau khi response đã trả về client.
+        const providerAbort = new AbortController();
+        // Chain client abort signal: nếu client disconnect, tự abort provider.
+        const chainAbort = () => providerAbort.abort();
+        if (request.signal.aborted) {
+          providerAbort.abort();
+        } else {
+          request.signal.addEventListener('abort', chainAbort, { once: true });
+        }
+
         const candidate = streamText({
           model: entry.instance as unknown as Parameters<typeof streamText>[0]['model'],
           system: SYSTEM_PROMPT,
           messages: modelMessages as any,
           tools: allTools,
           stopWhen: stepCountIs(4),
+          abortSignal: providerAbort.signal,
           // NOTE: `experimental_context` was removed in AI SDK v6. We pass
           // context to tool factories via closure (see lib/chatbot/tools).
           onFinish: ({ text, usage }) => {
@@ -407,7 +514,7 @@ async function handleChatPost(request: NextRequest): Promise<Response> {
                 } catch (e) {
                   console.error(
                     '[api/chat] persist assistant msg failed:',
-                    e instanceof Error ? e.message : 'unknown'
+                    redactPII(e instanceof Error ? e.message : 'unknown')
                   );
                 }
               })()
@@ -421,25 +528,28 @@ async function handleChatPost(request: NextRequest): Promise<Response> {
             lastStreamErrorMsg = errMsg ?? null;
             console.error(
               `[api/chat] streamText error (${entry.provider}/${entry.modelName}):`,
-              errMsg
+              redactPII(errMsg ?? '')
             );
           },
         });
 
         // Race consumeStream với timeout (STREAM_TIMEOUT_MS < maxDuration cap).
+        // Khi timeout xảy ra, abort provider stream thật (không chỉ Promise.race).
         let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
         try {
           await Promise.race([
             candidate.consumeStream(),
             new Promise<never>((_, reject) => {
-              timeoutHandle = setTimeout(
-                () => reject(new Error('STREAM_TIMEOUT')),
-                STREAM_TIMEOUT_MS
-              );
+              timeoutHandle = setTimeout(() => {
+                providerAbort.abort();
+                reject(new Error('STREAM_TIMEOUT'));
+              }, STREAM_TIMEOUT_MS);
             }),
           ]);
         } finally {
           if (timeoutHandle) clearTimeout(timeoutHandle);
+          providerAbort.abort();
+          request.signal.removeEventListener('abort', chainAbort);
         }
 
         // Bug 1: consumeStream pass ≠ text clean. Một số model (Groq, OpenRouter)
@@ -452,6 +562,11 @@ async function handleChatPost(request: NextRequest): Promise<Response> {
           throw new Error(
             'TOOL_CALL_LEAK: model generated raw tool call text instead of API call'
           );
+        }
+
+        // Fix: cũng reject nếu response có cross-language leak (model spill tiếng Trung/Anh)
+        if (isCrossLanguageLeak(fullText)) {
+          throw new Error('CROSS_LANGUAGE_LEAK: model response contains CJK characters (> 30%)');
         }
 
         // consumeStream pass + text clean = OK, lưu result và return
@@ -471,7 +586,7 @@ async function handleChatPost(request: NextRequest): Promise<Response> {
         const isToolCallBug = TOOL_CALL_BUG_RE.test(msg);
         const tag = isToolCallBug ? 'tool call failure' : 'failed';
         console.error(
-          `[api/chat] ${tag} on ${entry.provider}/${entry.modelName}, trying next... ${msg}`
+          `[api/chat] ${tag} on ${entry.provider}/${entry.modelName}, trying next... ${redactPII(msg)}`
         );
         failedReasons.push({
           provider: `${entry.provider}/${entry.modelName}`,
@@ -490,6 +605,9 @@ async function handleChatPost(request: NextRequest): Promise<Response> {
         {
           error: 'ALL_PROVIDERS_FAILED',
           message: 'Tất cả AI provider đều fail. Vui lòng thử lại sau hoặc kiểm tra quota.',
+          userMessage: 'Bà Chủ gặp chút trục trặc kỹ thuật. Em thử lại sau ít phút nhé! 🙏',
+          retryable: true,
+          retryAfterSeconds: 10,
           tried,
           reasons: failedReasons,
         },
@@ -511,7 +629,7 @@ async function handleChatPost(request: NextRequest): Promise<Response> {
     } catch (streamErr) {
       console.error(
         '[api/chat] stream response init failed:',
-        streamErr instanceof Error ? `${streamErr.message}\n${streamErr.stack}` : streamErr
+        redactPII(streamErr instanceof Error ? `${streamErr.message}\n${streamErr.stack}` : String(streamErr))
       );
       // Trả JSON error để client nhận được thay vì "An error occurred" mù
       return Response.json(
@@ -530,7 +648,7 @@ async function handleChatPost(request: NextRequest): Promise<Response> {
   } catch (err) {
     console.error(
       '[api/chat] fatal:',
-      err instanceof Error ? err.message : 'unknown'
+      redactPII(err instanceof Error ? err.message : 'unknown')
     );
     return Response.json({ error: 'CHAT_FAILED' }, { status: 500 });
   }

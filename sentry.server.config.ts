@@ -41,10 +41,17 @@ if (SENTRY_DSN) {
       if (event.request) {
         event.request = redactObject(event.request);
         if (event.request.cookies) {
-          event.request.cookies = redactKeys(event.request.cookies);
+          // Sentry types cookies/headers là { [key: string]: string } nhưng
+          // thực tế values có thể là string | string[] | undefined. Cast để
+          // tương thích với Sentry type mà vẫn redact được.
+          event.request.cookies = redactKeys(
+            event.request.cookies as unknown as Record<string, unknown>
+          ) as unknown as typeof event.request.cookies;
         }
         if (event.request.headers) {
-          event.request.headers = redactKeys(event.request.headers);
+          event.request.headers = redactKeys(
+            event.request.headers as unknown as Record<string, unknown>
+          ) as unknown as typeof event.request.headers;
         }
       }
       // Redact user data.

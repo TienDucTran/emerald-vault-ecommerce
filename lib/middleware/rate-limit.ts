@@ -136,7 +136,16 @@ export async function rateLimit(
     opts.identifier
   );
 
-  const resetAt = reset instanceof Date ? reset.getTime() : Number(reset) || Date.now();
+  // Upstash @upstash/ratelimit types `reset` là `number | Date` nhưng ở runtime
+  // thường trả number (epoch ms). Cast `unknown` để tránh TS2358 — fallback cho
+  // cả string và Date cũng như number.
+  const resetVal = reset as unknown;
+  const resetAt =
+    resetVal instanceof Date
+      ? resetVal.getTime()
+      : typeof resetVal === 'number'
+        ? resetVal
+        : Number(resetVal) || Date.now();
   const retryAfter = success
     ? undefined
     : Math.max(1, Math.ceil((resetAt - Date.now()) / 1000));

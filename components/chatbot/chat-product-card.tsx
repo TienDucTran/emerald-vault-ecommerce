@@ -30,7 +30,7 @@ export function ChatProductCard({ product }: ChatProductCardProps) {
       href={`/san-pham/${product.slug}`}
       target="_blank"
       rel="noopener noreferrer"
-      className="group flex gap-2.5 rounded-lg border border-gold/20 bg-surface/60 p-2 transition-all hover:border-gold/50 hover:bg-surface-emerald"
+      className="group flex gap-2.5 rounded-lg border border-gold/20 bg-surface/60 p-2 motion-safe:transition-all hover:border-gold/50 hover:bg-surface-emerald"
     >
       <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-md bg-background">
         {product.image_url ? (

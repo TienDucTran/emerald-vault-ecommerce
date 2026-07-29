@@ -96,7 +96,7 @@ export function AddressBook({
         const res = await fetch('/api/account/addresses', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ ...values, user_id: userId }),
+          body: JSON.stringify(values),
         });
         if (!res.ok) {
           const json = (await res.json().catch(() => null)) as

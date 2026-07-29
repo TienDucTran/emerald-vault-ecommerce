@@ -18,9 +18,11 @@ interface ChatPanelProps {
   error?: Error | null;
   onSend: (text: string) => void;
   onClear: () => void;
+  // Fix S10: callback để user message pending='failed' trigger retry.
+  onRetry?: (text: string) => void;
 }
 
-export function ChatPanel({ open, onClose, messages, status, error, onSend, onClear }: ChatPanelProps) {
+export function ChatPanel({ open, onClose, messages, status, error, onSend, onClear, onRetry }: ChatPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const isLoading = status === 'submitted' || status === 'streaming';
 
@@ -39,7 +41,7 @@ export function ChatPanel({ open, onClose, messages, status, error, onSend, onCl
         'rounded-2xl border border-gold/30 bg-surface shadow-2xl',
         'sm:right-6',
         'lg:bottom-28 lg:right-8',
-        'transition-all duration-200 origin-bottom-right',
+        'motion-safe:transition-all motion-safe:duration-200 motion-safe:origin-bottom-right',
         open ? 'scale-100 opacity-100' : 'pointer-events-none scale-95 opacity-0'
       )}
     >
@@ -59,7 +61,7 @@ export function ChatPanel({ open, onClose, messages, status, error, onSend, onCl
               type="button"
               onClick={onClear}
               aria-label="Xóa cuộc trò chuyện"
-              className="flex h-7 w-7 items-center justify-center rounded-md text-text-muted transition-all hover:bg-gold/10 hover:text-gold"
+              className="flex h-7 w-7 items-center justify-center rounded-md text-text-muted motion-safe:transition-all hover:bg-gold/10 hover:text-gold"
             >
               <Trash2 className="h-3.5 w-3.5" />
             </button>
@@ -68,7 +70,7 @@ export function ChatPanel({ open, onClose, messages, status, error, onSend, onCl
             type="button"
             onClick={onClose}
             aria-label="Đóng"
-            className="flex h-7 w-7 items-center justify-center rounded-md text-text-muted transition-all hover:bg-gold/10 hover:text-gold"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-text-muted motion-safe:transition-all hover:bg-gold/10 hover:text-gold"
           >
             <X className="h-4 w-4" />
           </button>
@@ -84,7 +86,11 @@ export function ChatPanel({ open, onClose, messages, status, error, onSend, onCl
         ) : (
           <div className="flex flex-col gap-1">
             {messages.map((m) => (
-              <ChatMessage key={m.id} message={m} />
+              <ChatMessage
+                key={m.id}
+                message={m}
+                onRetry={onRetry ? (text) => onRetry(text) : undefined}
+              />
             ))}
             {isLoading && messages[messages.length - 1]?.role === 'user' && (
               <div className="flex items-center gap-2 px-4 py-1.5 text-xs text-text-muted">

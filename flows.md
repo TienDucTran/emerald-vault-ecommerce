@@ -4,7 +4,7 @@
 
 ---
 
-## 0. TRẠNG THÁI TỔNG THỂ (auto-generated, cập nhật 2026-07-28 — Sprint "Production hardening + QR checkout audit fixes")
+## 0. TRẠNG THÁI TỔNG THỂ (auto-generated, cập nhật 2026-07-29 — Sprint "Chatbot comprehensive audit + harden")
 
 > Báo cáo tổng hợp từ audit codebase. Tổng ~155 mục trong 19 sections của file này.
 > Chi tiết đầy đủ + danh sách job pending theo priority xem **[§19. STATUS — JOB PENDING](#19-status--job-pending)** ở cuối file.
@@ -12,9 +12,9 @@
 
 | Trạng thái | Số lượng | % |
 |---|---|---|
-| ✅ DONE | ~111 | 71% |
-| 🟡 PARTIAL | ~17 | 11% |
-| ❌ NOT STARTED | ~27 | 18% |
+| ✅ DONE | ~117 | 75% |
+| 🟡 PARTIAL | ~15 | 10% |
+| ❌ NOT STARTED | ~23 | 15% |
 
 **Customer flow** (mua hàng, thanh toán, tài khoản): gần như end-to-end, chạy được — **đã có VietQR làm payment chính (MVP)**.
 **Admin products CRUD + bulk import**: xong thật (real data).
@@ -44,19 +44,39 @@
 - **GA4 chatbot events** — 4 custom events wired: `chat_opened` (bubble click + `is_returning_user` từ localStorage `ev_chat_seen`), `chat_message_sent` (sau khi append user message, scan history cho product context), `chat_product_clicked` (event-delegation match `[href^="/san-pham/"]`, tra cứu slug trong messages map), `chat_lead_captured` (stream `tool-output-available` cho `captureLead` success, extract `contact_type` từ tool input). Builders trong `lib/analytics/events.ts`, wrappers trong `use-jewelry-analytics.ts`, wire points trong `chat-widget.tsx`.
 - **`/tai-khoan/xac-nhan-email` page** (sprint ticket I10) — post-signup confirmation fallback: Suspense wrap `useSearchParams`, đọc `?email=` query, countdown 60s cho nút "Gửi lại email" (gọi `/api/auth/resend-confirmation`), toast success/error. Layout thêm path vào `AUTH_PATHS` để render không sidebar (chỉ `<main>`). API route POST `{email}` → `supabase.auth.resend({type:'signup', emailRedirectTo:'/tai-khoan/ho-so'})`.
 
+**🆕 Chatbot comprehensive audit + harden** (sprint 2026-07-29): ✅ done. Audit phát hiện 41 issues (12 HIGH + 22 MED + 7 LOW), fix hết HIGH + 6 MED. Tóm tắt:
+- **HIGH (10 fixes)**:
+  - **S1 STREAM_TIMEOUT abort**: `AbortController` per provider iteration + `abortSignal: providerAbort.signal` vào `streamText` + chain với `request.signal` (client disconnect). Trước: timeout 9s không cancel underlying call → waste quota + DB write không deterministic.
+  - **S8 TOOL_CALL_BUG_RE regex**: bỏ standalone "getKnowledge"/"validation"/"schema" → match cụ thể `parameters.*did not match|Invalid input for tool|tool_call.*failed`. Tránh false positive khi model output có từ "getKnowledge" hợp lệ.
+  - **S9 Per-tab session ID**: `hooks/use-chat-session.ts` refactor — `sessionId` per-tab qua `sessionStorage['ev_chat_tab_id']`, `clientId` qua cookie (cross-tab). 2 tab mở cùng lúc không còn cross-contaminate history.
+  - **S10 Pending UI state**: user message có `pending: 'pending'|'sent'|'failed'` flag. UI render "Đang gửi..." khi đang stream, "Gửi thất bại" + nút "Thử lại" khi fail. Trước: failed message trông như đã gửi.
+  - **S11 Tool output state machine**: defensive `toolMeta.get` check + `if (!meta) console.warn`. Không `delete(toolCallId)` nữa → idempotent nếu tool-output-available fire 2 lần.
+  - **S12 Auto-retry no-duplicate**: `handleSend(text, isRetry)` flag. Retry path KHÔNG append user message mới — update existing msg `pending='pending'`.
+  - **T1 ILIKE wildcard escape**: `lib/chatbot/ilike-escape.ts` helper `escapeIlikePattern` (escape `% _ \`) + `unaccentIlikePattern`. Apply cho 4 tools (searchProducts/getKnowledge/getFaq/getSuggestedAnswers) — input "100% bạc" không còn match wildcard.
+  - **T2 Slug regex**: `getProductDetail` schema `slug: z.string().regex(/^[a-z0-9-]+$/)` — chặn `../etc/passwd`.
+  - **T3 captureLead hardening**: Zod `.refine()` validate phone/email/zalo format + `_leadSpamCounter` (max 3 leads/5min/session) + strip `contactValue` khỏi return (chống echo PII vào model context).
+  - **T5 minPrice/maxPrice refine**: Zod `.refine()` chặn minPrice > maxPrice.
+  - **X1 abortSignal**: pass `request.signal` chain với providerAbort → client disconnect tức thì cancel stream.
+
+- **MED (6 fixes)**:
+  - **C3 Cookie hardening**: `sameSite: 'strict'` + `secure: process.env.NODE_ENV === 'production'`.
+  - **C5 Clear chat confirm**: `window.confirm('Xóa cuộc trò chuyện này?')` trước khi clear.
+  - **C4 Input limit**: textarea `maxLength={2000}` + server 400 `MESSAGE_TOO_LONG` nếu bypass.
+  - **U3 prefers-reduced-motion**: tất cả `transition-all` trong `components/chatbot/*` wrap với `motion-safe:` Tailwind variants (10 chỗ).
+  - **Sec2 PII redaction**: `lib/log/redact.ts` helper `redactPII` (SĐT + email → `[REDACTED_*]`). Wrap 9 chỗ `console.error` trong route.ts + 26 chỗ trong tools.ts.
+  - **T11 Diacritics search**: migration `0027_unaccent_extension.sql` (CREATE EXTENSION unaccent) + 4 tools OR `unaccent(title).ilike.${pat}`. Trước: "nhan" không match "nhẫn" — sau: match được cả không dấu lẫn có dấu.
+  - **T7 getActivePromotions cache key**: bỏ `minOrderValue` khỏi key → 1 cache slot cho mọi minOrderValue.
+  - **T8 Upcoming filter**: `.gte('expected_launch_date', new Date().toISOString())` cho `getUpcomingProducts` + `getUpcomingCollections`.
+  - **M1 userMessage field**: tất cả error responses (TOO_MANY_MESSAGES/NO_MESSAGES/RATE_LIMITED/PAYLOAD_TOO_LARGE/INVALID_JSON/SESSION_FAILED) có `userMessage` tiếng Việt.
+  - **M4 extractText heuristic**: skip JSON parse nếu `length < 100` (tránh mangle text ngắn legitimate).
+
+- **Migration apply pending**:
+  - `0027_unaccent_extension.sql` — `CREATE EXTENSION unaccent` (cần apply trước deploy để searchProducts match có dấu).
+  - Cộng dồn với 4 migrations cũ (0011/0018/0019/0026) ~13 phút tổng.
+
+- **Còn lại** 7 LOW (perf optimization như embedding cache, parallel query cho searchProducts fallback, Markdown rendering với rehype-sanitize, etc.) — không block launch.
+
 **🆕 QR checkout audit fixes — VietQR flow security + UX hardening** (sprint 2026-07-28 buổi chiều): ✅ done. Audit phát hiện 19 issues (4 HIGH + 5 MED + 8 LOW + 2 OK), fix hết HIGH/MED. Tóm tắt:
-- **HIGH #1+#2 — bill upload timestamp sai field** (`bank-proof/route.ts` + `bank-payment-client.tsx`): backend response giờ trả `billUploadedAt: now` riêng (không dùng `userConfirmedAt`). Frontend đọc đúng field → render "Đã upload lúc HH:MM" timestamp chính xác thời điểm upload bill, không phải tick "đã chuyển". Re-upload cũng cập nhật đúng.
-- **HIGH #3+#8 — phone normalization 84↔0 mismatch** (share link `?phone=84924825726` fail API): tạo `lib/phone/normalize.ts` helper digit-only + `84` prefix (11 số) → `0xxx`. Apply cho `bank-proof` + `confirm-paid` API. Fix bug guest share URL ngắn gọn hơn so với user.
-- **HIGH #9+#10 — auth bypass trên bank-proof + confirm-paid**: defense-in-depth branch logic. User login: check `order.customer_id === user.id` → 403 nếu không. Guest (không login): fallback `normalizePhone(input) === normalizePhone(order.customer_phone)` → 404. Trước fix: attacker biết `orderCode` + `phone` bất kỳ → bypass.
-- **MED #4+#5 — QR expired check** (`qrExpiresAt = NOW()+24h`): client `bank-payment-client.tsx` disable 2 buttons (`disabled={qrExpired || ...}`) + banner đỏ "QR đã hết hạn, vui lòng liên hệ admin". Server 2 routes check `qr_expires_at < NOW()` → return **410 QR_EXPIRED** (defense-in-depth chống curl bypass UI).
-- **MED #6 — UNIQUE(order_id) cho bank_transfers**: migration `0026_bank_transfers_unique_order.sql` với `DO $$ ... IF NOT EXISTS ...` idempotency. 1 order BANK chỉ có 1 row, retry POST không tạo duplicate.
-- **MED #13+#14+#15 — failure handling khi set_products_reserved fail + lock 10m vs order 24h mismatch** (`/api/orders` POST): helper `cleanupFailedBankOrder` rollback order (delete order, RELEASED locks, AVAILABLE products, delete bank_transfers) khi step `set_products_reserved` throw → trả 500 `RESERVE_FAILED` thay vì âm thầm tạo order mồ côi. Handle `23505 unique_violation` ở step 7 như idempotent success (query existing row → return ok).
-- Còn lại 8 LOW (MIME mismatch heif, QR template segment order, race upload 2 lần liên tiếp, ...) — không block flow, để cleanup sau.
-- **Migration apply pending (cần user chạy tay trên Supabase Dashboard, ~11 phút tổng)**:
-  - `0011_link_orders_by_email.sql` — backfill `customer_id` cho orders cũ theo email → `/tai-khoan/don-hang` thấy đơn.
-  - `0018_chat_analytics_and_validation.sql` — bảng `chat_analytics` + 3 RPCs aggregation + CHECK constraints cho `chat_knowledge.category` + `chat_faqs.category`. **Trước khi apply**: `SELECT DISTINCT category FROM chat_knowledge;` và `chat_faqs` — nếu có giá trị ngoài 9 enum, phải UPDATE trước.
-  - `0019_chat_suggested_answers.sql` — bảng `chat_suggested_answers` + RPC `get_user_question_clusters`.
-  - `0026_bank_transfers_unique_order.sql` — UNIQUE constraint cho `bank_transfers.order_id` (idempotency, sửa retry-after-fail).
 
 **🆕 Refund flow harden — payment_status reset khi admin REJECTED + admin orders filter sync URL** (sprint 2026-07-27 buổi chiều): ✅ done. Tóm tắt:
 - **Bug root**: Sau khi admin REJECTED refund, `orders.payment_status` vẫn `REFUND_REQUESTED` → customer click "GỬI YÊU CẦU MỚI" bị API `409 ALREADY_REQUESTED` (check line 230 `payment_status === 'REFUND_REQUESTED'` trước khi check `order_refunds.state`).
@@ -4536,6 +4556,7 @@ async publish(event: DomainEvent) {
 
 | Ngày | Sprint | Highlights |
 |---|---|---|
+| 2026-07-29 | **🆕 Chatbot comprehensive audit + harden** | Audit 41 issues (12 HIGH + 22 MED + 7 LOW), fix 10 HIGH + 6 MED. **HIGH**: AbortController per provider + `abortSignal: providerAbort.signal` chain với `request.signal`; per-tab session ID qua sessionStorage (chống cross-tab contamination); pending state cho user message (UI marker + retry button); ILIKE wildcard escape + unaccent OR (diacritics search); captureLead Zod refine + spam counter + strip PII; TOOL_CALL_BUG_RE regex (bỏ false positive); slug regex; minPrice/maxPrice refine; handleSend isRetry flag (no duplicate). **MED**: cookie secure + sameSite strict; clear chat confirm; prefers-reduced-motion (10 chỗ motion-safe:); redactPII helper (SĐT/email); input maxLength 2000; unaccent extension migration 0027; upcoming filter `launch_date >= NOW`; cache key chuẩn hóa (bỏ minOrderValue); userMessage cho tất cả error responses. **Migration apply pending**: `0027_unaccent_extension.sql` cần apply. |
 | 2026-07-28 (PM) | **🆕 QR checkout audit fixes — VietQR flow security + UX hardening** | Audit 19 issues (4 HIGH + 5 MED + 8 LOW + 2 OK), fix hết HIGH/MED. **HIGH**: `billUploadedAt` response field riêng (không trộn `userConfirmedAt`), `lib/phone/normalize.ts` shared helper áp dụng cho `bank-proof` + `confirm-paid`, auth bypass fix — branch user/guest (`customer_id` check khi login, `normalizePhone` fallback khi guest). **MED**: QR expired enforce cả client (button disabled + banner đỏ) + server (410 `QR_EXPIRED`); migration `0026_bank_transfers_unique_order` UNIQUE(order_id); `cleanupFailedBankOrder` helper rollback order khi `set_products_reserved` fail + handle 23505 unique_violation như idempotent success. Audit đầy đủ §0 buổi chiều. |
 | 2026-07-28 (AM) | **🆕 Production hardening + Account polish** | `lib/env.ts` zod validation + 6 helpers. `lib/middleware/rate-limit.ts` (Upstash sliding window) wire vào 5 routes: `/api/lock-item` (10/min), `/api/orders` (5/min), `/api/momo/create` (5/min), `/api/chat` (20/min), `/api/momo/ipn` (orderId). Sentry 3-config + `instrumentation.ts` + `app/global-error.tsx` (graceful khi thiếu DSN). GA4 chatbot events: `chat_opened` + `chat_message_sent` + `chat_product_clicked` + `chat_lead_captured`. `/tai-khoan/xac-nhan-email` page + `/api/auth/resend-confirmation` route. Xem §I18/I19/I20 + §F1/F2. |
 | 2026-07-22 (PM) | **🆕 Tool Cache + Analytics Tracking + Sidebar Widget + Cache Invalidation** | Bảng `chat_analytics` + 3 RPCs aggregation (summary/top-questions/failed-calls) + CHECK constraints defense-in-depth cho `chat_knowledge.category` + `chat_faqs.category`. In-memory LRU cache (200 entries, TTL 1-10 phút per tool) cho 11/12 tools (trừ `captureLead`). Fire-and-forget logger wrap mỗi tool call với latency, status, error. Widget analytics nhúng vào `AdminSidebar` (chỉ expanded): tổng calls 24h + error rate % + top 3 tools + failed 24h badge + cache stats, auto-refresh 30s. 12 cache invalidation hooks trong 6 admin CRUD routes (products/collections/promotions/knowledge) để user thấy data mới ngay. Multi-provider chain mở rộng 6 providers (groq/openrouter/cerebras/cloudflare/gemini/openai), ưu tiên free. Xem §15.19. |

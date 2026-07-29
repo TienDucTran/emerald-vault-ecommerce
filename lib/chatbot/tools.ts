@@ -8,6 +8,73 @@ import { z } from 'zod';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { cachedToolCall, buildCacheKey, getDefaultTtl } from './tool-cache';
 import { logToolCall } from './analytics';
+import { escapeIlikePattern, unaccentIlikePattern } from './ilike-escape';
+import { redactPII } from '@/lib/log/redact';
+
+// Spam prevention cho captureLead: tối đa 3 leads / session / 5 phút.
+// In-memory Map; acceptable cho single-instance Vercel deployment.
+// Nếu scale multi-instance cần chuyển sang Redis/Upstash.
+const _leadSpamCounter = new Map<string, { count: number; resetAt: number }>();
+const LEAD_MAX_PER_SESSION = 3;
+const LEAD_WINDOW_MS = 5 * 60 * 1000;
+
+function isLeadSpam(sessionId: string): boolean {
+  const now = Date.now();
+  const entry = _leadSpamCounter.get(sessionId);
+  if (!entry || entry.resetAt < now) {
+    _leadSpamCounter.set(sessionId, { count: 1, resetAt: now + LEAD_WINDOW_MS });
+    return false;
+  }
+  entry.count++;
+  return entry.count > LEAD_MAX_PER_SESSION;
+}
+
+// ---------------------------------------------------------------------------
+// Helper: optional field mà chấp nhận null (LLM thỉnh thoảng pass null
+// cho optional params thay vì bỏ qua). Zod mặc định reject null cho
+// .optional(); AI SDK v6 strict mode của provider (Groq, OpenAI) cũng
+// reject → "parameters for tool X did not match schema".
+//
+// Pattern: preprocess strip null → undefined rồi mới validate schema optional.
+// Tương đương: `z.preprocess(v => v ?? undefined, baseSchema.optional())`.
+//
+// Dùng cho: z.string().optional(), z.number().optional(), z.enum([...]).optional(), z.boolean().
+// ---------------------------------------------------------------------------
+
+/**
+ * Optional + nullable: chấp nhận string | null | undefined, trả về string | undefined.
+ * Null → undefined (để optional schema validate pass).
+ */
+const optionalString = z.preprocess(
+  (v) => (v === null ? undefined : v),
+  z.string().optional()
+);
+
+/**
+ * Optional + nullable number: chấp nhận number | null | undefined.
+ */
+const optionalNumber = z.preprocess(
+  (v) => (v === null ? undefined : v),
+  z.number().optional()
+);
+
+/**
+ * Optional + nullable enum: tạo helper động vì z.enum() không thể reuse generic.
+ */
+function optionalEnum<T extends [string, ...string[]]>(values: T) {
+  return z.preprocess(
+    (v) => (v === null ? undefined : v),
+    z.enum(values).optional()
+  );
+}
+
+/**
+ * Optional + nullable boolean.
+ */
+const optionalBoolean = z.preprocess(
+  (v) => (v === null ? undefined : v),
+  z.boolean().optional()
+);
 
 // Per-request context holder. The route handler sets this BEFORE calling
 // streamText() so every tool call can read sessionId/userId/provider/model.
@@ -185,21 +252,25 @@ export const searchProducts = tool({
   description:
     'Tìm sản phẩm theo tên, danh mục, chất liệu, giá, tier. LUÔN dùng tool này (hoặc semanticSearch) trước khi trả lời về sản phẩm. Tool tự map tiếng Việt → enum.',
   inputSchema: z.object({
-    keyword: z.string().optional().describe('Tên/mô tả/mục đích sản phẩm (tiếng Việt)'),
-    category: z
-      .enum(['NHAN', 'DAY_CHUYEN', 'BONG_TAI', 'VONG_TAY', 'MAT_DAY'])
-      .optional()
+    keyword: optionalString.describe('Tên/mô tả/mục đích sản phẩm (tiếng Việt)'),
+    category: optionalEnum(['NHAN', 'DAY_CHUYEN', 'BONG_TAI', 'VONG_TAY', 'MAT_DAY'])
       .describe('Loại trang sức'),
-    material: z
-      .enum(['BAC_925', 'MA_VANG_18K', 'MA_VANG_24K', 'VANG_18K', 'KIM_CUONG'])
-      .optional()
+    material: optionalEnum(['BAC_925', 'MA_VANG_18K', 'MA_VANG_24K', 'VANG_18K', 'KIM_CUONG'])
       .describe('Chất liệu'),
-    qualityTier: z.enum(['SSS', 'SS', 'S']).optional(),
-    minPrice: z.number().optional().describe('Giá tối thiểu (VND)'),
-    maxPrice: z.number().optional().describe('Giá tối đa (VND)'),
+    qualityTier: optionalEnum(['SSS', 'SS', 'S']),
+    minPrice: optionalNumber.describe('Giá tối thiểu (VND)'),
+    maxPrice: optionalNumber.describe('Giá tối đa (VND)'),
     onlyAvailable: z.boolean().default(true),
     limit: z.number().default(5),
-  }),
+  }).refine(
+    (data) => {
+      if (data.minPrice != null && data.maxPrice != null) {
+        return data.minPrice <= data.maxPrice;
+      }
+      return true;
+    },
+    { message: 'minPrice không được lớn hơn maxPrice', path: ['minPrice'] }
+  ),
   // Wrap: LRU cache (key theo tất cả params) + analytics
   execute: async (params, options) => {
     const { sessionId, userId, provider, model } = extractCtx();
@@ -244,7 +315,15 @@ export const searchProducts = tool({
                   .limit((overrides.limit as number) ?? params.limit ?? 5);
                 const keyword =
                   overrides.keyword !== undefined ? (overrides.keyword as string) : cleanKeyword;
-                if (keyword) q = q.ilike('title', `%${keyword}%`);
+                if (keyword) {
+                  // Diacritics-insensitive: dùng generated column `title_unaccent` (xem
+                  // migration 0028) thay vì gọi unaccent() trực tiếp. PostgREST không
+                  // support function call trong `.or()` filter → `unaccent(title).ilike`
+                  // bị wrap thành `((...))` và throw "failed to parse logic tree". Filter
+                  // column thật thì PostgREST parse OK và còn hit được GIN trigram index.
+                  const pat = unaccentIlikePattern(keyword).replace(/,/g, '');
+                  q = q.or(`title.ilike.${pat},title_unaccent.ilike.${pat}`);
+                }
                 const category = (overrides.category as string | undefined) ?? detectedCategory;
                 if (category) q = q.eq('category', category);
                 const material = (overrides.material as string | undefined) ?? detectedMaterial;
@@ -257,10 +336,10 @@ export const searchProducts = tool({
                   q = q.lte('price', (overrides.maxPrice ?? params.maxPrice) as number);
                 if (params.onlyAvailable) q = q.eq('status', 'AVAILABLE');
                 const { data, error } = await q;
-                if (error) {
-                  console.error('[tool:searchProducts]', error);
-                  return [];
-                }
+              if (error) {
+                console.error('[tool:searchProducts]', redactPII(error.message ?? ''));
+                return [];
+              }
                 return data ?? [];
               };
 
@@ -289,7 +368,7 @@ export const searchProducts = tool({
 
               return [];
             } catch (e) {
-              console.error('[tool:searchProducts] exception:', e instanceof Error ? e.message : e);
+              console.error('[tool:searchProducts] exception:', e instanceof Error ? redactPII(e.message) : e);
               return [];
             }
           },
@@ -336,7 +415,7 @@ export const semanticSearch = tool({
                 match_count: limit,
               });
               if (error) {
-                console.error('[tool:semanticSearch]', error);
+                console.error('[tool:semanticSearch]', redactPII(error.message ?? ''));
                 return [];
               }
               return (data ?? []).map((row: any) => ({
@@ -350,7 +429,7 @@ export const semanticSearch = tool({
                 similarity: row.similarity,
               }));
             } catch (e) {
-              console.error('[tool:semanticSearch] exception:', e instanceof Error ? e.message : e);
+              console.error('[tool:semanticSearch] exception:', e instanceof Error ? redactPII(e.message) : e);
               return [];
             }
           },
@@ -363,7 +442,11 @@ export const semanticSearch = tool({
 export const getProductDetail = tool({
   description: 'Lấy chi tiết 1 sản phẩm theo slug. Dùng khi khách hỏi về 1 sp cụ thể.',
   inputSchema: z.object({
-    slug: z.string().describe('URL slug của sản phẩm'),
+    slug: z.string()
+      .min(1, 'Slug không được rỗng')
+      .max(200, 'Slug quá dài')
+      .regex(/^[a-z0-9-]+$/, { message: 'Slug chỉ chứa chữ thường, số, và dấu gạch ngang' })
+      .describe('Slug sản phẩm (VD: "nhan-bac-sapphire-xanh")'),
   }),
   // Wrap: LRU cache (key theo slug) + analytics
   execute: async ({ slug }, options) => {
@@ -390,7 +473,7 @@ export const getProductDetail = tool({
               if (error) return null;
               return data;
             } catch (e) {
-              console.error('[tool:getProductDetail] exception:', e instanceof Error ? e.message : e);
+              console.error('[tool:getProductDetail] exception:', e instanceof Error ? redactPII(e.message) : e);
               return null;
             }
           },
@@ -427,12 +510,12 @@ export const getCurrentCollections = tool({
                 .eq('is_published', true)
                 .order('display_order', { ascending: true });
               if (error) {
-                console.error('[tool:getCurrentCollections]', error);
+                console.error('[tool:getCurrentCollections]', redactPII(error.message ?? ''));
                 return [];
               }
               return data ?? [];
             } catch (e) {
-              console.error('[tool:getCurrentCollections] exception:', e instanceof Error ? e.message : e);
+              console.error('[tool:getCurrentCollections] exception:', e instanceof Error ? redactPII(e.message) : e);
               return [];
             }
           },
@@ -446,14 +529,10 @@ export const getRelatedProducts = tool({
   description:
     'Gợi ý sản phẩm liên quan theo category/material. Dùng để cross-sell khi khách xem 1 sp.',
   inputSchema: z.object({
-    productId: z.string().optional(),
-    category: z
-      .enum(['NHAN', 'DAY_CHUYEN', 'BONG_TAI', 'VONG_TAY', 'MAT_DAY'])
-      .optional(),
-    material: z
-      .enum(['BAC_925', 'MA_VANG_18K', 'MA_VANG_24K', 'VANG_18K', 'KIM_CUONG'])
-      .optional(),
-    excludeProductId: z.string().optional(),
+    productId: optionalString,
+    category: optionalEnum(['NHAN', 'DAY_CHUYEN', 'BONG_TAI', 'VONG_TAY', 'MAT_DAY']),
+    material: optionalEnum(['BAC_925', 'MA_VANG_18K', 'MA_VANG_24K', 'VANG_18K', 'KIM_CUONG']),
+    excludeProductId: optionalString,
     limit: z.number().default(4),
   }),
   // Wrap: LRU cache (key theo productId|category|material|excludeProductId|limit) + analytics
@@ -491,12 +570,12 @@ export const getRelatedProducts = tool({
               if (productId && !excludeProductId) q = q.neq('id', productId);
               const { data, error } = await q;
               if (error) {
-                console.error('[tool:getRelatedProducts]', error);
+                console.error('[tool:getRelatedProducts]', redactPII(error.message ?? ''));
                 return [];
               }
               return data ?? [];
             } catch (e) {
-              console.error('[tool:getRelatedProducts] exception:', e instanceof Error ? e.message : e);
+              console.error('[tool:getRelatedProducts] exception:', e instanceof Error ? redactPII(e.message) : e);
               return [];
             }
           },
@@ -536,12 +615,12 @@ export const getFeaturedProducts = tool({
                 .order('created_at', { ascending: false })
                 .limit(limit);
               if (error) {
-                console.error('[tool:getFeaturedProducts]', error);
+                console.error('[tool:getFeaturedProducts]', redactPII(error.message ?? ''));
                 return [];
               }
               return data ?? [];
             } catch (e) {
-              console.error('[tool:getFeaturedProducts] exception:', e instanceof Error ? e.message : e);
+              console.error('[tool:getFeaturedProducts] exception:', e instanceof Error ? redactPII(e.message) : e);
               return [];
             }
           },
@@ -556,11 +635,48 @@ export const captureLead = tool({
     'Lưu SĐT/email/Zalo khi khách để lại liên lạc. LUÔN gọi khi khách cung cấp số điện thoại, email, hoặc tên Zalo.',
   inputSchema: z.object({
     contactType: z.enum(['phone', 'email', 'zalo']).describe('Loại liên lạc'),
-    contactValue: z.string().describe('SĐT/email/zalo của khách'),
-    intent: z.string().optional().describe('Khách muốn gì (ngắn gọn)'),
-    productId: z.string().optional().describe('ID sản phẩm khách quan tâm (nếu có)'),
+    contactValue: z.string()
+      .min(3, 'Quá ngắn')
+      .max(200, 'Quá dài')
+      .describe('SĐT (VD: 0901234567), email (VD: ten@example.com), hoặc Zalo ID'),
+    intent: optionalString.describe('Khách muốn gì (ngắn gọn)'),
+    productId: optionalString.describe('ID sản phẩm khách quan tâm (nếu có)'),
+  })
+  // Validate format contactValue theo contactType — chuyển lên object-level vì
+  // field-level .refine() của z.string() không có ctx.parent để đọc contactType.
+  // superRefine cho phép truy cập cả 2 field + emit custom issue ở path contactValue.
+  .superRefine((data, ctx) => {
+    const val = data.contactValue;
+    if (data.contactType === 'phone') {
+      const normalized = val.replace(/[\s.-]/g, '');
+      if (!/^(\+?84|0)\d{9,10}$/.test(normalized)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Số điện thoại không hợp lệ (VD: 0901234567 hoặc +84901234567)',
+          path: ['contactValue'],
+        });
+      }
+    } else if (data.contactType === 'email') {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Email không hợp lệ (VD: ten@example.com)',
+          path: ['contactValue'],
+        });
+      }
+    } else if (data.contactType === 'zalo') {
+      // Zalo ID thường là SĐT hoặc username; chấp nhận cả 2 format
+      const normalized = val.replace(/[\s.-]/g, '');
+      if (normalized.length < 3) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Zalo ID quá ngắn (tối thiểu 3 ký tự)',
+          path: ['contactValue'],
+        });
+      }
+    }
   }),
-  // KHÔNG cache (mỗi call unique — INSERT lead). CHỈ wrap analytics. contactValue sẽ được sanitize thành [REDACTED].
+  // KHÔNG cache (mỗi call unique — INSERT lead). CHỉ wrap analytics. contactValue sẽ được sanitize thành [REDACTED].
   execute: async ({ contactType, contactValue, intent, productId }, options) => {
     const { sessionId, userId, provider, model } = extractCtx();
     return logToolCall({
@@ -577,6 +693,15 @@ export const captureLead = tool({
             console.error('[tool:captureLead] no sessionId in context');
             return { ok: false, error: 'NO_SESSION' };
           }
+          // Spam prevention: tối đa LEAD_MAX_PER_SESSION lead / session / LEAD_WINDOW_MS.
+          if (isLeadSpam(sessionId)) {
+            console.warn(`[tool:captureLead] spam detected session=${sessionId}`);
+            return {
+              ok: false,
+              error: 'TOO_MANY_LEADS',
+              message: 'Bạn đã gửi quá nhiều liên lạc. Vui lòng thử lại sau ít phút.',
+            };
+          }
           const { data, error } = await supabase
             .from('chat_leads')
             .insert({
@@ -590,16 +715,22 @@ export const captureLead = tool({
             .select('id')
             .single();
           if (error) {
-            console.error('[tool:captureLead]', error);
+            console.error('[tool:captureLead]', redactPII(error.message ?? ''));
             return { ok: false, error: error.message };
           }
           if (!data) {
             return { ok: false, error: 'NO_DATA' };
           }
-          return { ok: true, leadId: data.id, contactType, contactValue };
+          // BỎ contactValue khỏi result để tránh echo PII trong model context.
+          return {
+            ok: true,
+            leadId: data.id,
+            contactType,
+            message: 'Đã lưu thành công.',
+          };
         } catch (e) {
-          console.error('[tool:captureLead] exception:', e instanceof Error ? e.message : e);
-          return { ok: false, error: e instanceof Error ? e.message : 'unknown' };
+          console.error('[tool:captureLead] exception:', e instanceof Error ? redactPII(e.message) : e);
+          return { ok: false, error: e instanceof Error ? redactPII(e.message) : 'unknown' };
         }
       },
     });
@@ -610,11 +741,10 @@ export const getKnowledge = tool({
   description:
     'Tra cứu thông tin cố định của shop: chính sách bảo hành/đổi trả/vận chuyển/thanh toán, địa chỉ, giờ mở cửa, hướng dẫn bảo quản trang sức. LUÔN dùng khi khách hỏi về chính sách, vận chuyển, đổi trả, liên hệ, hoặc cách bảo quản.',
   inputSchema: z.object({
-    category: z
-      .enum(['shipping', 'return', 'warranty', 'payment', 'about', 'contact', 'care', 'size', 'general'])
-      .optional()
-      .describe('Phân loại: shipping/return/warranty/payment/about/contact/care/size/general'),
-    query: z.string().optional().describe('Câu hỏi cụ thể của khách (để lọc chính xác hơn)'),
+    category: optionalEnum([
+      'shipping', 'return', 'warranty', 'payment', 'about', 'contact', 'care', 'size', 'general',
+    ]).describe('Phân loại: shipping/return/warranty/payment/about/contact/care/size/general'),
+    query: optionalString.describe('Câu hỏi cụ thể của khách (để lọc chính xác hơn)'),
     limit: z.number().default(3),
   }),
   // Wrap: LRU cache (key theo category|query|limit) + analytics
@@ -642,17 +772,27 @@ export const getKnowledge = tool({
                 .limit(limit);
               if (category) q = q.eq('category', category);
               if (query) {
-                const k = `%${query}%`;
-                q = q.or(`title.ilike.${k},content.ilike.${k}`);
+                // Escape ILIKE wildcards (% _) trong user input để tránh match sai.
+                // PostgREST .or() dùng comma separator → cũng strip comma khỏi pattern.
+                // Diacritics-insensitive: OR với generated column title_unaccent/content_unaccent
+                // (xem migration 0028) thay vì gọi unaccent() trực tiếp trong filter — PostgREST
+                // không support function call trong `.or()` nên `unaccent(title).ilike` bị wrap
+                // thành `((...))` và throw "failed to parse logic tree". Column thật thì parse OK.
+                const safeQuery = escapeIlikePattern(query).replace(/,/g, '');
+                const k = `%${safeQuery}%`;
+                q = q.or(
+                  `title.ilike.${k},content.ilike.${k},` +
+                  `title_unaccent.ilike.${k},content_unaccent.ilike.${k}`
+                );
               }
               const { data, error } = await q;
               if (error) {
-                console.error('[tool:getKnowledge]', error);
+                console.error('[tool:getKnowledge]', redactPII(error.message ?? ''));
                 return [];
               }
               return data ?? [];
             } catch (e) {
-              console.error('[tool:getKnowledge] exception:', e instanceof Error ? e.message : e);
+              console.error('[tool:getKnowledge] exception:', e instanceof Error ? redactPII(e.message) : e);
               return [];
             }
           },
@@ -684,23 +824,31 @@ export const getFaq = tool({
           provider,
           model,
           run: async () => {
-            try {
-              const supabase = createAdminClient();
-              const k = `%${query}%`;
-              const { data, error } = await supabase
-                .from('chat_faqs')
-                .select('id, question, answer, keywords, category')
-                .eq('is_published', true)
-                .or(`question.ilike.${k},answer.ilike.${k}`)
-                .order('display_order', { ascending: true })
-                .limit(limit);
+              try {
+                const supabase = createAdminClient();
+                // Escape ILIKE wildcards + strip comma (PostgREST .or() separator).
+                // Diacritics-insensitive: OR với generated column question_unaccent/answer_unaccent
+                // (xem migration 0028) thay vì gọi unaccent() trực tiếp — PostgREST không support
+                // function call trong `.or()` filter, gây "failed to parse logic tree".
+                const safeQuery = escapeIlikePattern(query).replace(/,/g, '');
+                const k = `%${safeQuery}%`;
+                const { data, error } = await supabase
+                  .from('chat_faqs')
+                  .select('id, question, answer, keywords, category')
+                  .eq('is_published', true)
+                  .or(
+                    `question.ilike.${k},answer.ilike.${k},` +
+                    `question_unaccent.ilike.${k},answer_unaccent.ilike.${k}`
+                  )
+                  .order('display_order', { ascending: true })
+                  .limit(limit);
               if (error) {
-                console.error('[tool:getFaq]', error);
+                console.error('[tool:getFaq]', redactPII(error.message ?? ''));
                 return [];
               }
               return data ?? [];
             } catch (e) {
-              console.error('[tool:getFaq] exception:', e instanceof Error ? e.message : e);
+              console.error('[tool:getFaq] exception:', e instanceof Error ? redactPII(e.message) : e);
               return [];
             }
           },
@@ -714,12 +862,8 @@ export const getUpcomingProducts = tool({
   description:
     'Lấy danh sách sản phẩm sắp ra mắt (đã công bố). Dùng khi khách hỏi "có gì mới sắp tới", "sản phẩm sắp ra", "upcoming". Trả về danh sách gồm title, short_pitch, expected_launch_date, material, category, estimated_price.',
   inputSchema: z.object({
-    category: z
-      .enum(['NHAN', 'DAY_CHUYEN', 'BONG_TAI', 'VONG_TAY', 'MAT_DAY'])
-      .optional(),
-    material: z
-      .enum(['BAC_925', 'MA_VANG_18K', 'MA_VANG_24K', 'VANG_18K', 'KIM_CUONG'])
-      .optional(),
+    category: optionalEnum(['NHAN', 'DAY_CHUYEN', 'BONG_TAI', 'VONG_TAY', 'MAT_DAY']),
+    material: optionalEnum(['BAC_925', 'MA_VANG_18K', 'MA_VANG_24K', 'VANG_18K', 'KIM_CUONG']),
     limit: z.number().default(5),
   }),
   // Wrap: LRU cache (key theo category|material|limit) + analytics
@@ -745,18 +889,19 @@ export const getUpcomingProducts = tool({
                   'id, title, slug, short_pitch, description, estimated_price, material, category, cover_image_url, expected_launch_date'
                 )
                 .eq('is_announced', true)
+                .gte('expected_launch_date', new Date().toISOString())
                 .order('expected_launch_date', { ascending: true })
                 .limit(limit);
               if (category) q = q.eq('category', category);
               if (material) q = q.eq('material', material);
               const { data, error } = await q;
               if (error) {
-                console.error('[tool:getUpcomingProducts]', error);
+                console.error('[tool:getUpcomingProducts]', redactPII(error.message ?? ''));
                 return [];
               }
               return data ?? [];
             } catch (e) {
-              console.error('[tool:getUpcomingProducts] exception:', e instanceof Error ? e.message : e);
+              console.error('[tool:getUpcomingProducts] exception:', e instanceof Error ? redactPII(e.message) : e);
               return [];
             }
           },
@@ -793,15 +938,16 @@ export const getUpcomingCollections = tool({
                 .from('upcoming_collections')
                 .select('id, name, slug, description, theme, cover_image_url, teaser_note, expected_launch_date')
                 .eq('is_announced', true)
+                .gte('expected_launch_date', new Date().toISOString())
                 .order('expected_launch_date', { ascending: true })
                 .limit(limit);
               if (error) {
-                console.error('[tool:getUpcomingCollections]', error);
+                console.error('[tool:getUpcomingCollections]', redactPII(error.message ?? ''));
                 return [];
               }
               return data ?? [];
             } catch (e) {
-              console.error('[tool:getUpcomingCollections] exception:', e instanceof Error ? e.message : e);
+              console.error('[tool:getUpcomingCollections] exception:', e instanceof Error ? redactPII(e.message) : e);
               return [];
             }
           },
@@ -815,16 +961,16 @@ export const getActivePromotions = tool({
   description:
     'Lấy danh sách khuyến mãi đang chạy. Dùng khi khách hỏi về mã giảm giá, khuyến mãi, ưu đãi hiện tại. CHỈ chủ động đề xuất khi khách hỏi hoặc đơn hàng phù hợp điều kiện.',
   inputSchema: z.object({
-    category: z
-      .enum(['NHAN', 'DAY_CHUYEN', 'BONG_TAI', 'VONG_TAY', 'MAT_DAY'])
-      .optional()
+    category: optionalEnum(['NHAN', 'DAY_CHUYEN', 'BONG_TAI', 'VONG_TAY', 'MAT_DAY'])
       .describe('Filter theo category nếu khách đang xem sp cụ thể'),
-    minOrderValue: z.number().optional().describe('Giá trị đơn hàng dự kiến'),
+    minOrderValue: optionalNumber.describe('Giá trị đơn hàng dự kiến'),
   }),
   // Wrap: LRU cache (key theo category|minOrderValue) + analytics. Lưu ý: cache có thể stale nếu promo hết hạn trong TTL — TTL ngắn 60s giảm rủi ro.
   execute: async ({ category, minOrderValue }, options) => {
     const { sessionId, userId, provider, model } = extractCtx();
-    const cacheKey = buildCacheKey('getActivePromotions', { category, minOrderValue });
+    // Cache key: bỏ minOrderValue khỏi key (filter post-cache ở dưới).
+    // Mỗi minOrderValue khác nhau không nên tạo entry riêng → waste cache slot.
+    const cacheKey = buildCacheKey('getActivePromotions', { category });
     return cachedToolCall(
       cacheKey,
       () =>
@@ -851,7 +997,7 @@ export const getActivePromotions = tool({
               }
               const { data, error } = await q;
               if (error) {
-                console.error('[tool:getActivePromotions]', error);
+                console.error('[tool:getActivePromotions]', redactPII(error.message ?? ''));
                 return [];
               }
               let promos = (data ?? []) as Array<{
@@ -870,7 +1016,7 @@ export const getActivePromotions = tool({
               }
               return promos.slice(0, 5);
             } catch (e) {
-              console.error('[tool:getActivePromotions] exception:', e instanceof Error ? e.message : e);
+              console.error('[tool:getActivePromotions] exception:', e instanceof Error ? redactPII(e.message) : e);
               return [];
             }
           },
@@ -884,11 +1030,10 @@ export const getSuggestedAnswers = tool({
   description:
     'Tra cứu các mẫu trả lời có sẵn do admin soạn. Dùng khi khách hỏi về chính sách (ship, đổi trả, bảo hành, thanh toán, liên hệ...) hoặc câu hỏi phổ biến. Mẫu trả lời sẽ là reference chính xác để model trả lời đúng ý admin, thay vì tự suy luận.',
   inputSchema: z.object({
-    category: z
-      .enum(['shipping', 'return', 'warranty', 'payment', 'about', 'contact', 'care', 'size', 'general', 'product', 'other'])
-      .optional()
-      .describe('Phân loại: shipping/return/warranty/...'),
-    query: z.string().optional().describe('Câu hỏi gốc của khách (để match keyword)'),
+    category: optionalEnum([
+      'shipping', 'return', 'warranty', 'payment', 'about', 'contact', 'care', 'size', 'general', 'product', 'other',
+    ]).describe('Phân loại: shipping/return/warranty/...'),
+    query: optionalString.describe('Câu hỏi gốc của khách (để match keyword)'),
     limit: z.number().default(3),
   }),
   execute: async ({ category, query, limit }, options) => {
@@ -916,17 +1061,26 @@ export const getSuggestedAnswers = tool({
                 .limit(limit);
               if (category) q = q.eq('category', category);
               if (query) {
-                const k = `%${query}%`;
-                q = q.or(`title.ilike.${k},content.ilike.${k},trigger_keywords.cs.{${query.toLowerCase()}}`);
+                // Escape ILIKE wildcards + strip comma (PostgREST .or() separator).
+                // Diacritics-insensitive: OR với generated column title_unaccent/content_unaccent
+                // (xem migration 0028) thay vì gọi unaccent() trực tiếp — PostgREST không support
+                // function call trong `.or()` filter, gây "failed to parse logic tree".
+                const safeQuery = escapeIlikePattern(query).replace(/,/g, '');
+                const k = `%${safeQuery}%`;
+                q = q.or(
+                  `title.ilike.${k},content.ilike.${k},` +
+                  `title_unaccent.ilike.${k},content_unaccent.ilike.${k},` +
+                  `trigger_keywords.cs.{${query.toLowerCase()}}`
+                );
               }
               const { data, error } = await q;
               if (error) {
-                console.error('[tool:getSuggestedAnswers]', error);
+                console.error('[tool:getSuggestedAnswers]', redactPII(error.message ?? ''));
                 return [];
               }
               return data ?? [];
             } catch (e) {
-              console.error('[tool:getSuggestedAnswers] exception:', e instanceof Error ? e.message : e);
+              console.error('[tool:getSuggestedAnswers] exception:', e instanceof Error ? redactPII(e.message) : e);
               return [];
             }
           },

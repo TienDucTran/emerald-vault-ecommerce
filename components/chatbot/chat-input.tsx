@@ -40,7 +40,15 @@ export function ChatInput({ onSend, disabled, placeholder = 'Hỏi Bà Chủ Ti�
       <textarea
         ref={textareaRef}
         value={value}
-        onChange={(e) => setValue(e.target.value)}
+        maxLength={2000}
+        onChange={(e) => {
+          // Client-side cap: chặn nhập quá 2000 chars (Issue C4). Tránh gửi payload
+          // lớn gây 400 MESSAGE_TOO_LONG từ server + tiết kiệm quota trước khi user
+          // bấm Gửi. Paste vượt quá cũng bị cắt silently.
+          const next = e.target.value;
+          if (next.length > 2000) return;
+          setValue(next);
+        }}
         onKeyDown={handleKey}
         disabled={disabled}
         placeholder={placeholder}
@@ -60,7 +68,7 @@ export function ChatInput({ onSend, disabled, placeholder = 'Hỏi Bà Chủ Ti�
         aria-label="Gửi tin nhắn"
         className={cn(
           'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg',
-          'bg-gold text-background transition-all',
+          'bg-gold text-background motion-safe:transition-all',
           'hover:bg-gold-champagne',
           'disabled:opacity-30 disabled:cursor-not-allowed',
           'focus:outline-none focus:ring-2 focus:ring-gold focus:ring-offset-2 focus:ring-offset-surface'

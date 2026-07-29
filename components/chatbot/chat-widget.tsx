@@ -17,6 +17,13 @@ import type { UIMessage } from 'ai';
 
 type ChatStatus = 'submitted' | 'streaming' | 'ready' | 'error';
 
+// Fix S10: pending state cho optimistic user message.
+// 'pending' = đang gửi; 'sent' = server đã nhận; 'failed' = fetch lỗi.
+type PendingState = 'pending' | 'sent' | 'failed';
+interface ExtendedUIMessage extends UIMessage {
+  pending?: PendingState;
+}
+
 function genId(): string {
   return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
@@ -45,6 +52,10 @@ function isCollectionArray(x: unknown): x is any[] {
 }
 
 const CHAT_SEEN_KEY = 'ev_chat_seen';
+
+const isProd = process.env.NODE_ENV === 'production';
+const devLog = (...args: unknown[]) => { if (!isProd) console.log(...args); };
+const devWarn = (...args: unknown[]) => { if (!isProd) console.warn(...args); };
 
 /** Lấy tất cả product objects từ mọi assistant message trong lịch sử. */
 function collectProductsFromHistory(messages: UIMessage[]): any[] {
@@ -81,21 +92,51 @@ function normalizeContactType(raw: unknown): 'phone' | 'email' | 'zalo' | null {
   return null;
 }
 
+/**
+ * Extract text thuần từ UIMessage (AI SDK v6 dùng `parts[]`, không có field `content`).
+ * Trong code mình vẫn set `content: text` qua cast `as any` cho backward-compat
+ * với chat-message.tsx (đọc field `content`). Helper này handle cả 2 case.
+ */
+function getMessageText(m: UIMessage): string {
+  // Ưu tiên `content` (legacy shim — set qua cast `as any`).
+  const legacy = (m as unknown as { content?: unknown }).content;
+  if (typeof legacy === 'string' && legacy) return legacy;
+  // Fallback: extract từ parts[] (chuẩn AI SDK v6).
+  if (Array.isArray(m.parts)) {
+    return m.parts
+      .filter((p: any) => p && p.type === 'text' && typeof p.text === 'string')
+      .map((p: any) => p.text)
+      .join('\n');
+  }
+  return '';
+}
+
 export function ChatWidget() {
   const [open, setOpen] = useState(false);
-  const sessionId = useChatSession();
+  // Fix S9: sessionId per-tab (sessionStorage) — UI state riêng cho từng tab.
+  // clientId giữ shape cho future use (hiện chưa gửi lên server — server tự đọc cookie).
+  const { sessionId } = useChatSession();
   const [messages, setMessages] = useState<UIMessage[]>([]);
   const [status, setStatus] = useState<ChatStatus>('ready');
   const [error, setError] = useState<Error | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const analytics = useJewelryAnalytics();
 
+  // Fix C1: abort in-flight fetch khi component unmount giữa stream.
+  // Tránh fetch tiếp tục → onFinish vẫn ghi DB cho UI đã gone.
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
+
   // Track `chat_opened` khi bubble click flip false→true.
   const handleToggle = useCallback(() => {
     setOpen((prev) => {
       if (prev) return false;
       if (typeof window !== 'undefined') {
-        analytics.trackChatOpened(sessionId);
+        // sessionId có thể null khi SSR hoặc chưa ready — fallback về 'anonymous'.
+        analytics.trackChatOpened(sessionId ?? 'anonymous');
         try {
           window.localStorage.setItem(CHAT_SEEN_KEY, '1');
         } catch {
@@ -134,23 +175,37 @@ export function ChatWidget() {
   }, [analytics, messages]);
 
   const handleSend = useCallback(
-    async (text: string) => {
-      // 1) Thêm user message
-      const userMsg: UIMessage = {
-        id: genId(),
-        role: 'user',
-        content: text,
-        parts: [{ type: 'text', text }],
-      } as any;
-      const newMessages = [...messages, userMsg];
-      setMessages(newMessages);
+    async (text: string, isRetry = false) => {
+      // Fix S10: mark user message pending='pending' ngay khi append.
+      // Fix S12: nếu retry, KHÔNG append user message mới — chỉ update message hiện tại.
+      let newMessages: UIMessage[];
+      if (!isRetry) {
+        const userMsg: ExtendedUIMessage = {
+          id: genId(),
+          role: 'user',
+          content: text,
+          parts: [{ type: 'text', text }],
+          pending: 'pending',
+        } as any;
+        newMessages = [...messages, userMsg];
+        setMessages(newMessages);
+      } else {
+        // Retry path: tìm user message cùng text và flip pending.
+        newMessages = messages.map((m) =>
+          m.role === 'user' && getMessageText(m) === text
+            ? ({ ...m, pending: 'pending' as PendingState } as UIMessage)
+            : m
+        );
+        setMessages(newMessages);
+      }
       setStatus('submitted');
       setError(null);
 
       // Track `chat_message_sent` ngay sau khi user message được append.
       // `has_product_in_history` check lịch sử TRƯỚC khi gửi (assistant cũ đã có product card).
       const hasProductInHistory = collectProductsFromHistory(messages).length > 0;
-      analytics.trackChatMessageSent(sessionId, text, hasProductInHistory);
+      // sessionId có thể null khi SSR hoặc chưa ready — fallback 'anonymous' cho analytics.
+      analytics.trackChatMessageSent(sessionId ?? 'anonymous', text, hasProductInHistory);
 
       // 2) Setup abort + fetch
       const controller = new AbortController();
@@ -162,8 +217,9 @@ export function ChatWidget() {
       const products = new Map<string, any>();
       const collections = new Map<string, any>();
       // Forward tool input → output để biết `captureLead` được gọi với contact_type nào.
-      // Cũng dùng để detect `chat_lead_captured` event.
-      const toolMeta = new Map<string, { toolName: string; input: any }>();
+      // Cũng dùng để detect `chat_lead_captured` event. `tracked` flag đảm bảo idempotent
+      // khi tool-output-available fire lần 2 (stream re-send).
+      const toolMeta = new Map<string, { toolName: string; input: any; tracked?: boolean }>();
 
       try {
         const res = await fetch('/api/chat', {
@@ -177,10 +233,32 @@ export function ChatWidget() {
         });
 
         if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`);
+          let errorBody: any = null;
+          try {
+            errorBody = await res.json();
+          } catch {
+            // not JSON — fall through to generic error
+          }
+          const err = new Error(
+            errorBody?.userMessage || errorBody?.message || `HTTP ${res.status}`
+          );
+          (err as any).status = res.status;
+          (err as any).retryable = !!errorBody?.retryable;
+          (err as any).retryAfterSeconds = errorBody?.retryAfterSeconds ?? 5;
+          (err as any).userMessage = errorBody?.userMessage;
+          throw err;
         }
         if (!res.body) throw new Error('No response body');
         setStatus('streaming');
+
+        // Fix S10: server đã accept → mark user message pending='sent'.
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.role === 'user' && getMessageText(m) === text
+              ? ({ ...m, pending: 'sent' as PendingState } as UIMessage)
+              : m
+          )
+        );
 
         // 3) Đọc SSE
         const reader = res.body.getReader();
@@ -248,9 +326,17 @@ export function ChatWidget() {
                       result: toolOut,
                     };
                   }
-                  // Collect products / collections
+                  // Collect products / collections (idempotent — Set sẽ dedupe).
                   if (isProductArray(toolOut)) {
-                    for (const p of toolOut) products.set(p.id, p);
+                    for (const p of toolOut) {
+                      if (products.has(p.id)) {
+                        // Duplicate tool-output (re-send) — bỏ qua nhưng log.
+                        if (typeof window !== 'undefined' && !(window as any).__chatDupLogged) {
+                          devLog(`[ChatWidget] duplicate product id=${p.id} (idempotent)`);
+                        }
+                      }
+                      products.set(p.id, p);
+                    }
                   } else if (isCollectionArray(toolOut)) {
                     for (const c of toolOut) collections.set(c.id, c);
                   } else if (
@@ -267,8 +353,17 @@ export function ChatWidget() {
                     }
                   }
                   // Track `chat_lead_captured` khi captureLead hoàn tất thành công.
+                  // Fix S11: KHÔNG delete toolMeta — nếu provider re-send tool-output
+                  // (retry / replay), event vẫn fire đúng. Defensive: nếu thiếu meta
+                  // (stream re-send không qua tool-input-available), log warn và bỏ qua.
                   const meta = toolMeta.get(toolCallId);
-                  if (meta && meta.toolName === 'captureLead') {
+                  if (!meta) {
+                    devWarn(
+                      `[ChatWidget] tool-output-available without prior tool-input-available: ${toolCallId}`
+                    );
+                    break;
+                  }
+                  if (meta.toolName === 'captureLead') {
                     const result = toolOut as any;
                     const success =
                       result &&
@@ -277,7 +372,7 @@ export function ChatWidget() {
                         result.ok === true ||
                         result.status === 'ok' ||
                         result.captured === true);
-                    if (success) {
+                    if (success && !meta.tracked) {
                       const input = (meta.input || {}) as Record<string, unknown>;
                       const contactType =
                         normalizeContactType(input.contact_type) ||
@@ -290,12 +385,13 @@ export function ChatWidget() {
                         matchedProductId && products.has(String(matchedProductId))
                       );
                       analytics.trackChatLeadCaptured(
-                        sessionId,
+                        sessionId ?? 'anonymous',
                         contactType,
                         hasMatchedProduct
                       );
+                      // Đánh dấu đã track để idempotent nếu tool-output fire lần 2.
+                      meta.tracked = true;
                     }
-                    toolMeta.delete(toolCallId);
                   }
                   break;
                 }
@@ -373,6 +469,9 @@ export function ChatWidget() {
 
         setMessages((prev) => [...prev, finalAssistant]);
         setStatus('ready');
+        // Reset retry counter khi thành công
+        (window as any).__chatRetryCount = (window as any).__chatRetryCount || {};
+        (window as any).__chatRetryCount[sessionId || 'default'] = 0;
       } catch (err: any) {
         if (err.name === 'AbortError') {
           setStatus('ready');
@@ -381,12 +480,70 @@ export function ChatWidget() {
         console.error('[ChatWidget] error:', err);
         setError(err);
         setStatus('error');
-        // Vẫn thêm 1 message báo lỗi để user biết
+
+        // Fix S10: mark user message pending='failed' để UI hiển thị retry button.
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.role === 'user' && getMessageText(m) === text
+              ? ({ ...m, pending: 'failed' as PendingState } as UIMessage)
+              : m
+          )
+        );
+
+        // Auto-retry nếu server báo retryable (vd ALL_PROVIDERS_COOLDOWN) + chưa retry lần nào
+        const isRetryable =
+          !!err.retryable &&
+          typeof err.retryAfterSeconds === 'number' &&
+          err.retryAfterSeconds > 0 &&
+          err.retryAfterSeconds <= 60;
+        const retryKey = sessionId || 'default';
+        const retryCountMap =
+          ((window as any).__chatRetryCount as Record<string, number> | undefined) ?? {};
+        const retryAttempted = retryCountMap[retryKey] ?? 0;
+
+        if (isRetryable && retryAttempted < 1) {
+          // Mark retry attempted
+          (window as any).__chatRetryCount = retryCountMap;
+          retryCountMap[retryKey] = retryAttempted + 1;
+
+          // Hiển thị message "đang thử lại"
+          const retryMsg: UIMessage = {
+            id: genId(),
+            role: 'assistant',
+            content: `⏳ ${err.userMessage || 'Bà Chủ đang bận, em chờ một chút nhé...'}`,
+            parts: [
+              {
+                type: 'text',
+                text: `⏳ ${err.userMessage || 'Bà Chủ đang bận, em chờ một chút nhé...'}`,
+              },
+            ],
+          } as any;
+          setMessages((prev) => [...prev, retryMsg]);
+
+          // Delay rồi retry. Fix S12: isRetry=true → KHÔNG append user message mới.
+          const userText = text;
+          const delayMs = Math.min(err.retryAfterSeconds * 1000, 5000);
+          setTimeout(() => {
+            // Remove optimistic retry message trước khi retry.
+            setMessages((prev) => prev.filter((m) => m.id !== retryMsg.id));
+            handleSend(userText, true);
+          }, delayMs);
+          return;
+        }
+
+        // Reset retry count khi show final error
+        (window as any).__chatRetryCount = (window as any).__chatRetryCount || {};
+        (window as any).__chatRetryCount[retryKey] = 0;
+
+        // Final error message
+        const finalText =
+          err.userMessage ||
+          `⚠️ Xin lỗi, Bà Chủ đang bận. ${err.message || 'Vui lòng thử lại.'}`;
         const errorMsg: UIMessage = {
           id: genId(),
           role: 'assistant',
-          content: `⚠️ Xin lỗi, Bà Chủ đang bận. ${err.message || 'Vui lòng thử lại.'}`,
-          parts: [{ type: 'text', text: `⚠️ Xin lỗi, Bà Chủ đang bận. ${err.message || 'Vui lòng thử lại.'}` }],
+          content: finalText,
+          parts: [{ type: 'text', text: finalText }],
         } as any;
         setMessages((prev) => [...prev, errorMsg]);
       } finally {
@@ -397,6 +554,9 @@ export function ChatWidget() {
   );
 
   const handleClear = useCallback(() => {
+    if (typeof window !== 'undefined' && !window.confirm('Xóa cuộc trò chuyện này?')) {
+      return;
+    }
     if (abortRef.current) {
       abortRef.current.abort();
     }
@@ -404,6 +564,15 @@ export function ChatWidget() {
     setError(null);
     setStatus('ready');
   }, []);
+
+  // Fix S10/S12: retry handler — gọi lại handleSend với isRetry=true
+  // để KHÔNG append user message mới.
+  const handleRetry = useCallback(
+    (text: string) => {
+      handleSend(text, true);
+    },
+    [handleSend]
+  );
 
   const handleClose = useCallback(() => {
     setOpen(false);
@@ -423,6 +592,7 @@ export function ChatWidget() {
         error={error}
         onSend={handleSend}
         onClear={handleClear}
+        onRetry={handleRetry}
       />
       <ChatBubble open={open} onToggle={handleToggle} />
     </>

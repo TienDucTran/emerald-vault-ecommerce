@@ -21,29 +21,65 @@ import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createGroq } from '@ai-sdk/groq';
 import { getChatConfig, type ChatProvider } from './config';
+import { getUpstashConfig } from '@/lib/env';
 
 // Optional Upstash Redis for cross-instance cooldown (Vercel serverless).
 // Falls back to in-memory Map when env vars are missing (dev / single-node).
+//
+// IMPORTANT: Dùng getUpstashConfig() thay vì check process.env raw để tránh
+// init Redis với URL placeholder không hợp lệ (vd "123" trong .env.local).
+// getUpstashConfig() trả về { isConfigured: false } khi URL invalid → skip.
 type RedisLike = {
   get(key: string): Promise<string | null>;
   set(key: string, value: string, opts?: { px?: number }): Promise<unknown>;
   del(key: string): Promise<unknown>;
 };
 let _redis: RedisLike | null = null;
-try {
-  // Lazy-require so the module is optional; if not installed or env missing, keep in-memory.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { Redis } = require('@upstash/redis') as typeof import('@upstash/redis');
-  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
-    _redis = new Redis({
-      url: process.env.UPSTASH_REDIS_REST_URL,
-      token: process.env.UPSTASH_REDIS_REST_TOKEN,
+let _redisInitPromise: Promise<void> | null = null;
+
+/**
+ * Lazy init Redis bằng dynamic import (ES module syntax — không dùng require).
+ * Dùng promise pattern để đảm bảo chỉ init 1 lần và concurrent calls
+ * đều chờ cùng 1 promise. Caller dùng `await getRedis()` thay vì truy cập
+ * _redis trực tiếp.
+ */
+async function initRedis(): Promise<void> {
+  if (_redis) return;
+  const upstash = getUpstashConfig();
+  if (!upstash.isConfigured || !upstash.url || !upstash.token) {
+    console.log('[chatbot] cooldown store: in-memory Map (Upstash not configured)');
+    return;
+  }
+  try {
+    // Dynamic import — module optional. Nếu @upstash/redis chưa install thì catch.
+    const upstashRedis = await import('@upstash/redis');
+    _redis = new upstashRedis.Redis({
+      url: upstash.url,
+      token: upstash.token,
     }) as unknown as RedisLike;
     console.log('[chatbot] cooldown store: Upstash Redis');
+  } catch (err) {
+    console.warn('[chatbot] Upstash init failed, falling back to in-memory:', err);
+    _redis = null;
   }
-} catch {
-  _redis = null;
 }
+
+/**
+ * Public accessor — caller dùng thay vì truy cập _redis trực tiếp.
+ * Đảm bảo init lazy + concurrent-safe qua promise cache.
+ */
+export async function getRedis(): Promise<RedisLike | null> {
+  if (_redis) return _redis;
+  if (!_redisInitPromise) {
+    _redisInitPromise = initRedis();
+  }
+  await _redisInitPromise;
+  return _redis;
+}
+
+// Backward-compatible sync init cho callers cũ (nếu có) — không khuyến khích.
+// Logic cũ được thay thế bằng initRedis() async pattern ở trên.
+// Caller dùng `await getRedis()` thay vì truy cập _redis trực tiếp.
 
 type ModelInstance = ReturnType<ReturnType<typeof createOpenAI>>;
 
@@ -133,9 +169,10 @@ export async function markProviderRateLimited(provider: string, errorMessage?: s
   const until = Date.now() + cooldownMs;
 
   // Persist to Redis if configured (production).
-  if (_redis) {
+  const redis = await getRedis();
+  if (redis) {
     try {
-      await _redis.set(COOLDOWN_KEY(provider), String(until), { px: cooldownMs });
+      await redis.set(COOLDOWN_KEY(provider), String(until), { px: cooldownMs });
     } catch (e) {
       console.warn('[chatbot] redis set cooldown failed, falling back to memory:', e);
     }
@@ -157,12 +194,13 @@ export async function getCooldownInfo(): Promise<Record<string, number>> {
   const now = Date.now();
   const out: Record<string, number> = {};
 
-  if (_redis) {
+  const redis = await getRedis();
+  if (redis) {
     const providers = ['groq', 'openrouter', 'cerebras', 'cloudflare', 'gemini', 'openai'];
     await Promise.all(
       providers.map(async (p) => {
         try {
-          const raw = await _redis!.get(COOLDOWN_KEY(p));
+          const raw = await redis.get(COOLDOWN_KEY(p));
           const until = raw ? Number(raw) : 0;
           if (until && now < until) {
             out[p] = Math.ceil((until - now) / 1000);
@@ -191,10 +229,14 @@ export function getProviderDefaults(): Record<ChatProvider, string> {
     groq: 'llama-3.1-8b-instant',
     // OpenRouter: PHẢI có :free suffix, không thì trả 404 invalid model
     openrouter: 'meta-llama/llama-3.3-70b-instruct:free',
-    // Cerebras: model verified working (alternative nếu 70b fail: 'llama-3.1-8b')
-    cerebras: 'llama-3.3-70b',
-    // Cloudflare: OpenAI-compat cần prefix @cf/ — đã verify trên docs
-    cloudflare: '@cf/meta/llama-3.1-8b-instruct',
+    // Cerebras: 8b nhanh hơn + ít timeout hơn so với 70b. 70b vẫn giữ trong
+    // fallback list nếu 8b cũng unavailable. Đổi 2026-07-29 vì llama-3.3-70b
+    // liên tục trả "Not Found" trong một số region/account.
+    cerebras: 'llama-3.1-8b',
+    // Cloudflare: OpenAI-compat cần prefix @cf/. Đổi từ llama-3.1-8b-instruct →
+    // llama-3.3-70b-instruct-fp8-fast vì model cũ bị Cloudflare deprecate
+    // ngày 2026-05-30 và trả "Model has been deprecated".
+    cloudflare: '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
     // Gemini: chỉ work nếu có key free (không enable billing)
     gemini: 'gemini-2.0-flash',
     // OpenAI: paid, fallback cuối
@@ -214,10 +256,9 @@ export function getFallbackModels(): Record<ChatProvider, string[]> {
       'meta-llama/llama-3.1-8b-instruct:free',
       'qwen/qwen-2.5-72b-instruct:free',
     ],
-    cerebras: ['llama-3.3-70b', 'llama-3.1-8b', 'qwen-2.5-72b-instruct'],
+    cerebras: ['llama-3.1-8b', 'llama-3.3-70b', 'qwen-2.5-72b-instruct'],
     cloudflare: [
-      '@cf/meta/llama-3.1-8b-instruct',
-      '@cf/meta/llama-3.1-8b-instruct-awq',
+      '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
       '@cf/mistralai/mistral-7b-instruct-v0.1',
     ],
     gemini: ['gemini-2.0-flash', 'gemini-2.0-flash-lite'],

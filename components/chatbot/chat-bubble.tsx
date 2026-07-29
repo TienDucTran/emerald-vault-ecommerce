@@ -22,7 +22,7 @@ export function ChatBubble({ open, onToggle, unreadCount = 0 }: ChatBubbleProps)
         'sm:bottom-6 sm:right-6',
         'flex h-14 w-14 items-center justify-center rounded-full',
         'bg-gradient-to-br from-gold to-gold-champagne',
-        'shadow-gold-glow-lg transition-all duration-200',
+        'shadow-gold-glow-lg motion-safe:transition-all motion-safe:duration-200',
         'hover:scale-110 hover:shadow-2xl',
         'focus:outline-none focus:ring-2 focus:ring-gold focus:ring-offset-2 focus:ring-offset-background',
         'lg:bottom-8 lg:right-8 lg:h-16 lg:w-16'

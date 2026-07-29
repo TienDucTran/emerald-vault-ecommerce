@@ -1,12 +1,48 @@
-// Client hook cho chat sessionId (flows.md §15.7)
+// Client hook cho chat sessionId (flows.md §15.7).
+// Fix S9: per-tab sessionId để tránh conversation cross-contamination giữa các tab.
+// Pattern:
+//   - sessionId = per-tab UUID (sessionStorage) — UI state riêng cho từng tab.
+//   - clientId  = cross-tab UUID (cookie) — server group messages cho cùng visitor.
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
+const TAB_ID_KEY = 'ev_chat_tab_id';
 const COOKIE_NAME = 'ev_client_id';
-const ONE_YEAR = 60 * 60 * 24 * 365;
 
-function readCookie(): string | null {
+function generateUUID(): string {
+  if (typeof crypto !== 'undefined' && (crypto as any).randomUUID) {
+    return (crypto as any).randomUUID();
+  }
+  // Fallback cho browser cũ không có crypto.randomUUID.
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+function getTabId(): string {
+  if (typeof window === 'undefined') return '';
+  let tabId: string | null = null;
+  try {
+    tabId = window.sessionStorage.getItem(TAB_ID_KEY);
+  } catch (err) {
+    // sessionStorage có thể bị block (private mode, cookie banner) — fallback về in-memory.
+    console.warn('[useChatSession] sessionStorage read failed:', err);
+  }
+  if (!tabId) {
+    tabId = generateUUID();
+    try {
+      window.sessionStorage.setItem(TAB_ID_KEY, tabId);
+    } catch (err) {
+      console.warn('[useChatSession] sessionStorage write failed:', err);
+    }
+  }
+  return tabId;
+}
+
+function readClientIdCookie(): string | null {
   if (typeof document === 'undefined') return null;
   const m = document.cookie.match(
     new RegExp('(?:^|; )' + COOKIE_NAME + '=([^;]+)')
@@ -14,28 +50,31 @@ function readCookie(): string | null {
   return m?.[1] ?? null;
 }
 
-function writeCookie(v: string) {
-  if (typeof document === 'undefined') return;
-  document.cookie = `${COOKIE_NAME}=${v}; path=/; max-age=${ONE_YEAR}; SameSite=Lax`;
-}
-
 /**
- * Hook trả về sessionId cho chat session.
- * - SSR: trả '' (cookie không tồn tại server-side)
- * - Client: đọc cookie `ev_client_id` synchronously trong useState initializer
- *   → 1st POST đã có sessionId đúng, không bị split session (fix bug cũ).
- * - Nếu cookie thiếu, generate UUID v4 và set lại cookie cùng value với server.
+ * Hook trả về sessionId per-tab + clientId cross-tab.
+ * - SSR: trả về rỗng (mount mới populate).
+ * - Client: sessionId từ sessionStorage (mỗi tab một UUID riêng).
+ * - Client: clientId từ cookie `ev_client_id` (share giữa các tab).
+ * - `ready=true` khi đã đọc xong cả hai — caller có thể dùng để gate network calls.
  */
-export function useChatSession(): string {
-  const [sessionId] = useState<string>(() => {
-    if (typeof window === 'undefined') return '';
-    const existing = readCookie();
-    if (existing && existing.length > 0) return existing;
-    const fresh = (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
-      ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    writeCookie(fresh);
-    return fresh;
-  });
-  return sessionId;
+export function useChatSession(): {
+  sessionId: string | null;
+  clientId: string | null;
+  ready: boolean;
+} {
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [clientId, setClientId] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    // Per-tab session ID (sessionStorage — không share giữa các tab).
+    setSessionId(getTabId());
+
+    // Cross-tab client ID (cookie — share giữa các tab để server group messages).
+    setClientId(readClientIdCookie());
+
+    setReady(true);
+  }, []);
+
+  return { sessionId, clientId, ready };
 }

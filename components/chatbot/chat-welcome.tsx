@@ -33,7 +33,7 @@ export function ChatWelcome({ onSuggest }: ChatWelcomeProps) {
             key={q}
             type="button"
             onClick={() => onSuggest(q)}
-            className="rounded-lg border border-gold/20 bg-surface/50 px-3 py-2 text-left text-xs text-text-base transition-all hover:border-gold/50 hover:bg-surface-emerald"
+            className="rounded-lg border border-gold/20 bg-surface/50 px-3 py-2 text-left text-xs text-text-base motion-safe:transition-all hover:border-gold/50 hover:bg-surface-emerald"
           >
             {q}
           </button>

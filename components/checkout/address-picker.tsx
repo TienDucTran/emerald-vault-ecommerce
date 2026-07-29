@@ -16,7 +16,7 @@
  * POST /api/account/addresses (tái sử dụng cho lần sau).
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Loader2, Plus, MapPin, ChevronDown, Star } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { AddressForm, type AddressFormValues } from '@/components/account/address-form';
@@ -82,6 +82,12 @@ export function AddressPicker({
   });
 
   // ---- load saved addresses ----
+  // Guard chống emit onChange(default) nhiều lần: nếu parent không memoize
+  // onChange (vd handleAddressChange trong checkout-form tạo reference mới
+  // mỗi render), thì mỗi lần parent re-render function reference đổi nhưng
+  // useEffect [] không re-run → không loop. Tuy nhiên vẫn phải đảm bảo emit
+  // ĐÚNG 1 LẦN khi mount (sau đó user pick khác đã có handleSelectSaved).
+  const hasEmittedRef = useRef(false);
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -98,8 +104,12 @@ export function AddressPicker({
           addresses: list,
           selectedId: def?.id ?? null,
         }));
-        // Auto-emit default address
-        if (def) {
+        // Auto-emit default address CHỈ 1 lần khi mount. Nếu user pick
+        // address khác sau đó, handleSelectSaved sẽ lo. Ref guard đảm bảo
+        // kể cả khi onChange reference đổi mỗi render (parent không
+        // memoize) thì effect body này chạy đúng 1 lần (deps []).
+        if (def && !hasEmittedRef.current) {
+          hasEmittedRef.current = true;
           onChange(addressToPick(def));
         }
       } catch (err) {
@@ -112,7 +122,7 @@ export function AddressPicker({
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onChange intentionally omitted: chỉ chạy 1 lần khi mount
   }, []);
 
   // ---- handle select saved ----

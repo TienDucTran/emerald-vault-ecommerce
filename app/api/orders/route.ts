@@ -60,6 +60,7 @@ const CustomerSchema = z.object({
   address: z.string().min(1),
   province: z.string().max(80).optional(),
   district: z.string().max(80).optional(),
+  ward: z.string().max(80).optional(),
   notes: z.string().max(2000).optional(),
 });
 
@@ -216,6 +217,58 @@ export async function POST(req: Request) {
     );
   }
 
+  // 1b. Detect RESERVED sớm (trước khi gọi lock_item) — phân biệt 2 case:
+  //   - Product bị reserve bởi order WAITING_PAYMENT của CHÍNH user này:
+  //     → trả OWN_PRODUCT_RESERVED kèm existingOrderCode để client nhắc user
+  //       thanh toán / huỷ đơn cũ thay vì đặt mới (UX tốt hơn 500 + message chung).
+  //   - Product bị reserve bởi user KHÁC:
+  //     → trả PRODUCT_RESERVED (giữ nguyên, client hiển thị "có người khác đang giữ").
+  //
+  // Nếu KHÔNG check sớm → lock_item RPC throw PRODUCT_RESERVED (vì RESERVED
+  // bị reject ở migration 0009b) → route trả 500 với error code thô → client
+  // translate thành message chung "Món này đang được người khác thanh toán"
+  // (sai nếu chính user giữ) → user confused.
+  const reservedByOther = products.find((p: any) => p.status === 'RESERVED');
+  if (reservedByOther) {
+    // Query order WAITING_PAYMENT của CHÍNH user hiện tại đang giữ product này.
+    // PostgREST nested filter: select orders với order_items!inner(product_id)
+    // → inner join order_items rồi filter product_id trên đó.
+    const { data: ownOrder } = await db
+      .from('orders')
+      .select('code, status, payment_method, order_items!inner(product_id)')
+      .eq('customer_id', currentUserId)
+      .eq('status', 'WAITING_PAYMENT')
+      .eq('order_items.product_id', reservedByOther.id)
+      .maybeSingle();
+
+    if (ownOrder) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'OWN_PRODUCT_RESERVED',
+          productId: reservedByOther.id,
+          productTitle: reservedByOther.title,
+          existingOrderCode: ownOrder.code,
+          message:
+            `Bạn đang có đơn WAITING_PAYMENT (${ownOrder.code}) cho sản phẩm "${reservedByOther.title}". ` +
+            `Vui lòng thanh toán hoặc huỷ đơn cũ trước khi đặt lại.`,
+        },
+        { status: 409 }
+      );
+    }
+
+    // Product RESERVED bởi user khác — giữ behavior cũ nhưng đổi status 409 thay vì 500.
+    return NextResponse.json(
+      {
+        ok: false,
+        error: 'PRODUCT_RESERVED',
+        productId: reservedByOther.id,
+        message: 'Sản phẩm đang được người khác giữ. Vui lòng thử lại sau ít phút.',
+      },
+      { status: 409 }
+    );
+  }
+
   // 2. Lock từng sản phẩm (atomic qua RPC lock_item)
   // - MOMO / BANK_TRANSFER: lock để giữ hold trong lúc chờ thanh toán async.
   // - COD: cũng lock tại submit-time để đảm bảo hold ngay trước khi tạo order
@@ -291,6 +344,7 @@ export async function POST(req: Request) {
       customer_address: customer.address,
       province: customer.province ?? null,
       district: customer.district ?? null,
+      ward: customer.ward ?? null,
       notes: customer.notes ?? null,
       total_amount: totalAmount,
       shipping_fee: 0,
@@ -351,15 +405,21 @@ export async function POST(req: Request) {
       // Cleanup: xóa order, release locks, đưa products về AVAILABLE.
       // Thứ tự: locks trước (tránh race), products, order cuối.
       // bank_transfers chưa tồn tại ở bước này (insert ở step 7).
-      await cleanupFailedBankOrder({
-        orderId: order.id,
-        productIds,
-        locks,
-        bankDb,
-        ordersDb,
-        locksDb,
-        prodDb,
-      });
+      try {
+        await cleanupFailedBankOrder({
+          orderId: order.id,
+          productIds,
+          locks,
+          bankDb,
+          ordersDb,
+          locksDb,
+          prodDb,
+        });
+      } catch (cleanupErr) {
+        // Cleanup hiếm khi throw (admin client bypass RLS), nhưng nếu xảy ra
+        // KHÔNG được mask original error — chỉ log để admin manual fix sau.
+        console.error('[orders] cleanupFailedBankOrder threw:', cleanupErr);
+      }
       return NextResponse.json(
         {
           ok: false,
@@ -411,6 +471,18 @@ export async function POST(req: Request) {
       qr_expires_at: expiresAt,
     });
     if (btErr) {
+      // Defensive logging — ghi lại code + message để debug sau.
+      // TRƯỚC ĐÂY route chỉ trả response 500 với btErr.message mà không log gì
+      // → developer không biết được lý do thực sự (FK? NOT NULL? RLS? timeout?).
+      console.error('[orders] bank_transfers insert failed:', {
+        code: btErr.code,
+        message: btErr.message,
+        details: btErr.details,
+        hint: btErr.hint,
+        orderId: order.id,
+        orderCode: order.code,
+      });
+
       // MED #6: Duplicate order_id (constraint 0026) sẽ trả code 23505.
       //   Coi như idempotent success — trả order hiện có để client không retry.
       if (btErr.code === '23505' || /unique/i.test(btErr.message)) {
@@ -434,18 +506,48 @@ export async function POST(req: Request) {
           });
         }
       }
-      // Rollback order nếu tạo bank_transfers fail
-      await cleanupFailedBankOrder({
-        orderId: order.id,
-        productIds,
-        locks,
-        bankDb,
-        ordersDb,
-        locksDb,
-        prodDb,
-      });
+      // KHÔNG xóa order ngay cả khi bank_transfers insert fail. Lý do:
+      //   - Cleanup toàn bộ xóa luôn order → user mất data, phải đặt lại
+      //   - Nếu chỉ fail ở step insert bank_transfers, order + locks + products
+      //     đều OK → admin có thể manual insert bank_transfers row qua admin panel
+      //   - Cron cleanup 0030 sẽ cancel order WAITING_PAYMENT BANK_TRANSFER > 24h
+      //
+      // Best-effort: chỉ release locks (nếu có) + revert product status.
+      const partialCleanupErrors: string[] = [];
+
+      if (locks.length > 0) {
+        const lockIds = locks.map((l) => l.lockId).filter((x): x is string => !!x);
+        if (lockIds.length > 0) {
+          const { error: lockErr } = await locksDb
+            .update({ status: 'RELEASED', released_at: new Date().toISOString() })
+            .in('id', lockIds);
+          if (lockErr) partialCleanupErrors.push(`locks: ${lockErr.message}`);
+        }
+      }
+
+      if (productIds.length > 0) {
+        const { error: prodErr } = await prodDb
+          .update({ status: 'AVAILABLE' })
+          .in('id', productIds)
+          .eq('status', 'RESERVED');
+        if (prodErr) partialCleanupErrors.push(`products: ${prodErr.message}`);
+      }
+
+      if (partialCleanupErrors.length > 0) {
+        console.error('[orders] partial cleanup errors:', partialCleanupErrors);
+      }
+
+      // KHÔNG xóa order — admin sẽ thấy trong dashboard (status WAITING_PAYMENT,
+      // payment_status PENDING, không có bank_transfers row) và xử lý manual.
       return NextResponse.json(
-        { ok: false, error: 'BANK_TRANSFER_INIT_FAILED', message: btErr.message },
+        {
+          ok: false,
+          error: 'BANK_TRANSFER_INIT_FAILED',
+          message:
+            'Không thể tạo mã QR thanh toán. Đơn hàng đã được ghi nhận — admin sẽ liên hệ với bạn trong ít phút để cung cấp thông tin chuyển khoản.',
+          orderCode: order.code,
+          partialCleanupErrors,
+        },
         { status: 500 }
       );
     }

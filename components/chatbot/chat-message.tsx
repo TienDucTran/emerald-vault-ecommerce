@@ -5,13 +5,14 @@
 
 import { useMemo } from 'react';
 import type { UIMessage } from 'ai';
-import { Sparkles, User } from 'lucide-react';
+import { Sparkles, User, RotateCcw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ChatProductCard } from './chat-product-card';
 import { ChatCollectionCard } from './chat-collection-card';
 
 interface ChatMessageProps {
   message: UIMessage;
+  onRetry?: (text: string) => void;
 }
 
 const TOOL_LABELS: Record<string, string> = {
@@ -21,8 +22,11 @@ const TOOL_LABELS: Record<string, string> = {
   getCurrentCollections: 'Bà Chủ đang lật catalog mùa...',
 };
 
-export function ChatMessage({ message }: ChatMessageProps) {
+export function ChatMessage({ message, onRetry }: ChatMessageProps) {
   const isUser = message.role === 'user';
+  // Fix S10: đọc pending state từ optimistic user message.
+  const pendingState = (message as any).pending as
+    | 'pending' | 'sent' | 'failed' | undefined;
   const toolProducts = useMemo(() => {
     if (!message.parts) return [];
     const products: any[] = [];
@@ -131,6 +135,30 @@ export function ChatMessage({ message }: ChatMessageProps) {
 
         {text && (
           <div className="whitespace-pre-wrap break-words leading-relaxed">{text}</div>
+        )}
+
+        {/* Fix S10: pending state cho optimistic user message. */}
+        {isUser && pendingState === 'pending' && (
+          <div className="flex items-center gap-1 text-[10px] italic text-text-muted">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-gold" />
+            Đang gửi...
+          </div>
+        )}
+        {isUser && pendingState === 'failed' && (
+          <div className="flex flex-col gap-1">
+            <div className="text-[10px] italic text-error">Gửi thất bại</div>
+            {onRetry && (
+              <button
+                type="button"
+                onClick={() => onRetry(text)}
+                className="inline-flex w-fit items-center gap-1 rounded-md border border-error/30 bg-error/5 px-2 py-0.5 text-[10px] text-error motion-safe:transition-all hover:bg-error/10"
+                aria-label="Thử gửi lại"
+              >
+                <RotateCcw className="h-3 w-3" />
+                Thử lại
+              </button>
+            )}
+          </div>
         )}
 
         {toolProducts.length > 0 && (
