@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
-const STORAGE_KEY = 'ev-recently-viewed';
+export const STORAGE_KEY = 'ev-recently-viewed';
 const MAX_ITEMS = 12;
 
 export type RecentlyViewedItem = {

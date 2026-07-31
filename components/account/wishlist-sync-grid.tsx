@@ -4,6 +4,10 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Heart, Loader2, Sparkles, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  ProductUnavailableOverlay,
+  isUnavailableStatus,
+} from '@/components/product/product-unavailable-overlay';
 import { cn, formatVND } from '@/lib/utils';
 import type { WishlistItemWithProduct } from '@/lib/types/account';
 
@@ -132,6 +136,11 @@ function WishlistSyncCard({ item, isRemoving, onRemove }: WishlistSyncCardProps)
   const product = item.product;
   const href = product?.slug ? `/san-pham/${product.slug}` : '/san-pham';
 
+  const unavailable = product ? isUnavailableStatus(product.status) : false;
+  const unavailableStatus = unavailable
+    ? (product!.status as 'SOLD_OUT' | 'RESERVED')
+    : null;
+
   return (
     <div className={cardClass}>
       <Link
@@ -150,6 +159,19 @@ function WishlistSyncCard({ item, isRemoving, onRemove }: WishlistSyncCardProps)
             <Heart className="h-8 w-8" />
           </div>
         )}
+        {product && unavailable && unavailableStatus ? (
+          <ProductUnavailableOverlay status={unavailableStatus} variant="full" />
+        ) : null}
+        {product && product.status === 'AVAILABLE' ? (
+          <div
+            aria-hidden
+            title="Sản phẩm này đã được thêm vào yêu thích"
+            className="pointer-events-none absolute left-2 top-2 inline-flex items-center gap-1 rounded-full border border-red-500/30 bg-background/70 px-2 py-1 text-[10px] font-medium text-red-500 shadow-sm backdrop-blur-sm sm:text-xs"
+          >
+            <Heart className="h-3 w-3 fill-red-500" aria-hidden />
+            <span>Đã thích</span>
+          </div>
+        ) : null}
       </Link>
       <div className="flex flex-1 flex-col gap-2 p-4">
         <Link

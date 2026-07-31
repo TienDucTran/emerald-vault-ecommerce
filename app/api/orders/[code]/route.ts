@@ -4,6 +4,7 @@
 
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { rateLimit } from '@/lib/middleware/rate-limit';
 
 export async function GET(
   req: Request,
@@ -11,6 +12,26 @@ export async function GET(
 ) {
   const url = new URL(req.url);
   const phone = url.searchParams.get('phone');
+
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0].trim() ?? 'unknown';
+  const limit = await rateLimit('order-lookup', {
+    identifier: ip,
+    limit: 10,
+    window: '1 m',
+  });
+  if (!limit.ok) {
+    return NextResponse.json(
+      { ok: false, error: 'RATE_LIMITED', retryAfter: limit.retryAfter },
+      {
+        status: 429,
+        headers: {
+          'Retry-After': String(limit.retryAfter ?? 60),
+          'X-RateLimit-Remaining': '0',
+          'X-RateLimit-Reset': String(limit.resetAt),
+        },
+      }
+    );
+  }
   if (!phone) {
     return NextResponse.json({ ok: false, error: 'PHONE_REQUIRED' }, { status: 400 });
   }

@@ -4,11 +4,32 @@
 
 import { NextResponse } from 'next/server';
 import { getOrderStatus } from '@/lib/supabase/queries/orders';
+import { rateLimit } from '@/lib/middleware/rate-limit';
 
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: { code: string } }
 ) {
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0].trim() ?? 'unknown';
+  const limit = await rateLimit('order-status', {
+    identifier: ip,
+    limit: 60,
+    window: '1 m',
+  });
+  if (!limit.ok) {
+    return NextResponse.json(
+      { ok: false, error: 'RATE_LIMITED', retryAfter: limit.retryAfter },
+      {
+        status: 429,
+        headers: {
+          'Retry-After': String(limit.retryAfter ?? 60),
+          'X-RateLimit-Remaining': '0',
+          'X-RateLimit-Reset': String(limit.resetAt),
+        },
+      }
+    );
+  }
+
   const code = decodeURIComponent(params.code);
   try {
     const status = await getOrderStatus(code);

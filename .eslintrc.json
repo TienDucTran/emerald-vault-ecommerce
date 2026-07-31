@@ -3,7 +3,18 @@
   "rules": {
     "@next/next/no-img-element": "off",
     "react-hooks/exhaustive-deps": "warn",
-    "jsx-a11y/role-has-required-aria-props": "warn"
+    "jsx-a11y/role-has-required-aria-props": "warn",
+    "no-restricted-imports": [
+      "error",
+      {
+        "patterns": [
+          {
+            "group": ["@/lib/supabase/admin", "@/lib/supabase/admin*"],
+            "message": "createAdminClient uses SUPABASE_SERVICE_ROLE_KEY and must NEVER be imported from a Client Component ('use client'). Use lib/supabase/client.ts (browser) or lib/supabase/server.ts (server) instead."
+          }
+        ]
+      }
+    ]
   },
   "ignorePatterns": [
     "node_modules/",

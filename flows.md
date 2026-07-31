@@ -12,9 +12,9 @@
 
 | Trạng thái | Số lượng | % |
 |---|---|---|
-| ✅ DONE | ~117 | 75% |
+| ✅ DONE | ~127 | 82% |
 | 🟡 PARTIAL | ~15 | 10% |
-| ❌ NOT STARTED | ~23 | 15% |
+| ❌ NOT STARTED | ~13 | 8% |
 
 **Customer flow** (mua hàng, thanh toán, tài khoản): gần như end-to-end, chạy được — **đã có VietQR làm payment chính (MVP)**.
 **Admin products CRUD + bulk import**: xong thật (real data).
@@ -86,6 +86,31 @@
 - **Fix customer UI chip** (`app/(store)/tai-khoan/don-hang/[code]/page.tsx`): override chip payment khi `latestRefund.state` REJECTED/active. REJECTED → "Đã thanh toán · Hoàn tiền bị từ chối" (amber); PENDING/APPROVED/FAILED → "Đang yêu cầu hoàn tiền" (amber); COMPLETED → giữ label REFUNDED gốc.
 - **Fix admin orders page sync URL** (`app/(admin)/admin/orders/page.tsx`): trước đây filter state khởi tạo `useState('')` → URL `?status=NEW` không match dropdown. Refactor: tách `OrdersPage` wrap `<Suspense>` + `OrdersPageInner` dùng `useSearchParams` (Next 14 requirement). Init state từ URL (validate enum), 2 useEffect sync state→URL (`router.replace` skip nếu đã khớp) và URL→state (cho back/forward). Nút "Xoá lọc" clear URL.
 - **Xem chi tiết**: §10.5.11 (refund flow harden) + §10.6 (admin orders URL sync).
+
+**🆕 Security hardening + Launch readiness (Phase 1 + 2)** (sprint 2026-07-31): ✅ done. Full security audit của codebase, fix hết 10 issues (5 blocker + 5 hardening). Tóm tắt:
+
+- **Audit findings** (verified): 0 hardcoded secret, `.env*` gitignored, `SUPABASE_SERVICE_ROLE_KEY` server-only (no `NEXT_PUBLIC_` prefix), middleware dùng `supabase.auth.getUser()` (validate JWT chứ không chỉ decode cookie), mọi `/api/admin/*` + `/api/account/*` đều có `requireAdmin`/`requireCustomer` (defense-in-depth), RLS bật trên tất cả user-facing tables, MoMo IPN verify HMAC-SHA256 + Upstash rate-limit cho 5 high-risk routes, Sentry wired (client/server/edge) + PII redaction.
+
+- **Phase 1 — 5 blockers (must-have trước khi launch)**:
+  - **Security headers** (`next.config.mjs`): `poweredByHeader: false` (ẩn `X-Powered-By: Next.js`), `output: 'standalone'` (Docker/Node self-host ready), `async headers()` function với 6 headers (CSP, HSTS 2 năm + preload, X-Frame-Options: DENY chống clickjacking, X-Content-Type-Options: nosniff, Referrer-Policy: strict-origin-when-cross-origin, Permissions-Policy: tắt camera/mic/geo/FLoC) + CSP cụ thể cho GA4/Sentry/Supabase/MoMo/VietQR domains. Thêm rule riêng cho `/api/*` → `Cache-Control: no-store, no-cache, must-revalidate`.
+  - **Health endpoint** `app/api/health/route.ts` (NEW): `GET /api/health` trả `{ ok, ts, version, uptimeSec }` cho Uptime Monitor + Load Balancer. `dynamic = 'force-dynamic'`, không đụng DB.
+  - **Rate-limit `/api/orders/[code]/status`** (`app/api/orders/[code]/status/route.ts`): thêm `rateLimit('order-status', { limit: 60, window: '1 m' })` per-IP — chống enumeration + brute-force polling MoMo return page.
+  - **Rate-limit `/api/orders/[code]`** (`app/api/orders/[code]/route.ts`): thêm `rateLimit('order-lookup', { limit: 10, window: '1 m' })` per-IP — siết chặt endpoint phone-as-secret (code + phone cùng brute-force).
+  - **Migration cleanup** (`supabase/migrations/0010_product_reserved.sql`): file này đã được đánh dấu DEPRECATED trước đó (no-op redirect → content đã merge vào `0009b_product_reserved.sql`). **Yêu cầu xoá thủ công** bằng PowerShell: `Remove-Item -LiteralPath 'supabase\migrations\0010_product_reserved.sql' -Force`. Sau khi xoá, không còn filename collision nào trong folder migrations.
+
+- **Phase 2 — 5 hardening items (production polish)**:
+  - **Tighten image remotePatterns** (`next.config.mjs`): `*.supabase.co` wildcard → derive exact hostname từ `process.env.NEXT_PUBLIC_SUPABASE_URL` lúc build time. Fallback wildcard chỉ khi env missing (không break dev). Ngăn Next.js Image optimizer fetch ảnh từ Supabase projects của tenant khác.
+  - **ESLint rule** (`.eslintrc.json`): `no-restricted-imports: error` cho pattern `@/lib/supabase/admin*` với message giải thích "createAdminClient uses SUPABASE_SERVICE_ROLE_KEY and must NEVER be imported from a Client Component". Build-time guard chống leak service-role key ra browser.
+  - **Sentry release env** (`.env.example`): document `SENTRY_RELEASE` + `NEXT_PUBLIC_SENTRY_RELEASE` (đã referenced trong `sentry.server.config.ts` + `sentry.client.config.ts` nhưng chưa có trong env template).
+  - **CI workflow** (`.github/workflows/ci.yml` — NEW): 2 jobs `verify` (lint + typecheck, 10min) + `build` (`next build` với Supabase secrets, depends on verify, 15min). Trigger trên `pull_request` + `push` to main. Cache npm qua `setup-node@v4`. **Yêu cầu add 2 GitHub Secrets**: `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY` trong repo Settings → Secrets and variables → Actions.
+  - **Dev seed stub** (`supabase/seed.sql` — NEW): no-op stub `SELECT 'seed.sql loaded' AS note;` + opt-in commented INSERTs (3 sample products với 1 SOLD_OUT để test overlay, 1 dev admin user). Chạy tự động qua `supabase db reset` sau migrations. Contributor mới không thấy storefront trống.
+
+- **3 gap còn lại sau sprint**:
+  1. **Xoá file deprecated** (PowerShell command ở trên) — 5 giây.
+  2. **Add GitHub Secrets** cho CI workflow — 1 phút.
+  3. **Verify sau deploy**: `curl -I https://your-domain.com/ | grep -iE 'x-frame|x-content|strict-transport|content-security|x-powered'` → phải thấy 4 headers, KHÔNG thấy X-Powered-By. `curl https://your-domain.com/api/health` → `{ok:true,...}`.
+
+- **Còn deferred (Phase 3, không block launch)**: Dockerfile + docker-compose (self-host thay Vercel), Vitest/Playwright tests, Supabase backups policy, Uptime monitor trỏ vào `/api/health`.
 
 **3 gap lớn nhất**:
 1. ❌ **MoMo env chưa populate** — Phase 2 (khi có MST, cần làm theo `docs/momo-sandbox-setup.md` 8 bước ~20 phút). Hiện tại VietQR đã cover MVP payment.

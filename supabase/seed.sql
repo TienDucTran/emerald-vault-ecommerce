@@ -1,0 +1,70 @@
+-- ============================================================================
+-- supabase/seed.sql — Dev seed for local development
+-- ----------------------------------------------------------------------------
+-- This file is run automatically by `supabase db reset` AFTER all migrations.
+-- Goal: leave a fresh dev database in a state where the app loads with minimal
+-- but useful data so contributors don't see a completely empty storefront.
+--
+-- IMPORTANT:
+--   1. This file must be IDEMPOTENT — safe to run multiple times.
+--   2. Must NOT depend on specific UUIDs (use `gen_random_uuid()` or check
+--      before inserting).
+--   3. Must NOT touch production. Supabase only runs `seed.sql` in local dev
+--      (via `supabase start` + `supabase db reset`), NOT on hosted projects.
+--   4. Keep it minimal — the catalog data is managed via the admin UI /
+--      `/admin/products` page, not here.
+--
+-- To run manually: `psql -f supabase/seed.sql "$DATABASE_URL"` (or via Supabase
+-- Studio's SQL editor on your local stack).
+-- ============================================================================
+
+-- Sanity check: log a marker so contributors see seed.sql ran.
+SELECT 'seed.sql loaded — see header for usage notes' AS note;
+
+-- ============================================================================
+-- OPTIONAL: Insert a minimal dev catalog
+-- ----------------------------------------------------------------------------
+-- Uncomment the block below to seed 3 sample products. They use deterministic
+-- slugs ('dev-product-1', etc.) so subsequent runs won't duplicate.
+--
+-- INSERT INTO products (
+--   id, slug, code, title, description, material, category,
+--   image_url, price, status, quality_tier, season_tags
+-- ) VALUES
+--   (gen_random_uuid(), 'dev-product-1', 'EV-DEV-1', 'Sản phẩm dev 1',
+--    'Mẫu thử — chỉ dùng trong dev.', 'BAC_925', 'NHAN',
+--    'https://images.unsplash.com/photo-1605100804763-247f67b3557e?w=800',
+--    1500000, 'AVAILABLE', 'SS', '{}'::varchar[]),
+--   (gen_random_uuid(), 'dev-product-2', 'EV-DEV-2', 'Sản phẩm dev 2',
+--    'Mẫu thử — chỉ dùng trong dev.', 'VANG_18K', 'DAY_CHUYEN',
+--    'https://images.unsplash.com/photo-1599643477877-530eb83abc8e?w=800',
+--    5000000, 'AVAILABLE', 'SS', '{}'::varchar[]),
+--   (gen_random_uuid(), 'dev-product-3', 'EV-DEV-3', 'Sản phẩm dev 3 (đã sưu tầm)',
+--    'Mẫu thử — đã bán để test overlay SOLD_OUT.', 'VANG_18K', 'BO_SUU_TAP',
+--    'https://images.unsplash.com/photo-1611652022419-a9419f74343d?w=800',
+--    12000000, 'SOLD_OUT', 'SSS', '{}'::varchar[])
+-- ON CONFLICT (slug) DO NOTHING;
+-- ============================================================================
+
+-- ============================================================================
+-- OPTIONAL: Create a dev admin user
+-- ----------------------------------------------------------------------------
+-- Uncomment to bootstrap a dev admin. Password will be 'dev-password-CHANGEME'
+-- (must be changed immediately). Email: dev-admin@localhost.
+--
+-- INSERT INTO auth.users (id, email, encrypted_password, email_confirmed_at)
+-- VALUES (
+--   '00000000-0000-0000-0000-000000000001',
+--   'dev-admin@localhost',
+--   crypt('dev-password-CHANGEME', gen_salt('bf')),
+--   NOW()
+-- ) ON CONFLICT (id) DO NOTHING;
+--
+-- INSERT INTO profiles (id, email, full_name, role)
+-- VALUES (
+--   '00000000-0000-0000-0000-000000000001',
+--   'dev-admin@localhost',
+--   'Dev Admin',
+--   'admin'
+-- ) ON CONFLICT (id) DO NOTHING;
+-- ============================================================================
