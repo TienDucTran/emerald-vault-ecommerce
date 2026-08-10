@@ -58,6 +58,31 @@ export interface CollectionRow {
   created_at: string;
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// Migration 0031 — Home Banners + Site Settings
+// ────────────────────────────────────────────────────────────────────────────
+
+export interface HomeBannerRow {
+  id: string;
+  slot_key: string;
+  title: string;
+  subtitle: string | null;
+  image_url: string;
+  link_url: string;
+  display_order: number;
+  is_active: boolean;
+  valid_from: string | null;
+  valid_until: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SiteSettingRow {
+  key: string;
+  value: string;
+  updated_at: string;
+}
+
 export interface ProductRow {
   id: string;
   collection_id: string | null;
@@ -256,6 +281,9 @@ export type Database = {
       upcoming_products:     { Row: UpcomingProductRow; Insert: Omit<UpcomingProductRow, 'id' | 'created_at' | 'updated_at'> & { id?: string; created_at?: string; updated_at?: string }; Update: Partial<UpcomingProductRow> };
       upcoming_collections:  { Row: UpcomingCollectionRow; Insert: Omit<UpcomingCollectionRow, 'id' | 'created_at' | 'updated_at'> & { id?: string; created_at?: string; updated_at?: string }; Update: Partial<UpcomingCollectionRow> };
       chat_promotions:       { Row: ChatPromotionRow;   Insert: Omit<ChatPromotionRow, 'id' | 'created_at'> & { id?: string; created_at?: string }; Update: Partial<ChatPromotionRow> };
+      // Migration 0031 — Home Banners + Site Settings
+      home_banners:          { Row: HomeBannerRow;      Insert: Omit<HomeBannerRow, 'id' | 'created_at' | 'updated_at'> & { id?: string; created_at?: string; updated_at?: string }; Update: Partial<Omit<HomeBannerRow, 'id' | 'created_at'>> };
+      site_settings:         { Row: SiteSettingRow;     Insert: Omit<SiteSettingRow, 'updated_at'> & { updated_at?: string }; Update: Partial<Pick<SiteSettingRow, 'value'>> };
     };
     Views: { [_ in never]: never };
     Functions: {

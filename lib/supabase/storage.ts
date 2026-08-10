@@ -57,10 +57,16 @@ export interface UploadOptions {
   /** Folder con trong bucket (vd: 'products', 'categories'). Mặc định `'products'`. */
   folder?: string;
   /** Tên file gốc (có hoặc không có extension đều OK — server sẽ strip ext, slugify stem,
-   *  rồi gắn `.webp`). Nếu bỏ trống sẽ dùng UUID v4. */
+   *  rồi gắn extension). Nếu bỏ trống sẽ dùng UUID v4. */
   filename?: string;
   /** MIME type override. Mặc định `'image/webp'` (vì client đã convert sang webp). */
   contentType?: string;
+  /** Target bucket. Mặc định `'jewelry-images'` (admin media library).
+   *  Bill upload dùng `'payment-bills'`. */
+  bucket?: string;
+  /** Target extension (không kể dấu chấm). Mặc định `'webp'` (client resize).
+   *  Bill upload giữ extension gốc (jpg, png, heic...). */
+  extension?: string;
 }
 
 export interface UploadResult {
@@ -91,10 +97,13 @@ function slugify(input: string): string {
  * List object trong folder và trả về `Set<string>` tên file (chỉ basename, không kèm folder).
  * Log warning nếu đụng `limit` vì có thể miss collision ngoài tầm scan.
  */
-async function listFolderNames(folder: string): Promise<Set<string>> {
+async function listFolderNames(
+  folder: string,
+  bucket: string = BUCKET
+): Promise<Set<string>> {
   const supabase = createAdminClient();
   const { data, error } = await supabase.storage
-    .from(BUCKET)
+    .from(bucket)
     .list(folder, { limit: LIST_SCAN_LIMIT });
 
   if (error) {
@@ -125,17 +134,18 @@ async function listFolderNames(folder: string): Promise<Set<string>> {
  */
 function findNextAvailableSuffix(
   slug: string,
-  existing: Set<string>
+  existing: Set<string>,
+  ext: string = TARGET_EXT
 ): { name: string; suffix: number } {
   // Thử N=0 trước (không có suffix) — trường hợp phổ biến nhất khi folder mới/ít file.
   for (let n = 0; n <= RACE_RETRY_MAX + 1000; n++) {
-    const name = n === 0 ? `${slug}.${TARGET_EXT}` : `${slug}-${n}.${TARGET_EXT}`;
+    const name = n === 0 ? `${slug}.${ext}` : `${slug}-${n}.${ext}`;
     if (!existing.has(name)) {
       return { name, suffix: n };
     }
   }
   // Về lý thuyết không bao giờ tới đây (LIST_SCAN_LIMIT cap), nhưng TS cần return.
-  const fallback = `${slug}-${Date.now()}.${TARGET_EXT}`;
+  const fallback = `${slug}-${Date.now()}.${ext}`;
   return { name: fallback, suffix: -1 };
 }
 
@@ -154,6 +164,8 @@ export async function uploadImage(
   options: UploadOptions = {}
 ): Promise<UploadResult> {
   const folder = options.folder ?? DEFAULT_FOLDER;
+  const bucket = options.bucket ?? BUCKET;
+  const ext = options.extension ?? TARGET_EXT;
 
   // 1. Tính stem từ `options.filename` (strip ext) hoặc fallback UUID.
   const rawStem = options.filename
@@ -167,8 +179,8 @@ export async function uploadImage(
   const contentType = options.contentType || DEFAULT_CONTENT_TYPE;
 
   // 4. Collision check: list folder một lần, tìm suffix nhỏ nhất chưa dùng.
-  const existing = await listFolderNames(folder);
-  const { name: resolvedName } = findNextAvailableSuffix(slug, existing);
+  const existing = await listFolderNames(folder, bucket);
+  const { name: resolvedName } = findNextAvailableSuffix(slug, existing, ext);
 
   // 5. Upload với retry nếu vẫn trúng race condition (slot vừa chọn bị chiếm giữa list và upload).
   const supabase = createAdminClient();
@@ -179,7 +191,7 @@ export async function uploadImage(
   while (attempt <= RACE_RETRY_MAX) {
     const path = `${folder}/${currentName}`;
     const { error } = await supabase.storage
-      .from(BUCKET)
+      .from(bucket)
       .upload(path, file, {
         contentType,
         upsert: false,
@@ -187,7 +199,7 @@ export async function uploadImage(
       });
 
     if (!error) {
-      const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
+      const { data } = supabase.storage.from(bucket).getPublicUrl(path);
       return { publicUrl: data.publicUrl, path };
     }
 
@@ -209,7 +221,7 @@ export async function uploadImage(
     const tried = new Set<string>([currentName]);
     let nextSuffix = -1;
     for (let n = 0; n <= LIST_SCAN_LIMIT + 1000; n++) {
-      const candidate = n === 0 ? `${slug}.${TARGET_EXT}` : `${slug}-${n}.${TARGET_EXT}`;
+      const candidate = n === 0 ? `${slug}.${ext}` : `${slug}-${n}.${ext}`;
       if (!existing.has(candidate) && !tried.has(candidate)) {
         nextSuffix = n;
         break;
@@ -217,10 +229,10 @@ export async function uploadImage(
     }
     if (nextSuffix < 0) {
       // Hết slot trong tầm scan — thử timestamp để chắc chắn không trùng.
-      currentName = `${slug}-${Date.now()}-${attempt}.${TARGET_EXT}`;
+      currentName = `${slug}-${Date.now()}-${attempt}.${ext}`;
     } else {
       currentName =
-        nextSuffix === 0 ? `${slug}.${TARGET_EXT}` : `${slug}-${nextSuffix}.${TARGET_EXT}`;
+        nextSuffix === 0 ? `${slug}.${ext}` : `${slug}-${nextSuffix}.${ext}`;
     }
   }
 

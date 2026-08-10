@@ -10,7 +10,8 @@ import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { getCurrentUser } from '@/lib/auth/require-customer';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { getBankByCode } from '@/lib/bank/types';
+import { getBankByCode, type BankCode } from '@/lib/bank/types';
+import { generateVietQRUrl } from '@/lib/bank/vietqr';
 import { BankPaymentClient } from './bank-payment-client';
 
 export const dynamic = 'force-dynamic';
@@ -143,6 +144,28 @@ export default async function BankPaymentPage({ params, searchParams }: PageProp
   const bankMeta = getBankByCode(bt.bank_code);
   const bankName = bankMeta?.name ?? bt.bank_code;
 
+  // Regenerate QR URL động từ thông tin bank đã lưu trong bank_transfers row.
+  // Root cause: qr_image_url lưu trong DB có thể bị hỏng do bug format URL cũ
+  // (compact-{bin}-{account} → "invalid acqId"). Tạo lại URL mới đúng format
+  // {bankCode}-{account}-{template} mỗi khi load trang → luôn đúng + không cần
+  // migrate data cũ.
+  let qrImageUrl = bt.qr_image_url;
+  if (bankMeta && bt.account_number && bt.account_name) {
+    try {
+      qrImageUrl = generateVietQRUrl({
+        bankCode: bt.bank_code as BankCode,
+        accountNumber: bt.account_number,
+        accountName: bt.account_name,
+        amount: bt.amount,
+        addInfo: bt.transfer_content,
+        template: 'compact',
+      });
+    } catch {
+      // Fallback: giữ URL cũ nếu regenerate fail (vd bank_code không hợp lệ)
+      qrImageUrl = bt.qr_image_url;
+    }
+  }
+
   return (
     <div className="container mx-auto max-w-2xl px-4 py-8">
       <div className="mb-6 text-center">
@@ -155,7 +178,7 @@ export default async function BankPaymentPage({ params, searchParams }: PageProp
       <BankPaymentClient
         orderCode={order.code}
         phone={phone || order.customer_phone}
-        qrImageUrl={bt.qr_image_url}
+        qrImageUrl={qrImageUrl}
         bankName={bankName}
         accountNumber={bt.account_number}
         accountName={bt.account_name}

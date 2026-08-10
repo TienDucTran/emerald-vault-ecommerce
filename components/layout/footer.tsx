@@ -1,5 +1,12 @@
 import Link from 'next/link';
 import { Instagram, Facebook, Youtube, Mail } from 'lucide-react';
+import type { SiteSettings } from '@/lib/types';
+import { DEFAULT_SITE_SETTINGS } from '@/lib/supabase/queries/site-content-defaults';
+
+interface FooterProps {
+  /** Dynamic settings from API — if missing, falls back to defaults */
+  settings?: SiteSettings;
+}
 
 const FOOTER_LINKS = [
   {
@@ -30,7 +37,13 @@ const FOOTER_LINKS = [
   },
 ];
 
-export function Footer() {
+export function Footer({ settings }: FooterProps) {
+  const s = settings ?? DEFAULT_SITE_SETTINGS;
+  const tagline = s.footer_tagline ?? DEFAULT_SITE_SETTINGS.footer_tagline ?? '';
+  const instagram = s.social_instagram ?? DEFAULT_SITE_SETTINGS.social_instagram ?? '#';
+  const facebook = s.social_facebook ?? DEFAULT_SITE_SETTINGS.social_facebook ?? '#';
+  const youtube = s.social_youtube ?? DEFAULT_SITE_SETTINGS.social_youtube ?? '#';
+
   return (
     <footer className="mt-24 border-t border-gold/15 bg-surface">
       <div className="container mx-auto px-4 py-16">
@@ -68,36 +81,42 @@ export function Footer() {
               <span className="text-text-muted">VAULT</span>
             </Link>
             <p className="mt-3 text-sm leading-relaxed text-text-muted">
-              Trang sức si Nhật vintage — tuyển chọn thủ công, đã qua thẩm định chất lượng.
+              {tagline}
             </p>
             <div className="mt-4 flex gap-3">
-              <a
-                href="https://instagram.com"
-                target="_blank"
-                rel="noreferrer"
-                className="grid h-9 w-9 place-items-center rounded-md border border-gold/30 text-gold/70 transition-colors hover:border-gold hover:text-gold"
-                aria-label="Instagram"
-              >
-                <Instagram className="h-4 w-4" />
-              </a>
-              <a
-                href="https://facebook.com"
-                target="_blank"
-                rel="noreferrer"
-                className="grid h-9 w-9 place-items-center rounded-md border border-gold/30 text-gold/70 transition-colors hover:border-gold hover:text-gold"
-                aria-label="Facebook"
-              >
-                <Facebook className="h-4 w-4" />
-              </a>
-              <a
-                href="https://youtube.com"
-                target="_blank"
-                rel="noreferrer"
-                className="grid h-9 w-9 place-items-center rounded-md border border-gold/30 text-gold/70 transition-colors hover:border-gold hover:text-gold"
-                aria-label="YouTube"
-              >
-                <Youtube className="h-4 w-4" />
-              </a>
+              {instagram && instagram !== '#' && (
+                <a
+                  href={instagram}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="grid h-9 w-9 place-items-center rounded-md border border-gold/30 text-gold/70 transition-colors hover:border-gold hover:text-gold"
+                  aria-label="Instagram"
+                >
+                  <Instagram className="h-4 w-4" />
+                </a>
+              )}
+              {facebook && facebook !== '#' && (
+                <a
+                  href={facebook}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="grid h-9 w-9 place-items-center rounded-md border border-gold/30 text-gold/70 transition-colors hover:border-gold hover:text-gold"
+                  aria-label="Facebook"
+                >
+                  <Facebook className="h-4 w-4" />
+                </a>
+              )}
+              {youtube && youtube !== '#' && (
+                <a
+                  href={youtube}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="grid h-9 w-9 place-items-center rounded-md border border-gold/30 text-gold/70 transition-colors hover:border-gold hover:text-gold"
+                  aria-label="YouTube"
+                >
+                  <Youtube className="h-4 w-4" />
+                </a>
+              )}
             </div>
           </div>
 

@@ -1,20 +1,27 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { DEFAULT_SITE_SETTINGS } from '@/lib/supabase/queries/site-content-defaults';
 
-const MESSAGES = [
-  'Miễn phí vận chuyển cho đơn từ 2 triệu',
-  'Giữ hàng 10 phút — không ai cướp được món đồ bạn thích',
-  'Đồ si đã qua tuyển chọn bởi chuyên gia Nhật',
-];
+interface AnnouncementBarProps {
+  /** Dynamic messages from API — if missing, falls back to defaults */
+  messages?: string[];
+}
 
-export function AnnouncementBar() {
+const DEFAULT_MESSAGES = DEFAULT_SITE_SETTINGS.announcement_messages ?? [];
+
+export function AnnouncementBar({ messages }: AnnouncementBarProps) {
+  const msgs = messages && messages.length > 0 ? messages : DEFAULT_MESSAGES;
   const [index, setIndex] = useState(0);
 
   useEffect(() => {
-    const t = setInterval(() => setIndex((i) => (i + 1) % MESSAGES.length), 4000);
+    if (msgs.length <= 1) return;
+    const t = setInterval(() => setIndex((i) => (i + 1) % msgs.length), 4000);
     return () => clearInterval(t);
-  }, []);
+  }, [msgs.length]);
+
+  // Guard: if msgs is empty somehow
+  if (msgs.length === 0) return null;
 
   return (
     <div className="relative w-full border-b border-gold/20 bg-gradient-to-r from-surface-emerald via-background to-surface-emerald">
@@ -23,7 +30,7 @@ export function AnnouncementBar() {
           key={index}
           className="truncate animate-fade-in text-xs font-medium tracking-wider text-gold/90 sm:text-sm"
         >
-          ✦ {MESSAGES[index]} ✦
+          ✦ {msgs[index]} ✦
         </p>
       </div>
     </div>

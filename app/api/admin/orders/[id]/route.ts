@@ -129,7 +129,6 @@ async function handleConfirmBankPayment(
   const admin = createAdminClient();
   const db = admin as any;
 
-  // 1. Verify order + payment_method
   const { data: order, error: orderErr } = (await admin
     .from('orders')
     .select('id, status, payment_method, payment_status')
@@ -152,15 +151,11 @@ async function handleConfirmBankPayment(
   }
   if (order.payment_method !== 'BANK_TRANSFER') {
     return NextResponse.json(
-      {
-        error: 'NOT_BANK_TRANSFER',
-        message: 'Đơn không dùng chuyển khoản ngân hàng',
-      },
+      { error: 'NOT_BANK_TRANSFER', message: 'Đơn không dùng chuyển khoản ngân hàng' },
       { status: 400 }
     );
   }
 
-  // 2. Find bank_transfer
   const { data: bt, error: btErr } = await db
     .from('bank_transfers')
     .select('id, admin_confirmed_at')
@@ -168,7 +163,6 @@ async function handleConfirmBankPayment(
     .maybeSingle();
 
   if (btErr) {
-    console.error('[admin/orders/:id] bank_transfers find error:', btErr);
     return NextResponse.json(
       { error: 'DB_ERROR', message: 'Không thể tải thông tin CK' },
       { status: 500 }
@@ -176,24 +170,17 @@ async function handleConfirmBankPayment(
   }
   if (!bt) {
     return NextResponse.json(
-      {
-        error: 'NO_BANK_TRANSFER',
-        message: 'Không tìm thấy thông tin chuyển khoản',
-      },
+      { error: 'NO_BANK_TRANSFER', message: 'Không tìm thấy thông tin chuyển khoản' },
       { status: 404 }
     );
   }
   if (bt.admin_confirmed_at) {
     return NextResponse.json(
-      {
-        error: 'ALREADY_CONFIRMED',
-        message: 'Đơn đã được admin xác nhận trước đó',
-      },
+      { error: 'ALREADY_CONFIRMED', message: 'Đơn đã được admin xác nhận trước đó' },
       { status: 409 }
     );
   }
 
-  // 3. Update bank_transfers
   const nowIso = new Date().toISOString();
   const { data: bankTransfer, error: btUpErr } = await db
     .from('bank_transfers')
@@ -213,7 +200,6 @@ async function handleConfirmBankPayment(
     );
   }
 
-  // 4. Update order → CONFIRMED + PAID
   const { data: updatedOrder, error: orderUpErr } = (await admin
     .from('orders')
     .update({
@@ -233,7 +219,6 @@ async function handleConfirmBankPayment(
     );
   }
 
-  // 5. Convert inventory_locks ACTIVE → CONVERTED cho order này
   const { error: lockUpErr } = await admin
     .from('inventory_locks')
     .update({ status: 'CONVERTED' })
@@ -242,22 +227,70 @@ async function handleConfirmBankPayment(
 
   if (lockUpErr) {
     console.error('[admin/orders/:id] inventory_locks convert error:', lockUpErr);
-    // Không rollback — vẫn trả success, log để theo dõi
   }
 
-  // 6. Set products.status = SOLD_OUT cho products trong order_items (RESERVED/AVAILABLE → SOLD_OUT)
   const { error: prodUpErr } = await (admin.rpc as any)(
     'mark_products_sold_out',
     { p_order_id: orderId }
   );
   if (prodUpErr) {
-    console.error(
-      '[admin/orders/:id] mark_products_sold_out failed:',
-      prodUpErr.message
-    );
+    console.error('[admin/orders/:id] mark_products_sold_out failed:', prodUpErr.message);
   }
 
   return NextResponse.json({ order: updatedOrder, bankTransfer });
+}
+
+/**
+ * Tạo order_refunds row (PENDING) nếu chưa có active refund.
+ */
+async function autoCreateRefund(
+  db: any,
+  orderId: string,
+  reason: string,
+  nowIso: string
+): Promise<void> {
+  const { data: activeRefund } = await db
+    .from('order_refunds')
+    .select('id, state')
+    .eq('order_id', orderId)
+    .in('state', ['PENDING', 'APPROVED'])
+    .maybeSingle();
+
+  if (activeRefund) {
+    console.log('[admin/orders/:id PATCH] refund already active, skip');
+    return;
+  }
+
+  const { error: refundErr } = await db
+    .from('order_refunds')
+    .insert({
+      order_id: orderId,
+      state: 'PENDING',
+      customer_reason: reason,
+      customer_requested_at: nowIso,
+    });
+  if (refundErr) {
+    console.error(
+      '[admin/orders/:id PATCH] auto-create refund failed:',
+      refundErr.message
+    );
+    return;
+  }
+  console.log('[admin/orders/:id PATCH] refund created PENDING for', orderId);
+
+  // Mirror sang orders.payment_status = REFUND_REQUESTED (legacy)
+  const { error: psErr } = await db
+    .from('orders')
+    .update({
+      payment_status: 'REFUND_REQUESTED',
+      refund_requested_at: nowIso,
+      refund_reason: reason,
+      updated_at: nowIso,
+    })
+    .eq('id', orderId);
+  if (psErr) {
+    console.error('[admin/orders/:id PATCH] payment_status mirror failed:', psErr);
+  }
 }
 
 export async function PATCH(
@@ -291,7 +324,6 @@ export async function PATCH(
     }
     const { status, payment_status, action, adminNote } = parsed.data;
 
-    // Branch: confirm_bank_payment (atomic, no order status check on schema)
     if (action === 'confirm_bank_payment') {
       return await handleConfirmBankPayment(id, adminNote);
     }
@@ -316,6 +348,7 @@ export async function PATCH(
     }
 
     const admin = createAdminClient();
+    const db = admin as any;
     const { data: current, error: curErr } = (await admin
       .from('orders')
       .select('id, status, payment_status, payment_method')
@@ -370,44 +403,47 @@ export async function PATCH(
       );
     }
 
-    // Side-effect cleanup: when moving to CANCELLED and no payment was received,
-    // release the inventory locks and restore products to AVAILABLE.
+    // ============================================================
+    // CANCEL cleanup: restore products + auto-create refund
+    // ============================================================
+    // 4 payment_status cases:
+    //   - PENDING / FAILED        → products RESERVED → release_product_reservation
+    //   - AWAITING_CONFIRM         → products RESERVED → release_product_reservation + auto refund
+    //   - REFUND_REQUESTED         → products có thể RESERVED hoặc SOLD_OUT → cả 2 + skip refund (đã có)
+    //   - PAID                     → products SOLD_OUT → direct UPDATE + auto refund
     if (status === 'CANCELLED' && current.status !== 'CANCELLED') {
-      // Khi cancel BANK_TRANSFER order, cũng phải set payment_status = FAILED để
-      // đồng bộ với status = CANCELLED.
-      if (
-        current.payment_method === 'BANK_TRANSFER' &&
-        current.payment_status === 'PENDING'
-      ) {
-        const { error: psErr } = await (admin as any)
-          .from('orders')
-          .update({ payment_status: 'FAILED', updated_at: new Date().toISOString() })
-          .eq('id', id);
-        if (psErr) {
-          console.error('[admin/orders/:id PATCH] payment_status update failed:', psErr);
-        }
+      console.log('[admin/orders/:id PATCH] CANCEL triggered:', {
+        orderId: id,
+        currentStatus: current.status,
+        currentPaymentStatus: current.payment_status,
+        currentPaymentMethod: current.payment_method,
+      });
+      const nowIso = new Date().toISOString();
+
+      // 1. Release inventory_locks (luôn)
+      const { error: lockRelErr } = await admin
+        .from('inventory_locks')
+        .update({
+          status: 'RELEASED',
+          released_at: nowIso,
+        })
+        .eq('order_id', id)
+        .eq('status', 'ACTIVE');
+      if (lockRelErr) {
+        console.error('[admin/orders/:id] inventory_locks release error:', lockRelErr);
       }
 
-      if (
-        current.payment_status === 'PENDING' ||
-        current.payment_status === 'FAILED'
-      ) {
-        const { error: lockRelErr } = await admin
-          .from('inventory_locks')
-          .update({
-            status: 'RELEASED',
-            released_at: new Date().toISOString(),
-          })
-          .eq('order_id', id)
-          .eq('status', 'ACTIVE');
-        if (lockRelErr) {
-          console.error(
-            '[admin/orders/:id] inventory_locks release error:',
-            lockRelErr
-          );
-        }
+      // 2. Restore products — tùy theo payment_status
+      const ps = current.payment_status;
 
-        // 2. Restore products to AVAILABLE — via RPC for safety (only RESERVED → AVAILABLE, never touches SOLD_OUT)
+      if (
+        ps === 'PENDING' ||
+        ps === 'FAILED' ||
+        ps === 'AWAITING_CONFIRM' ||
+        ps === 'REFUND_REQUESTED'
+      ) {
+        // Products đang RESERVED (chưa SOLD_OUT) → release_product_reservation
+        // RPC: RESERVED → AVAILABLE (safety: don't touch SOLD_OUT)
         const { error: relResErr } = await (admin.rpc as any)(
           'release_product_reservation',
           { p_order_id: id }
@@ -417,23 +453,108 @@ export async function PATCH(
             '[admin/orders/:id PATCH] release_product_reservation failed:',
             relResErr.message
           );
-          // Non-fatal — order is already CANCELLED
         }
+
+        // Fallback: nếu RPC không tồn tại hoặc fail → direct UPDATE RESERVED→AVAILABLE
+        // (defensive — không phụ thuộc migration 0009b)
+        const { data: orderItems } = await db
+          .from('order_items')
+          .select('product_id')
+          .eq('order_id', id);
+
+        if (orderItems && orderItems.length > 0) {
+          const productIds = orderItems.map((it: any) => it.product_id);
+          const { error: restoreErr } = await db
+            .from('products')
+            .update({ status: 'AVAILABLE' })
+            .in('id', productIds)
+            .eq('status', 'RESERVED');
+          if (restoreErr) {
+            console.error(
+              '[admin/orders/:id PATCH] fallback restore RESERVED→AVAILABLE failed:',
+              restoreErr.message
+            );
+          }
+        }
+
+        // Set payment_status = FAILED cho PENDING (chưa CK)
+        if (
+          current.payment_method === 'BANK_TRANSFER' &&
+          ps === 'PENDING'
+        ) {
+          const { error: psErr } = await db
+            .from('orders')
+            .update({ payment_status: 'FAILED', updated_at: nowIso })
+            .eq('id', id);
+          if (psErr) {
+            console.error('[admin/orders/:id PATCH] payment_status update failed:', psErr);
+          }
+        }
+
+        // AWAITING_CONFIRM: user đã báo CK → có thể đã CK thật → tạo refund
+        if (ps === 'AWAITING_CONFIRM') {
+          await autoCreateRefund(
+            db,
+            id,
+            'Admin cancelled order — user reported payment, refund required',
+            nowIso
+          );
+        }
+
+        // REFUND_REQUESTED: đã có refund row → không cần tạo mới
+      } else if (ps === 'PAID') {
+        // Products đã SOLD_OUT → restore trực tiếp
+        const { data: orderItems } = await db
+          .from('order_items')
+          .select('product_id')
+          .eq('order_id', id);
+
+        if (orderItems && orderItems.length > 0) {
+          const productIds = orderItems.map((it: any) => it.product_id);
+          const { error: restoreErr } = await db
+            .from('products')
+            .update({ status: 'AVAILABLE' })
+            .in('id', productIds)
+            .eq('status', 'SOLD_OUT');
+          if (restoreErr) {
+            console.error(
+              '[admin/orders/:id PATCH] restore products SOLD_OUT→AVAILABLE failed:',
+              restoreErr.message
+            );
+          } else {
+            console.log(
+              '[admin/orders/:id PATCH] restored SOLD_OUT→AVAILABLE for',
+              orderItems.length,
+              'products'
+            );
+          }
+        }
+
+        // Admin hủy đơn đã thanh toán → bắt buộc hoàn tiền
+        await autoCreateRefund(
+          db,
+          id,
+          'Admin cancelled paid order — refund required',
+          nowIso
+        );
+      } else if (ps === 'REFUNDED') {
+        // Đã refund xong → products đã AVAILABLE (restore từ refund flow khác)
+        // Không cần làm gì thêm
+        console.log('[admin/orders/:id PATCH] payment_status=REFUNDED, products should already be AVAILABLE');
       }
 
-      // Nếu order bị cancel mà là BANK_TRANSFER và có bank_transfers row →
-      // set rejected_at + rejected_reason để audit log biết admin đã reject.
+      // bank_transfers audit
       if (current.payment_method === 'BANK_TRANSFER') {
-        const { data: bt } = await (admin as any)
+        const { data: bt } = await db
           .from('bank_transfers')
           .select('id')
           .eq('order_id', id)
           .maybeSingle();
         if (bt?.id) {
-          const { error: btRejectErr } = await (admin as any)
+          const { error: btRejectErr } = await db
             .from('bank_transfers')
             .update({
-              rejected_at: new Date().toISOString(),
+              rejected_at: nowIso,
               rejected_reason: 'Cancelled by admin',
             })
             .eq('id', bt.id);
@@ -442,7 +563,6 @@ export async function PATCH(
               '[admin/orders/:id PATCH] bank_transfers reject update failed:',
               btRejectErr
             );
-            // Không fail request — order đã cancel rồi, chỉ là audit chưa update.
           }
         }
       }

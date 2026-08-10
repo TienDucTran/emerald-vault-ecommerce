@@ -32,6 +32,37 @@ export interface Collection {
   meta_description?: string;
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// Migration 0031 — Home Banners + Site Settings (dynamic homepage content)
+// ────────────────────────────────────────────────────────────────────────────
+
+export type BannerSlotKey = 'main' | 'top' | 'bottom_left' | 'bottom_right';
+
+export interface HomeBanner {
+  id: string;
+  slot_key: BannerSlotKey;
+  title: string;
+  subtitle?: string;
+  image_url: string;
+  link_url: string;
+  display_order: number;
+  is_active: boolean;
+  valid_from?: string;
+  valid_until?: string;
+}
+
+export interface SiteSettings {
+  site_name?: string;
+  contact_email?: string;
+  contact_phone?: string;
+  address?: string;
+  footer_tagline?: string;
+  social_instagram?: string;
+  social_facebook?: string;
+  social_youtube?: string;
+  announcement_messages?: string[];
+}
+
 export interface ProductSpec {
   label: string;
   value: string;

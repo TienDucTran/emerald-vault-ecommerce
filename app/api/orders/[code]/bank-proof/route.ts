@@ -15,6 +15,7 @@ import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
 import { normalizePhone } from '@/lib/phone/normalize';
+import { uploadImage } from '@/lib/supabase/storage';
 
 const BUCKET = 'payment-bills';
 const MAX_BYTES = 5 * 1024 * 1024; // 5MB
@@ -26,8 +27,27 @@ const ALLOWED_MIME = new Set([
   'image/heif',
 ]);
 
-function uuid(): string {
-  return globalThis.crypto.randomUUID();
+/**
+ * Auto-create storage bucket nếu chưa tồn tại (defensive).
+ * Migration 0008 tạo bucket private, nhưng code dùng getPublicUrl() → cần public.
+ * Supabase admin API không có "create bucket" trực tiếp, nhưng insert vào
+ * storage.buckets table qua service_role sẽ tạo bucket.
+ */
+async function ensureBucketExists(): Promise<void> {
+  const supabase = createAdminClient();
+  // Check bucket exists
+  const { data: buckets } = await supabase.storage.listBuckets();
+  const exists = (buckets ?? []).some((b: { id: string }) => b.id === BUCKET);
+  if (exists) return;
+  // Create public bucket via storage API
+  const { error } = await supabase.storage.createBucket(BUCKET, {
+    public: true,
+    fileSizeLimit: MAX_BYTES,
+    allowedMimeTypes: Array.from(ALLOWED_MIME),
+  });
+  if (error) {
+    console.error('[bank-proof] ensureBucketExists failed:', error.message);
+  }
 }
 
 export async function POST(
@@ -171,7 +191,17 @@ export async function POST(
   const now = new Date().toISOString();
   const updates: Record<string, unknown> = {};
 
-  // 3. Upload bill nếu có
+  // 3a. Đảm bảo bucket 'payment-bills' tồn tại + public (defensive —
+  //     migration 0008 tạo private bucket, nhưng code dùng getPublicUrl).
+  if (bill instanceof File) {
+    await ensureBucketExists();
+  }
+
+  // 3. Upload bill nếu có — dùng shared uploadImage() để thống nhất convention:
+  //    - Path: `{orderId}/{slugified-filename}.{ext}` (slugify + collision detection
+  //      giống admin media library)
+  //    - Giữ extension gốc (jpg/png/heic...) vì bill không resize sang webp như admin
+  //    - Bucket: 'payment-bills' (public bucket riêng, không trộn với 'jewelry-images')
   let billUrl: string | null = null;
   if (bill instanceof File) {
     const ext = (() => {
@@ -190,28 +220,34 @@ export async function POST(
           return 'bin';
       }
     })();
-    const fileName = `${order.id}/${uuid()}.${ext}`;
-    const { error: upErr } = await supabase.storage
-      .from(BUCKET)
-      .upload(fileName, bill, {
+    // Fallback filename nếu browser không gửi (vd: 'blob', rỗng) → dùng order code
+    // cho dễ tra cứu khi admin browse bucket.
+    const PLACEHOLDER = new Set(['blob', '', 'image.jpg', 'image.png', 'image.webp']);
+    const filename =
+      bill.name && !PLACEHOLDER.has(bill.name)
+        ? bill.name
+        : `${order.code}-bill.${ext}`;
+    try {
+      const result = await uploadImage(bill, {
+        folder: order.id,
+        filename,
+        bucket: BUCKET,
+        extension: ext,
         contentType: bill.type,
-        upsert: false,
-        cacheControl: '31536000',
       });
-    if (upErr) {
+      billUrl = result.publicUrl;
+      updates.bill_image_url = billUrl;
+      updates.bill_uploaded_at = now;
+    } catch (upErr) {
       return NextResponse.json(
         {
           ok: false,
           error: 'UPLOAD_FAILED',
-          message: upErr.message,
+          message: (upErr as Error)?.message ?? 'Upload thất bại',
         },
         { status: 500 }
       );
     }
-    const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(fileName);
-    billUrl = pub.publicUrl;
-    updates.bill_image_url = billUrl;
-    updates.bill_uploaded_at = now;
   }
 
   // 4. Mark user_confirmed khi user tick HOẶC upload bill.

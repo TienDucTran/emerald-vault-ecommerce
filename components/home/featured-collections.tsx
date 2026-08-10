@@ -1,12 +1,23 @@
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
-import type { Collection } from '@/lib/types';
+import type { HomeBanner, BannerSlotKey } from '@/lib/types';
+import { DEFAULT_BANNERS, bannersBySlot } from '@/lib/supabase/queries/site-content-defaults';
 
 interface FeaturedCollectionsProps {
-  collections: Collection[];
+  /** Dynamic banners from API — if empty or missing, falls back to defaults */
+  banners?: HomeBanner[];
+  /** Legacy prop — kept for backward compat but not used for rendering */
+  collections?: unknown[];
 }
 
-export function FeaturedCollections({ collections }: FeaturedCollectionsProps) {
+export function FeaturedCollections({ banners }: FeaturedCollectionsProps) {
+  // Build slot map with fallback to defaults
+  const slots = bannersBySlot(banners ?? DEFAULT_BANNERS);
+  const main = slots['main']!;
+  const top = slots['top']!;
+  const bottomLeft = slots['bottom_left']!;
+  const bottomRight = slots['bottom_right']!;
+
   return (
     <section className="px-4 py-12 sm:px-8 sm:py-20">
       {/* Section header */}
@@ -26,14 +37,14 @@ export function FeaturedCollections({ collections }: FeaturedCollectionsProps) {
       <div className="mx-auto flex max-w-5xl flex-col gap-4 md:h-[800px] md:flex-row md:gap-6">
         {/* Main collection — left, large */}
         <Link
-          href="/san-pham?category=DAY_CHUYEN"
+          href={main.link_url}
           className="group relative block aspect-[3/4] w-full overflow-hidden rounded border border-gold/10 bg-surface transition-all duration-300 hover:-translate-y-1 hover:shadow-lg motion-safe:animate-fadeInUp md:aspect-auto md:h-full md:w-1/2"
           style={{ animationDelay: '100ms', animationFillMode: 'backwards' }}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/images/home/collection-main-465cec.png"
-            alt="Dây Chuyền & Pendants"
+            src={main.image_url}
+            alt={main.title}
             className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
           />
           {/* Gradient overlay */}
@@ -47,11 +58,13 @@ export function FeaturedCollections({ collections }: FeaturedCollectionsProps) {
           {/* Content — bottom left */}
           <div className="absolute bottom-0 left-0 flex flex-col gap-2 p-6 md:p-10">
             <h3 className="font-heading text-2xl font-semibold text-text-base md:text-3xl">
-              Dây Chuyền & Pendants
+              {main.title}
             </h3>
-            <p className="font-heading text-base text-gold md:text-lg">
-              Di sản từ các triều đại cổ
-            </p>
+            {main.subtitle && (
+              <p className="font-heading text-base text-gold md:text-lg">
+                {main.subtitle}
+              </p>
+            )}
             <div className="mt-2 flex items-center gap-2 md:mt-4">
               <span className="font-heading text-xs font-bold uppercase tracking-[0.15em] text-gold">
                 KHÁM PHÁ
@@ -63,16 +76,16 @@ export function FeaturedCollections({ collections }: FeaturedCollectionsProps) {
 
         {/* Secondary collections — right column */}
         <div className="flex w-full flex-col gap-4 md:w-1/2 md:gap-6">
-          {/* Top: Nhẫn Siêu Cấp — full width */}
+          {/* Top: full width */}
           <Link
-            href="/san-pham?tier=SSS"
+            href={top.link_url}
             className="group relative block aspect-[16/9] flex-1 overflow-hidden rounded border border-gold/10 bg-surface transition-all duration-300 hover:-translate-y-1 hover:shadow-lg motion-safe:animate-fadeInUp md:aspect-auto"
             style={{ animationDelay: '200ms', animationFillMode: 'backwards' }}
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="/images/home/collection-rings-5298d6.png"
-              alt="Nhẫn Siêu Cấp"
+              src={top.image_url}
+              alt={top.title}
               className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
             />
             {/* Overlay */}
@@ -80,26 +93,28 @@ export function FeaturedCollections({ collections }: FeaturedCollectionsProps) {
             {/* Content — centered */}
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 p-6 text-center">
               <h3 className="font-heading text-xl font-semibold text-text-base sm:text-2xl">
-                Nhẫn Siêu Cấp
+                {top.title}
               </h3>
-              <p className="font-heading text-[10px] font-normal uppercase tracking-[0.1em] text-gold">
-                TIER SSS ONLY
-              </p>
+              {top.subtitle && (
+                <p className="font-heading text-[10px] font-normal uppercase tracking-[0.1em] text-gold">
+                  {top.subtitle}
+                </p>
+              )}
             </div>
           </Link>
 
           {/* Bottom: 2 small cards side by side */}
           <div className="flex flex-1 gap-4 md:gap-6">
-            {/* Bông Tai */}
+            {/* Bottom Left */}
             <Link
-              href="/san-pham?category=BONG_TAI"
+              href={bottomLeft.link_url}
               className="group relative block aspect-square flex-1 overflow-hidden rounded border border-gold/10 bg-surface transition-all duration-300 hover:-translate-y-1 hover:shadow-lg motion-safe:animate-fadeInUp md:aspect-auto"
               style={{ animationDelay: '300ms', animationFillMode: 'backwards' }}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src="/images/home/collection-bong-tai-759e1e.png"
-                alt="Bông Tai"
+                src={bottomLeft.image_url}
+                alt={bottomLeft.title}
                 className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
               />
               {/* Overlay */}
@@ -107,21 +122,21 @@ export function FeaturedCollections({ collections }: FeaturedCollectionsProps) {
               {/* Content — bottom left */}
               <div className="absolute bottom-0 left-0 p-3 sm:p-4">
                 <h4 className="font-heading text-xs font-normal text-text-base">
-                  Bông Tai
+                  {bottomLeft.title}
                 </h4>
               </div>
             </Link>
 
-            {/* Vòng Tay */}
+            {/* Bottom Right */}
             <Link
-              href="/san-pham?category=VONG_TAY"
+              href={bottomRight.link_url}
               className="group relative block aspect-square flex-1 overflow-hidden rounded border border-gold/10 bg-surface transition-all duration-300 hover:-translate-y-1 hover:shadow-lg motion-safe:animate-fadeInUp md:aspect-auto"
               style={{ animationDelay: '400ms', animationFillMode: 'backwards' }}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src="/images/home/collection-vong-tay-318ebe.png"
-                alt="Vòng Tay"
+                src={bottomRight.image_url}
+                alt={bottomRight.title}
                 className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
               />
               {/* Overlay */}
@@ -129,7 +144,7 @@ export function FeaturedCollections({ collections }: FeaturedCollectionsProps) {
               {/* Content — bottom left */}
               <div className="absolute bottom-0 left-0 p-3 sm:p-4">
                 <h4 className="font-heading text-xs font-normal text-text-base">
-                  Vòng Tay
+                  {bottomRight.title}
                 </h4>
               </div>
             </Link>

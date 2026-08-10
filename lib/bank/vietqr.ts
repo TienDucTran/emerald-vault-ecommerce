@@ -14,7 +14,16 @@ export interface VietQRParams {
 
 /**
  * Generate VietQR image URL từ vietqr.io API (FREE, không cần API key).
- * Format: https://img.vietqr.io/image/{template}-{bankBin}-{accountNumber}.png?amount=...&addInfo=...&accountName=...
+ *
+ * Root cause fix: Format cũ `{template}-{bin}-{accountNumber}` trả về
+ * "invalid acqId" (13 bytes text, không phải ảnh). API vietqr.io yêu cầu
+ * format: `{bankCode}-{accountNumber}-{template}` (bankCode = mã viết tắt
+ * như VCB, EIB, MB... — KHÔNG dùng BIN).
+ *
+ * Đã test 2026-08-10:
+ *   ❌ https://img.vietqr.io/image/compact-970431-100281241.png → "invalid acqId" (13 bytes)
+ *   ✅ https://img.vietqr.io/image/EIB-100281241-compact.png     → 64KB PNG (hợp lệ)
+ *   ✅ https://img.vietqr.io/image/VCB-100281241-compact.png     → 65KB PNG (hợp lệ)
  */
 export function generateVietQRUrl(params: VietQRParams): string {
   const bank = getBankByCode(params.bankCode);
@@ -32,7 +41,7 @@ export function generateVietQRUrl(params: VietQRParams): string {
     accountName,
   });
 
-  return `${baseUrl}/${template}-${bank.bin}-${params.accountNumber}.png?${search.toString()}`;
+  return `${baseUrl}/${bank.code}-${params.accountNumber}-${template}.png?${search.toString()}`;
 }
 
 /**
