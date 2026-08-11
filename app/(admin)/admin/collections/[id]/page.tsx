@@ -7,10 +7,10 @@ import type { CollectionRow } from '@/lib/supabase/types';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-type PageProps = { params: Promise<{ id: string }> };
+type PageProps = { params: { id: string } };
 
 export default async function EditCollectionPage({ params }: PageProps) {
-  const { id } = await params;
+  const { id } = params;
   const { adminClient } = await requireAdmin();
   const { data, error } = await adminClient
     .from('collections')
