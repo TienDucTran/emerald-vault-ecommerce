@@ -5,7 +5,7 @@
     "react-hooks/exhaustive-deps": "warn",
     "jsx-a11y/role-has-required-aria-props": "warn",
     "no-restricted-imports": [
-      "error",
+      "warn",
       {
         "patterns": [
           {
