@@ -4,9 +4,9 @@ import { ArrowRight } from 'lucide-react';
 
 export function StoryTeaser() {
   return (
-    <section className="py-20">
-      <div className="container mx-auto px-4">
-        <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-2">
+    <section className="py-16 sm:py-20 lg:py-24">
+      <div className="mx-auto w-full max-w-store px-4 sm:px-6 lg:px-8 xl:px-10">
+        <div className="grid grid-cols-1 items-center gap-8 sm:gap-12 lg:grid-cols-2">
           {/* Image side */}
           <div
             className="relative aspect-[4/5] w-full overflow-hidden rounded-lg border border-gold/20 shadow-2xl motion-safe:animate-fadeInUp"
@@ -31,10 +31,10 @@ export function StoryTeaser() {
             className="motion-safe:animate-fadeInUp"
             style={{ animationDelay: '150ms', animationFillMode: 'backwards' }}
           >
-            <p className="mb-2 text-xs font-medium uppercase tracking-[0.3em] text-gold">
+            <p className="mb-2 text-[10px] font-medium uppercase tracking-[0.3em] text-gold sm:text-xs">
               ✦ CÂU CHUYỆN CỦA TIỆM
             </p>
-            <h2 className="mb-6 font-heading text-3xl font-bold sm:text-4xl">
+            <h2 className="mb-6 font-heading text-2xl font-bold sm:text-3xl lg:text-4xl">
               <span className="text-text-base">Đam mê </span>
               <span className="text-gradient-gold">với đồ si Nhật</span>
               <span className="text-text-base">, vượt qua thời gian</span>

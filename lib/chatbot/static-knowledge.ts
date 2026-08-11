@@ -85,10 +85,10 @@ export const STATIC_FAQS: StaticFaq[] = [
   },
   {
     id: 'faq-authentic',
-    question: 'Trang sức có chính hãng, có giấy tờ không?',
+    question: 'Trang sức có giấy tờ kiểm định không?',
     answer:
-      'Mỗi món trang sức đều có phiếu kiểm định chất liệu (BAC_925 / VANG_18K / KIM_CUONG...) kèm mã sản phẩm. Nguồn gốc Nhật Bản được ghi rõ trong phần mô tả chi tiết.',
-    keywords: ['chính hãng', 'giấy tờ', 'kiểm định', 'authentic', 'certificate'],
+      'Mỗi món trang sức đều có phiếu kiểm định chất liệu (BAC_925 / VANG_18K / KIM_CUONG...) kèm mã sản phẩm. Đây là đồ si Nhật secondhand nên đều đã qua thẩm định chất lượng. Nguồn gốc Nhật Bản được ghi rõ trong phần mô tả chi tiết.',
+    keywords: ['chính hãng', 'giấy tờ', 'kiểm định', 'authentic', 'certificate', 'thẩm định'],
     category: 'about',
   },
   {
@@ -103,7 +103,7 @@ export const STATIC_FAQS: StaticFaq[] = [
     id: 'faq-shipping-fee',
     question: 'Phí vận chuyển bao nhiêu?',
     answer:
-      'Miễn phí vận chuyển cho đơn từ 1.000.000đ. Đơn dưới mức đó, phí 30.000đ nội thành / 40.000đ các tỉnh. Khu vực xa (huyện đảo, vùng sâu) tính theo biểu phí đơn vị vận chuyển.',
+      'Miễn phí vận chuyển cho đơn từ 500.000đ. Đơn dưới mức đó, phí 30.000đ nội thành / 40.000đ các tỉnh. Khu vực xa (huyện đảo, vùng sâu) tính theo biểu phí đơn vị vận chuyển.',
     keywords: ['phí ship', 'phí giao hàng', 'shipping fee', 'bao nhiêu tiền ship'],
     category: 'shipping',
   },
@@ -185,7 +185,7 @@ export const STATIC_KNOWLEDGE: StaticPolicy[] = [
     id: 'kb-shipping',
     category: 'shipping',
     title: 'Chính sách vận chuyển',
-    content: `Đối tác: ${SHOP_INFO.shipping.partners.join(', ')}. Nội địa: ${SHOP_INFO.shipping.domesticDays}. ${SHOP_INFO.shipping.international} Miễn phí ship cho đơn từ 1.000.000đ.`,
+    content: `Đối tác: ${SHOP_INFO.shipping.partners.join(', ')}. Nội địa: ${SHOP_INFO.shipping.domesticDays}. ${SHOP_INFO.shipping.international} Miễn phí ship cho đơn từ 500.000đ.`,
     keywords: ['ship', 'giao hàng', 'vận chuyển', 'phí ship'],
     priority: 20,
   },

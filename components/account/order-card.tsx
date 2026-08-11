@@ -57,7 +57,7 @@ export function OrderCard({ order }: { order: CustomerOrderListItem }) {
             }}
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center bg-surface-container text-text-disabled">
+          <div className="flex h-full w-full items-center justify-center bg-surface text-text-muted/40">
             <Package className="h-8 w-8" />
           </div>
         )}
@@ -80,7 +80,7 @@ export function OrderCard({ order }: { order: CustomerOrderListItem }) {
           <h4 className="mb-1 font-mono text-[9px] tracking-tighter text-gold/60 sm:text-[10px]">
             ID: #{order.code}
           </h4>
-          <h2 className="mb-2 line-clamp-1 font-heading text-base leading-tight text-on-surface sm:text-lg sm:leading-snug">
+          <h2 className="mb-2 line-clamp-1 font-heading text-base leading-tight text-text-base sm:text-lg sm:leading-snug">
             {productName}
           </h2>
           {productDescription ? (
@@ -114,7 +114,7 @@ export function OrderCard({ order }: { order: CustomerOrderListItem }) {
             <span className="mb-0.5 font-heading text-[9px] tracking-[0.15em] text-text-muted/60 sm:text-[10px]">
               NGÀY ĐẶT
             </span>
-            <span className="font-mono text-xs text-on-surface sm:text-sm">
+            <span className="font-mono text-xs text-text-base sm:text-sm">
               {formatDate(order.createdAt)}
             </span>
           </div>

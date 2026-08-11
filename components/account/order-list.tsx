@@ -149,7 +149,7 @@ export function OrderList({ orders, total }: OrderListProps) {
   return (
     <div className="relative flex flex-col gap-8 overflow-hidden">
       <div
-        className="pointer-events-none absolute -top-40 -right-40 h-96 w-96 rounded-full bg-primary/5 blur-[120px]"
+        className="pointer-events-none absolute -top-40 -right-40 h-96 w-96 rounded-full bg-gold/5 blur-[120px]"
         aria-hidden
       />
 

@@ -55,11 +55,12 @@ export interface SiteSettings {
   site_name?: string;
   contact_email?: string;
   contact_phone?: string;
+  contact_zalo?: string;
   address?: string;
   footer_tagline?: string;
   social_instagram?: string;
   social_facebook?: string;
-  social_youtube?: string;
+  social_tiktok?: string;
   announcement_messages?: string[];
 }
 

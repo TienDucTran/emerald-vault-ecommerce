@@ -42,17 +42,17 @@ const TIERS = [
 
 export function TierShowcase() {
   return (
-    <section className="hidden md:block bg-background py-20 md:px-32 px-8">
-      <div className="mx-auto max-w-7xl">
+    <section className="bg-background py-16 sm:py-20 lg:py-24">
+      <div className="mx-auto w-full max-w-store px-4 sm:px-6 lg:px-8 xl:px-10">
         {/* Header */}
         <div
-          className="mb-16 flex flex-col items-center gap-4 text-center motion-safe:animate-fadeInUp"
+          className="mb-12 flex flex-col items-center gap-4 text-center motion-safe:animate-fadeInUp sm:mb-16"
           style={{ animationDelay: '0ms', animationFillMode: 'backwards' }}
         >
-          <p className="font-heading text-xs uppercase tracking-[0.3em] text-gold">
+          <p className="font-heading text-[10px] uppercase tracking-[0.3em] text-gold sm:text-xs">
             AUTHENTICATION STANDARDS
           </p>
-          <h2 className="font-heading text-4xl font-semibold uppercase tracking-[0.1em] text-gold">
+          <h2 className="font-heading text-2xl font-semibold uppercase tracking-[0.1em] text-gold sm:text-3xl lg:text-4xl">
             Hệ Thống Phân Cấp Chất Lượng
           </h2>
           <span className="mt-1 h-px w-16 bg-gold" />

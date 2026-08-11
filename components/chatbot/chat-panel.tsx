@@ -2,13 +2,14 @@
 // Stateless về messages; state từ ChatWidget (useChat) truyền xuống.
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { UIMessage } from 'ai';
 import { X, Trash2, Loader2, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ChatMessage } from './chat-message';
 import { ChatInput } from './chat-input';
 import { ChatWelcome } from './chat-welcome';
+import { ZaloIcon } from '@/components/layout/zalo-icon';
 
 interface ChatPanelProps {
   open: boolean;
@@ -25,6 +26,28 @@ interface ChatPanelProps {
 export function ChatPanel({ open, onClose, messages, status, error, onSend, onClear, onRetry }: ChatPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const isLoading = status === 'submitted' || status === 'streaming';
+  const [zaloLink, setZaloLink] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/settings', { cache: 'no-store' });
+        const json = await res.json().catch(() => null);
+        if (res.ok && json?.ok) {
+          const zalo = json.data?.contact_zalo;
+          if (zalo && zalo.trim()) {
+            if (!cancelled) setZaloLink(`https://zalo.me/${zalo.replace(/[\s.-]/g, '')}`);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -56,6 +79,18 @@ export function ChatPanel({ open, onClose, messages, status, error, onSend, onCl
           </div>
         </div>
         <div className="flex items-center gap-1">
+          {zaloLink && (
+            <a
+              href={zaloLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Chat qua Zalo"
+              title="Chat qua Zalo"
+              className="flex h-7 w-7 items-center justify-center rounded-md text-gold/70 motion-safe:transition-all hover:bg-gold/10 hover:text-gold"
+            >
+              <ZaloIcon variant="mono" className="h-4 w-4" />
+            </a>
+          )}
           {messages.length > 0 && (
             <button
               type="button"

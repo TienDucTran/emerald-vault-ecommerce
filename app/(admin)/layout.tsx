@@ -24,6 +24,15 @@ export const metadata: Metadata = {
     template: '%s | Admin | Emerald Vault',
   },
   robots: { index: false, follow: false },
+  icons: {
+    icon: [
+      { url: '/images/icon.png', type: 'image/png' },
+    ],
+    apple: [
+      { url: '/images/icon.png' },
+    ],
+    shortcut: ['/images/icon.png'],
+  },
 };
 
 /**

@@ -4,9 +4,9 @@ import { cn } from '@/lib/utils';
 type Tier = 'SSS' | 'SS' | 'S';
 
 const tierStyles: Record<Tier, string> = {
-  SSS: 'bg-gradient-to-r from-gold to-gold-champagne text-background font-bold',
-  SS: 'bg-gold/15 text-gold border border-gold/40',
-  S: 'bg-surface text-gold/70 border border-gold/25',
+  SSS: 'bg-gradient-to-r from-gold to-gold-champagne text-background font-bold shadow-[0_0_10px_rgba(242,202,80,0.4)]',
+  SS: 'bg-surface text-gold border border-gold/40',
+  S: 'bg-surface/80 text-gold/70 border border-dotted border-gold/30',
 };
 
 export interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {

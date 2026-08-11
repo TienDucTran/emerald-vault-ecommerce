@@ -24,7 +24,7 @@ export function ProductCard({ product, priority = false, className }: ProductCar
     <Link
       href={`/san-pham/${product.slug}`}
       className={cn(
-        'group relative block overflow-hidden rounded-lg',
+        'group relative flex h-full flex-col overflow-hidden rounded-lg',
         'border border-surface-emerald bg-surface shadow-card',
         'transition-all duration-300',
         'hover:-translate-y-1 hover:border-gold/40 hover:shadow-lg hover:shadow-card-hover',
@@ -93,17 +93,19 @@ export function ProductCard({ product, priority = false, className }: ProductCar
       </div>
 
       {/* Info */}
-      <div className="p-4">
+      <div className="flex flex-1 flex-col p-4">
         <div className="mb-2 flex items-center justify-between">
           <Badge tier={product.quality_tier}>Tier {product.quality_tier}</Badge>
           <span className="text-xs text-text-muted">{MATERIAL_LABELS[product.material]}</span>
         </div>
-        <h3 className="mb-2 line-clamp-2 font-heading text-base leading-snug text-text-base transition-colors group-hover:text-gold">
+        {/* Title — min-height 2 dòng để đồng bộ card height */}
+        <h3 className="mb-2 min-h-[2.75rem] line-clamp-2 font-heading text-base leading-snug text-text-base transition-colors group-hover:text-gold">
           {product.title}
         </h3>
+        {/* Price — mt-auto đẩy xuống đáy card */}
         <p
           className={cn(
-            'font-heading text-lg font-semibold',
+            'mt-auto font-heading text-lg font-semibold',
             unavailable ? 'text-text-muted line-through' : 'text-gradient-gold'
           )}
         >

@@ -1,5 +1,8 @@
 import Link from 'next/link';
-import { Instagram, Facebook, Youtube, Mail } from 'lucide-react';
+import Image from 'next/image';
+import { Instagram, Facebook, Mail } from 'lucide-react';
+import { ZaloIcon } from '@/components/layout/zalo-icon';
+import { TikTokIcon } from '@/components/layout/tiktok-icon';
 import type { SiteSettings } from '@/lib/types';
 import { DEFAULT_SITE_SETTINGS } from '@/lib/supabase/queries/site-content-defaults';
 
@@ -42,11 +45,12 @@ export function Footer({ settings }: FooterProps) {
   const tagline = s.footer_tagline ?? DEFAULT_SITE_SETTINGS.footer_tagline ?? '';
   const instagram = s.social_instagram ?? DEFAULT_SITE_SETTINGS.social_instagram ?? '#';
   const facebook = s.social_facebook ?? DEFAULT_SITE_SETTINGS.social_facebook ?? '#';
-  const youtube = s.social_youtube ?? DEFAULT_SITE_SETTINGS.social_youtube ?? '#';
+  const tiktok = s.social_tiktok ?? DEFAULT_SITE_SETTINGS.social_tiktok ?? '#';
+  const zalo = s.contact_zalo ?? DEFAULT_SITE_SETTINGS.contact_zalo ?? '';
 
   return (
     <footer className="mt-24 border-t border-gold/15 bg-surface">
-      <div className="container mx-auto px-4 py-16">
+      <div className="mx-auto w-full max-w-store px-4 py-16 sm:px-6 lg:px-8 xl:px-10">
         {/* Newsletter */}
         <div className="mb-12 rounded-lg border border-gold/20 bg-surface p-8 text-center">
           <h3 className="mb-2 font-heading text-2xl text-gradient-gold">
@@ -74,11 +78,16 @@ export function Footer({ settings }: FooterProps) {
         </div>
 
         {/* Main links */}
-        <div className="grid grid-cols-2 gap-8 md:grid-cols-4">
-          <div className="col-span-2 md:col-span-1">
-            <Link href="/" className="font-heading text-2xl font-bold tracking-wider">
-              <span className="text-gradient-gold">EMERALD</span>{' '}
-              <span className="text-text-muted">VAULT</span>
+        <div className="grid grid-cols-2 gap-8 lg:grid-cols-4">
+          <div className="col-span-2 lg:col-span-1">
+            <Link href="/" className="inline-block">
+              <Image
+                src="/images/logo.png"
+                alt="Emerald Vault — Trang sức si Nhật vintage"
+                width={220}
+                height={56}
+                className="h-12 w-auto sm:h-14"
+              />
             </Link>
             <p className="mt-3 text-sm leading-relaxed text-text-muted">
               {tagline}
@@ -106,15 +115,26 @@ export function Footer({ settings }: FooterProps) {
                   <Facebook className="h-4 w-4" />
                 </a>
               )}
-              {youtube && youtube !== '#' && (
+              {tiktok && tiktok !== '#' && (
                 <a
-                  href={youtube}
+                  href={tiktok}
                   target="_blank"
                   rel="noreferrer"
                   className="grid h-9 w-9 place-items-center rounded-md border border-gold/30 text-gold/70 transition-colors hover:border-gold hover:text-gold"
-                  aria-label="YouTube"
+                  aria-label="TikTok"
                 >
-                  <Youtube className="h-4 w-4" />
+                  <TikTokIcon className="h-4 w-4" />
+                </a>
+              )}
+              {zalo && (
+                <a
+                  href={`https://zalo.me/${zalo.replace(/[\s.-]/g, '')}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="grid h-9 w-9 place-items-center rounded-md border border-gold/30 text-gold/70 transition-colors hover:border-gold hover:text-gold"
+                  aria-label="Chat qua Zalo"
+                >
+                  <ZaloIcon variant="mono" className="h-4 w-4" />
                 </a>
               )}
             </div>
@@ -141,7 +161,7 @@ export function Footer({ settings }: FooterProps) {
           ))}
         </div>
 
-        <div className="mt-12 flex flex-col items-center justify-between gap-3 border-t border-gold/10 pt-6 text-xs text-text-disabled md:flex-row">
+        <div className="mt-12 flex flex-col items-center justify-between gap-3 border-t border-gold/10 pt-6 text-xs text-text-disabled lg:flex-row">
           <p>© 2026 Emerald Vault. Mọi quyền được bảo lưu.</p>
           <p className="font-heading tracking-widest text-gold/50">
             ✦ ANTIQUE · VINTAGE · AUTHENTIC ✦

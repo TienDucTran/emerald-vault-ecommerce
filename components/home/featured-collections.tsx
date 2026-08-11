@@ -19,13 +19,13 @@ export function FeaturedCollections({ banners }: FeaturedCollectionsProps) {
   const bottomRight = slots['bottom_right']!;
 
   return (
-    <section className="px-4 py-12 sm:px-8 sm:py-20">
+    <section className="py-16 sm:py-20 lg:py-24">
       {/* Section header */}
       <div
-        className="mx-auto mb-8 flex max-w-5xl flex-col items-center gap-4 text-center motion-safe:animate-fadeInUp sm:mb-16"
+        className="mx-auto mb-8 flex w-full max-w-store flex-col items-center gap-4 px-4 text-center motion-safe:animate-fadeInUp sm:mb-16 sm:px-6 lg:px-8 xl:px-10"
         style={{ animationDelay: '0ms', animationFillMode: 'backwards' }}
       >
-        <h2 className="font-heading text-3xl font-bold tracking-tight text-gold sm:text-5xl">
+        <h2 className="font-heading text-2xl font-bold tracking-tight text-gold sm:text-3xl lg:text-5xl">
           Bộ Sưu Tập Di Sản
         </h2>
         <div className="h-px w-24 bg-gold/30" />
@@ -34,7 +34,7 @@ export function FeaturedCollections({ banners }: FeaturedCollectionsProps) {
       {/* Bento grid:
           - mobile (<md): 1 cột, stack dọc, tự co height theo aspect ratio
           - desktop (md+): 1 card lớn trái + 1 cột phải (1 top + 2 bottom), h-[800px] */}
-      <div className="mx-auto flex max-w-5xl flex-col gap-4 md:h-[800px] md:flex-row md:gap-6">
+      <div className="mx-auto flex w-full max-w-store flex-col gap-4 px-4 sm:px-6 md:h-[800px] md:flex-row md:gap-6 lg:px-8 xl:px-10">
         {/* Main collection — left, large */}
         <Link
           href={main.link_url}

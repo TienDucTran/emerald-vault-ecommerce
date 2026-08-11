@@ -8,6 +8,7 @@ import { Footer } from '@/components/layout/footer';
 import { MobileFooter } from '@/components/home/mobile/mobile-footer';
 import { MobileBottomNav } from '@/components/home/mobile/mobile-bottom-nav';
 import { ChatWidget } from '@/components/chatbot/chat-widget';
+import { ScrollToTop } from '@/components/layout/scroll-to-top';
 import { ConsentBanner } from '@/components/analytics/consent-banner';
 import { OrganizationJsonLd } from '@/components/seo/json-ld-organization';
 import { Toaster } from '@/components/ui/toast';
@@ -51,10 +52,34 @@ export const metadata: Metadata = {
     'nhẫn bạc 925',
     'Emerald Vault',
   ],
+  icons: {
+    icon: [
+      { url: '/images/icon.png', type: 'image/png' },
+    ],
+    apple: [
+      { url: '/images/icon.png' },
+    ],
+    shortcut: ['/images/icon.png'],
+  },
   openGraph: {
     type: 'website',
     locale: 'vi_VN',
     siteName: 'Emerald Vault',
+    images: [
+      {
+        url: '/images/logo.png',
+        width: 1200,
+        height: 630,
+        alt: 'Emerald Vault — Trang sức si Nhật vintage',
+      },
+    ],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Emerald Vault — Trang sức si Nhật vintage',
+    description:
+      'Tuyển chọn trang sức si Nhật vintage đã qua thẩm định. Nhẫn, dây chuyền, bông tai, vòng tay từ những tiệm kim hoàn cổ điển Tokyo & Kyoto.',
+    images: ['/images/logo.png'],
   },
 };
 
@@ -65,7 +90,8 @@ export const dynamic = 'force-dynamic';
  * Store root layout — áp dụng cho mọi customer-facing route trong nhóm (store).
  * URL không đổi vì (store) là route group.
  *
- * Cấu trúc: AnnouncementBar + Navbar (desktop/mobile) + main + Footer + MobileBottomNav + ChatbotBubble.
+ * Cấu trúc: AnnouncementBar + Navbar (desktop/mobile) + main + Footer + MobileBottomNav + ChatWidget.
+ * ZaloButton đã được tích hợp vào ChatPanel header + ChatWelcome — bỏ floating button riêng.
  */
 export default async function StoreLayout({
   children,
@@ -104,9 +130,9 @@ gtag('consent', 'default', { ad_storage: 'denied', analytics_storage: 'denied', 
           <AnnouncementBar messages={settings.announcement_messages} />
           <Navbar />
         </div>
-        {/* Mobile: pt-[96px] để clear sticky header (announcement 36 + navbar 60).
+        {/* Mobile: pt-[108px] để clear sticky header (announcement 36 + navbar 72).
             Desktop: pt-0 vì header chỉ sticky trên mobile qua class ở trên. */}
-        <main className="min-h-[calc(100vh-4rem)] pb-20 pt-[96px] lg:pb-0 lg:pt-0">
+        <main className="min-h-[calc(100vh-4.5rem)] pb-20 pt-[108px] lg:pb-0 lg:pt-0">
           {children}
         </main>
         {/* Desktop footer (chỉ hiện >=lg) */}
@@ -115,11 +141,12 @@ gtag('consent', 'default', { ad_storage: 'denied', analytics_storage: 'denied', 
         </div>
         {/* Mobile footer (chỉ hiện <lg) */}
         <div className="lg:hidden">
-          <MobileFooter />
+          <MobileFooter settings={settings} />
         </div>
         {/* Mobile bottom nav + chatbot */}
         <MobileBottomNav />
         <ChatWidget />
+        <ScrollToTop />
         <ConsentBanner />
         <Toaster />
         {/* GA4 — chỉ mount khi NEXT_PUBLIC_GA_ID đã set; nếu trống (dev mới setup)

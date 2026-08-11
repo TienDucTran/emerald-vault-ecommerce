@@ -1,6 +1,8 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { Sparkles } from 'lucide-react';
+import { ZaloIcon } from '@/components/layout/zalo-icon';
 
 interface ChatWelcomeProps {
   onSuggest: (question: string) => void;
@@ -14,6 +16,29 @@ const SUGGESTIONS = [
 ];
 
 export function ChatWelcome({ onSuggest }: ChatWelcomeProps) {
+  const [zaloLink, setZaloLink] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/settings', { cache: 'no-store' });
+        const json = await res.json().catch(() => null);
+        if (res.ok && json?.ok) {
+          const zalo = json.data?.contact_zalo;
+          if (zalo && zalo.trim()) {
+            if (!cancelled) setZaloLink(`https://zalo.me/${zalo.replace(/[\s.-]/g, '')}`);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <div className="flex flex-col items-center justify-center gap-4 px-4 py-8 text-center">
       <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gold/10">
@@ -39,6 +64,17 @@ export function ChatWelcome({ onSuggest }: ChatWelcomeProps) {
           </button>
         ))}
       </div>
+      {zaloLink && (
+        <a
+          href={zaloLink}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg border border-gold/30 bg-surface/50 px-3 py-2 text-xs font-medium text-gold/80 motion-safe:transition-all hover:border-gold hover:bg-surface-emerald hover:text-gold"
+        >
+          <ZaloIcon variant="mono" className="h-4 w-4" />
+          Tư vấn trực tiếp qua Zalo
+        </a>
+      )}
     </div>
   );
 }

@@ -16,7 +16,7 @@ interface FooterData {
   footer_tagline: string;
   social_instagram: string;
   social_facebook: string;
-  social_youtube: string;
+  social_tiktok: string;
 }
 
 export function FooterTab() {
@@ -24,7 +24,7 @@ export function FooterTab() {
     footer_tagline: '',
     social_instagram: '',
     social_facebook: '',
-    social_youtube: '',
+    social_tiktok: '',
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -40,7 +40,7 @@ export function FooterTab() {
           footer_tagline: map['footer_tagline'] ?? '',
           social_instagram: map['social_instagram'] ?? '',
           social_facebook: map['social_facebook'] ?? '',
-          social_youtube: map['social_youtube'] ?? '',
+          social_tiktok: map['social_tiktok'] ?? '',
         });
       }
     } catch {
@@ -132,13 +132,13 @@ export function FooterTab() {
           </div>
           <div>
             <label className="block text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50 mb-1.5">
-              YouTube URL
+              TikTok URL
             </label>
             <input
               type="text"
-              value={data.social_youtube}
-              onChange={(e) => setData({ ...data, social_youtube: e.target.value })}
-              placeholder="https://youtube.com"
+              value={data.social_tiktok}
+              onChange={(e) => setData({ ...data, social_tiktok: e.target.value })}
+              placeholder="https://tiktok.com"
               className={inputCls}
             />
           </div>

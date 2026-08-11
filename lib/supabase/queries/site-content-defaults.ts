@@ -7,16 +7,17 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
   site_name: 'Emerald Vault',
   contact_email: 'hello@emerald-vault.vn',
   contact_phone: '0901 234 567',
+  contact_zalo: '0901234567',
   address: '12 Nguyen Hue, District 1, HCMC',
   footer_tagline:
     'Trang sức si Nhật vintage — tuyển chọn thủ công, đã qua thẩm định chất lượng.',
   social_instagram: 'https://instagram.com',
   social_facebook: 'https://facebook.com',
-  social_youtube: 'https://youtube.com',
+  social_tiktok: 'https://tiktok.com',
   announcement_messages: [
-    'Miễn phí vận chuyển cho đơn từ 2 triệu',
+    'Miễn phí vận chuyển cho đơn từ 500k',
     'Giữ hàng 10 phút — không ai cướp được món đồ bạn thích',
-    'Đồ si đã qua tuyển chọn bởi chuyên gia Nhật',
+    'Đồ si đã qua thẩm định bởi chuyên gia',
   ],
 };
 

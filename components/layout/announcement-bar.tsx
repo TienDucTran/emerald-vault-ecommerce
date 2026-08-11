@@ -25,7 +25,7 @@ export function AnnouncementBar({ messages }: AnnouncementBarProps) {
 
   return (
     <div className="relative w-full border-b border-gold/20 bg-gradient-to-r from-surface-emerald via-background to-surface-emerald">
-      <div className="container mx-auto flex h-9 items-center justify-center px-4">
+      <div className="mx-auto flex h-9 w-full max-w-store items-center justify-center px-4 sm:px-6 lg:px-8 xl:px-10">
         <p
           key={index}
           className="truncate animate-fade-in text-xs font-medium tracking-wider text-gold/90 sm:text-sm"

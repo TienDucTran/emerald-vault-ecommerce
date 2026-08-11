@@ -57,7 +57,7 @@ export function HeroSection() {
           style={{ background: 'radial-gradient(circle, rgba(242, 202, 80, 0.3) 0%, transparent 70%)' }}
         />
 
-        <div className="relative z-10 mx-auto flex w-full max-w-7xl flex-col items-center gap-10 px-4 sm:px-8 md:flex-row md:gap-12 lg:gap-16">
+        <div className="relative z-10 mx-auto flex w-full max-w-store flex-col items-center gap-10 px-4 sm:px-6 md:flex-row md:gap-12 lg:gap-16 lg:px-8 xl:px-10">
           {/* ─── Left: Text content ─── */}
           <div className="flex flex-1 flex-col items-center gap-5 text-center md:items-start md:text-left sm:gap-6">
             {/* Eyebrow with pulse dot */}

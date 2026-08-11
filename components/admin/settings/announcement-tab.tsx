@@ -154,7 +154,7 @@ export function AnnouncementTab() {
                   type="text"
                   value={msg}
                   onChange={(e) => handleChange(idx, e.target.value)}
-                  placeholder="Miễn phí vận chuyển cho đơn từ 2 triệu"
+                  placeholder="Miễn phí vận chuyển cho đơn từ 500k"
                   className={inputCls}
                 />
                 <button

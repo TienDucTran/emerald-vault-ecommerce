@@ -1,6 +1,6 @@
 // TODO: replace placeholders with real social links + logo URL when branding assets are finalized
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
-const LOGO_URL = `${SITE_URL}/logo.png`;
+const LOGO_URL = `${SITE_URL}/images/logo.png`;
 
 export function OrganizationJsonLd() {
   const schema = {

@@ -3,8 +3,8 @@ import { ShieldCheck, Clock, Truck, Lock } from 'lucide-react';
 const TRUST_ITEMS = [
   {
     icon: ShieldCheck,
-    title: 'Chính hãng 100%',
-    desc: 'Giám định chuyên nghiệp',
+    title: 'Đã qua thẩm định',
+    desc: 'Kiểm định chất lượng từng món',
   },
   {
     icon: Clock,
@@ -13,8 +13,8 @@ const TRUST_ITEMS = [
   },
   {
     icon: Truck,
-    title: 'Freeship > 2tr',
-    desc: 'Vận chuyển bảo mật cao',
+    title: 'Freeship > 500k',
+    desc: 'Cho đơn hàng từ ₫500,000',
   },
   {
     icon: Lock,
@@ -25,13 +25,13 @@ const TRUST_ITEMS = [
 
 export function TrustStrip() {
   return (
-    <section className="hidden md:block border-y border-gold/10 bg-surface-emerald py-12">
-      <div className="container mx-auto px-8">
-        <div className="flex flex-wrap justify-center gap-6 md:gap-12">
+    <section className="border-y border-gold/10 bg-surface-emerald py-16 sm:py-20 lg:py-24">
+      <div className="mx-auto w-full max-w-store px-4 sm:px-6 lg:px-8 xl:px-10">
+        <div className="grid grid-cols-2 gap-8 md:grid-cols-4 md:gap-6 lg:gap-12">
           {TRUST_ITEMS.map((item, i) => (
             <div
               key={item.title}
-              className="flex w-full max-w-[250px] flex-col items-center gap-4 text-center md:w-auto motion-safe:animate-slideInLeft"
+              className="flex flex-col items-center gap-4 text-center motion-safe:animate-slideInLeft"
               style={{ animationDelay: `${i * 100}ms`, animationFillMode: 'backwards' }}
             >
               {/* Icon */}

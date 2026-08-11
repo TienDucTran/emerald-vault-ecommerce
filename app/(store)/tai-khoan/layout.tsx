@@ -74,7 +74,7 @@ export default function AccountLayout({ children }: { children: React.ReactNode 
         <AccountSidebar />
         <AccountMobileTabs />
         <main className="flex-1 px-4 py-8 md:px-8 md:py-8">
-          <div className="mx-auto w-full max-w-[1280px)]">{children}</div>
+          <div className="mx-auto w-full max-w-store px-4 sm:px-6 lg:px-8 xl:px-10">{children}</div>
         </main>
       </div>
     </AccountProvider>

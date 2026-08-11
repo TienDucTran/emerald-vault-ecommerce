@@ -93,9 +93,9 @@ export const TIER_DESCRIPTIONS: Record<string, string> = {
  * SSS: gold gradient (cao cấp nhất), SS: surface elevated, S: muted.
  */
 export const TIER_BADGE_CLASS: Record<string, string> = {
-  SSS: 'bg-primary/90 text-quartz-black border-champagne-gold/50 shadow-[0_0_10px_rgba(242,202,80,0.4)]',
-  SS: 'bg-surface-container-highest text-on-surface border-primary/40',
-  S: 'bg-surface-container text-on-surface-variant border-dotted border-primary/40',
+  SSS: 'bg-gradient-to-r from-gold to-gold-champagne text-background border-gold-champagne/50 shadow-[0_0_10px_rgba(242,202,80,0.4)]',
+  SS: 'bg-surface text-gold border border-gold/40',
+  S: 'bg-surface/80 text-gold/70 border border-dotted border-gold/30',
 };
 
 /**

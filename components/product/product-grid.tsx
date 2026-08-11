@@ -32,10 +32,10 @@ export function ProductGrid({ products, columns = 4, className }: ProductGridPro
       {products.map((product, i) => (
         <div
           key={product.id}
-          className="motion-safe:animate-fadeInUp"
+          className="h-full motion-safe:animate-fadeInUp"
           style={{ animationDelay: `${(i % 12) * 60}ms`, animationFillMode: 'backwards' }}
         >
-          <ProductCard product={product} priority={i < 4} />
+          <ProductCard product={product} priority={i < 4} className="h-full" />
         </div>
       ))}
     </div>

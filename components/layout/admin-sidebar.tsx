@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import NextImage from 'next/image';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
@@ -14,6 +15,7 @@ import {
   Bot,
   BarChart3,
   Settings,
+  MessageCircle,
   ChevronLeft,
   ChevronRight,
   X,
@@ -36,6 +38,7 @@ const ICONS: Record<string, LucideIcon> = {
   Bot,
   BarChart3,
   Settings,
+  MessageCircle,
 };
 
 const DESKTOP_EXPANDED_WIDTH = 256;
@@ -88,16 +91,24 @@ export function AdminSidebar() {
         >
           <div className="flex flex-col gap-1">
             {showCollapsedLayout ? (
-              <Link
-                href="/admin"
-                className="font-heading text-2xl font-bold text-gold tracking-wider text-center"
-                title="Emerald Admin"
-              >
-                E
+              <Link href="/admin" className="flex justify-center" title="Emerald Admin">
+                <NextImage
+                  src="/images/logo.png"
+                  alt="Emerald Admin"
+                  width={44}
+                  height={44}
+                  className="h-11 w-auto"
+                />
               </Link>
             ) : (
-              <Link href="/admin" className="font-heading text-lg font-bold text-gold tracking-wider">
-                EMERALD
+              <Link href="/admin" className="inline-block">
+                <NextImage
+                  src="/images/logo.png"
+                  alt="Emerald Admin"
+                  width={160}
+                  height={44}
+                  className="h-11 w-auto"
+                />
               </Link>
             )}
             {showLabels && (

@@ -198,7 +198,7 @@ export default async function ProductDetailPage({ params }: Props) {
             </div>
             <div className="flex flex-col items-center gap-1.5">
               <Truck className="h-4 w-4 text-gold" />
-              <span className="text-xs text-text-muted">Freeship 2tr+</span>
+              <span className="text-xs text-text-muted">Freeship 500k+</span>
             </div>
             <div className="flex flex-col items-center gap-1.5">
               <Clock className="h-4 w-4 text-gold" />

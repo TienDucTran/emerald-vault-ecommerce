@@ -1026,6 +1026,59 @@ export const getActivePromotions = tool({
   },
 });
 
+/**
+ * getZaloLink — Lấy link chat Zalo của tiệm từ site_settings.
+ * Dùng khi chatbot cần gợi ý khách liên hệ qua Zalo.
+ * Trả về { zalo_link, zalo_phone } hoặc null nếu chưa cấu hình.
+ */
+export const getZaloLink = tool({
+  description:
+    'Lấy link chat Zalo của tiệm. Dùng khi khách cần tư vấn phức tạp (thiết kế riêng, vấn đề đơn hàng, khiếu nại) hoặc sau khi captureLead thành công để gợi ý khách nhắn Zalo cho nhanh.',
+  inputSchema: z.object({}),
+  // Wrap: LRU cache (no params → key = getZaloLink:) + analytics. TTL dài vì settings thay đổi ít.
+  execute: async (_params, options) => {
+    const { sessionId, userId, provider, model } = extractCtx();
+    const cacheKey = buildCacheKey('getZaloLink', {});
+    return cachedToolCall(
+      cacheKey,
+      () =>
+        logToolCall({
+          toolName: 'getZaloLink',
+          args: {},
+          sessionId,
+          userId,
+          provider,
+          model,
+          run: async () => {
+            try {
+              const supabase = createAdminClient();
+              const { data, error } = await supabase
+                .from('site_settings')
+                .select('key, value')
+                .eq('key', 'contact_zalo')
+                .single();
+              if (error) {
+                console.error('[tool:getZaloLink]', redactPII(error.message ?? ''));
+                return null;
+              }
+              const phone = (data?.value ?? '').trim();
+              if (!phone) return null;
+              const normalized = phone.replace(/[\s.-]/g, '');
+              return {
+                zalo_phone: phone,
+                zalo_link: `https://zalo.me/${normalized}`,
+              };
+            } catch (e) {
+              console.error('[tool:getZaloLink] exception:', e instanceof Error ? redactPII(e.message) : e);
+              return null;
+            }
+          },
+        }),
+      getDefaultTtl('getZaloLink'),
+    );
+  },
+});
+
 export const getSuggestedAnswers = tool({
   description:
     'Tra cứu các mẫu trả lời có sẵn do admin soạn. Dùng khi khách hỏi về chính sách (ship, đổi trả, bảo hành, thanh toán, liên hệ...) hoặc câu hỏi phổ biến. Mẫu trả lời sẽ là reference chính xác để model trả lời đúng ý admin, thay vì tự suy luận.',
@@ -1104,6 +1157,7 @@ export const allTools = {
   getUpcomingCollections,
   getActivePromotions,
   getSuggestedAnswers,
+  getZaloLink,
 };
 
 export const chatHelpers = {

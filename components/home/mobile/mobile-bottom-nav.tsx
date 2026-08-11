@@ -38,9 +38,9 @@ export function MobileBottomNav() {
   return (
     <nav
       aria-label="Điều hướng chính"
-      className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-[#0a0a0a]/95 backdrop-blur border-t border-[#c9a961]/20"
+      className="fixed bottom-0 inset-x-0 z-40 border-t border-gold/20 bg-background/95 backdrop-blur lg:hidden"
     >
-      <ul className="flex justify-around items-center h-16">
+      <ul className="mx-auto flex h-16 w-full max-w-store items-center justify-around px-4 sm:px-6 lg:px-8">
         {ITEMS.map(({ href, label, Icon, showCartBadge }) => {
           const active = isActive(href, pathname);
           return (
@@ -49,8 +49,8 @@ export function MobileBottomNav() {
                 href={href}
                 aria-current={active ? 'page' : undefined}
                 className={cn(
-                  'relative flex flex-col items-center justify-center gap-0.5 h-full text-[10px] tracking-wider transition-colors duration-300 active:scale-95',
-                  active ? 'text-[#c9a961]' : 'text-[#c9a961]/70 hover:text-[#c9a961]'
+                  'relative flex h-full flex-col items-center justify-center gap-0.5 text-[10px] tracking-wider transition-colors duration-300 active:scale-95',
+                  active ? 'text-gold' : 'text-gold/70 hover:text-gold'
                 )}
               >
                 <span className="relative">
@@ -58,7 +58,7 @@ export function MobileBottomNav() {
                   {showCartBadge && cartCount > 0 && (
                     <span
                       key={cartCount}
-                      className="absolute -top-1.5 -right-2 grid h-4 min-w-4 place-items-center rounded-full bg-[#c9a961] px-1 text-[9px] font-bold text-black motion-safe:animate-pop"
+                      className="absolute -top-1.5 -right-2 grid h-4 min-w-4 place-items-center rounded-full bg-gold px-1 text-[9px] font-bold text-background motion-safe:animate-pop"
                     >
                       {cartCount}
                     </span>

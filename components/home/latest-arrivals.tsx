@@ -9,17 +9,17 @@ interface LatestArrivalsProps {
 
 export function LatestArrivals({ products }: LatestArrivalsProps) {
   return (
-    <section className="py-20">
-      <div className="container mx-auto px-4">
+    <section className="py-16 sm:py-20 lg:py-24">
+      <div className="mx-auto w-full max-w-store px-4 sm:px-6 lg:px-8 xl:px-10">
         <div
           className="mb-10 flex flex-col items-start justify-between gap-3 motion-safe:animate-fadeInUp md:flex-row md:items-end"
           style={{ animationDelay: '0ms', animationFillMode: 'backwards' }}
         >
           <div>
-            <p className="mb-2 text-xs font-medium uppercase tracking-[0.3em] text-gold">
+            <p className="mb-2 text-[10px] font-medium uppercase tracking-[0.3em] text-gold sm:text-xs">
               ✦ SI MỚI VỀ
             </p>
-            <h2 className="font-heading text-3xl font-bold sm:text-4xl">
+            <h2 className="font-heading text-2xl font-bold sm:text-3xl lg:text-4xl">
               <span className="text-text-base">Món mới nhất </span>
               <span className="text-gradient-gold">trong tuần</span>
             </h2>

@@ -97,11 +97,12 @@ export function toSiteSettings(map: Record<string, string>): SiteSettings {
     site_name: map['site_name'],
     contact_email: map['contact_email'],
     contact_phone: map['contact_phone'],
+    contact_zalo: map['contact_zalo'],
     address: map['address'],
     footer_tagline: map['footer_tagline'],
     social_instagram: map['social_instagram'],
     social_facebook: map['social_facebook'],
-    social_youtube: map['social_youtube'],
+    social_tiktok: map['social_tiktok'],
     announcement_messages: announcementMessages,
   };
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { Menu, X, ShoppingBag, User, Package, Search } from 'lucide-react';
 import { useState } from 'react';
@@ -33,13 +34,21 @@ export function Navbar() {
   return (
     <header className="w-full border-b border-gold/10 bg-background/90 backdrop-blur-2xl">
       <WishlistBootstrap />
-      <div className="flex h-[60px] min-w-0 items-center justify-between px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto flex h-[72px] w-full max-w-store min-w-0 items-center justify-between px-4 sm:px-6 lg:px-8 xl:px-10">
         {/* Logo */}
         <Link
           href="/"
-          className="font-heading text-3xl font-bold tracking-tight text-gold transition-transform duration-200 hover:scale-105"
+          className="flex items-center transition-transform duration-200 hover:scale-105"
+          aria-label="Emerald Vault — Trang sức si Nhật vintage"
         >
-          EMERALD VAULT
+          <Image
+            src="/images/logo.png"
+            alt="Emerald Vault — Trang sức si Nhật vintage"
+            width={200}
+            height={52}
+            priority
+            className="h-12 w-auto sm:h-14"
+          />
         </Link>
 
         {/* Desktop nav */}
@@ -72,7 +81,7 @@ export function Navbar() {
         {/* Right actions */}
         <div className="flex items-center gap-6">
           {/* Search bar */}
-          <SearchAutocomplete className="hidden md:flex" />
+          <SearchAutocomplete className="hidden lg:flex" />
 
           {/* Cart icon */}
           <Link
@@ -127,7 +136,7 @@ export function Navbar() {
             : 'pointer-events-none max-h-0 opacity-0'
         )}
       >
-        <nav className="flex flex-col px-4 py-4 sm:px-6 lg:px-8">
+        <nav className="mx-auto flex w-full max-w-store flex-col px-4 py-4 sm:px-6 lg:px-8 xl:px-10">
           <SearchAutocomplete
             mobile
             className="mb-2 w-full"

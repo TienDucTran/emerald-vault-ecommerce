@@ -13,6 +13,8 @@ const TTL_BY_TOOL: Record<string, number> = {
   // Data tĩnh / semi-static → cache lâu
   getKnowledge: LONG_TTL_MS,
   getFaq: LONG_TTL_MS,
+  getZaloLink: LONG_TTL_MS,
+  getSuggestedAnswers: LONG_TTL_MS,
   // Data động (admin CRUD thường xuyên) → cache ngắn
   searchProducts: SHORT_TTL_MS,
   semanticSearch: SHORT_TTL_MS,

@@ -16,6 +16,7 @@ interface FormData {
   site_name: string;
   contact_email: string;
   contact_phone: string;
+  contact_zalo: string;
   address: string;
 }
 
@@ -24,6 +25,7 @@ export function SiteInfoTab() {
     site_name: '',
     contact_email: '',
     contact_phone: '',
+    contact_zalo: '',
     address: '',
   });
   const [loading, setLoading] = useState(true);
@@ -40,6 +42,7 @@ export function SiteInfoTab() {
           site_name: map['site_name'] ?? '',
           contact_email: map['contact_email'] ?? '',
           contact_phone: map['contact_phone'] ?? '',
+          contact_zalo: map['contact_zalo'] ?? '',
           address: map['address'] ?? '',
         });
       }
@@ -134,6 +137,21 @@ export function SiteInfoTab() {
               className={inputCls}
             />
           </div>
+          <div>
+            <label className="block text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50 mb-1.5">
+              Zalo / SĐT Zalo OA
+            </label>
+            <input
+              type="text"
+              value={data.contact_zalo}
+              onChange={(e) => setData({ ...data, contact_zalo: e.target.value })}
+              placeholder="0901234567"
+              className={inputCls}
+            />
+            <p className="mt-1 text-[10px] text-[#D0C5AF]/30">
+              SĐT Zalo hoặc Zalo OA ID — dùng cho nút "Chat Zalo" và tích hợp OA API.
+            </p>
+          </div>
         </div>
       </div>
 
@@ -153,7 +171,7 @@ export function SiteInfoTab() {
             <label className="block text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50 mb-1.5">
               Free Shipping Threshold
             </label>
-            <input type="text" defaultValue="₫3,000,000" className={inputCls} disabled />
+            <input type="text" defaultValue="₫500,000" className={inputCls} disabled />
           </div>
         </div>
         <p className="text-[10px] text-[#D0C5AF]/30">Cấu hình vận chuyển sẽ được thêm sau.</p>

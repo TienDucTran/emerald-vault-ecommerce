@@ -7,6 +7,18 @@ const config: Config = {
     './lib/**/*.{js,ts,jsx,tsx,mdx}',
   ],
   theme: {
+    container: {
+      center: true,
+      padding: {
+        DEFAULT: '1rem',
+        sm: '1.5rem',
+        lg: '2rem',
+        xl: '2.5rem',
+      },
+      screens: {
+        '2xl': '1536px',
+      },
+    },
     extend: {
       colors: {
         // Background — Quartz Black & Deep Emerald (flows.md §3)
@@ -57,6 +69,9 @@ const config: Config = {
       spacing: {
         '18': '4.5rem',
         '88': '22rem',
+      },
+      maxWidth: {
+        'store': '1536px',
       },
       borderRadius: {
         sm: '4px',
