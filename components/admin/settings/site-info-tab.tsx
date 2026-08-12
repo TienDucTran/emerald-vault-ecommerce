@@ -149,7 +149,7 @@ export function SiteInfoTab() {
               className={inputCls}
             />
             <p className="mt-1 text-[10px] text-[#D0C5AF]/30">
-              SĐT Zalo hoặc Zalo OA ID — dùng cho nút "Chat Zalo" và tích hợp OA API.
+              SĐT Zalo hoặc Zalo OA ID — dùng cho nút &ldquo;Chat Zalo&rdquo; và tích hợp OA API.
             </p>
           </div>
         </div>

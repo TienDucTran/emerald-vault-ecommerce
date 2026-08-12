@@ -124,7 +124,7 @@ export function AnnouncementTab() {
 
         {messages.length === 0 ? (
           <div className="text-center py-8 text-sm text-[#D0C5AF]/40">
-            Chưa có message nào. Bấm "Thêm message" để bắt đầu.
+            Chưa có message nào. Bấm &ldquo;Thêm message&rdquo; để bắt đầu.
           </div>
         ) : (
           <div className="space-y-2">
