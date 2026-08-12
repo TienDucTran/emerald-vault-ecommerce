@@ -1,19 +1,8 @@
 import { ShieldCheck, Crown } from 'lucide-react';
+import { formatVNDShort } from '@/lib/utils';
 import type { ProfileRow } from '@/lib/supabase/types';
-
-const MOCK_TIER = {
-  tier: 'SSS',
-  tier_name: 'COLLECTOR GOLD',
-  current_spend: 320_000_000,
-  next_tier_threshold: 500_000_000,
-};
-
-function formatVNDShort(amount: number): string {
-  if (amount >= 1_000_000_000) return (amount / 1_000_000_000).toFixed(1) + 'tỷ';
-  if (amount >= 1_000_000) return (amount / 1_000_000).toFixed(0) + 'tr';
-  if (amount >= 1_000) return (amount / 1_000).toFixed(0) + 'k';
-  return amount + 'đ';
-}
+import type { CustomerLoyalty, LoyaltyTier } from '@/lib/gamification/types';
+import { TIER_LABELS, TIER_THRESHOLDS } from '@/lib/gamification/rules';
 
 function formatJoinDate(iso: string): string {
   try {
@@ -27,15 +16,48 @@ function formatJoinDate(iso: string): string {
   }
 }
 
-export interface AccountInfoCardsProps {
-  profile?: Pick<ProfileRow, 'id' | 'created_at'> | null;
+function getNextTier(tier: LoyaltyTier): LoyaltyTier | null {
+  switch (tier) {
+    case 'BRONZE':
+      return 'SILVER';
+    case 'SILVER':
+      return 'GOLD';
+    case 'GOLD':
+      return 'PLATINUM';
+    default:
+      return null;
+  }
 }
 
-export function AccountInfoCards({ profile }: AccountInfoCardsProps) {
-  const progressPercent = Math.min(
-    100,
-    (MOCK_TIER.current_spend / MOCK_TIER.next_tier_threshold) * 100
-  );
+export interface AccountInfoCardsProps {
+  profile?: Pick<ProfileRow, 'id' | 'created_at'> | null;
+  loyalty?: CustomerLoyalty | null;
+}
+
+export function AccountInfoCards({ profile, loyalty }: AccountInfoCardsProps) {
+  // Dynamic data từ loyalty (fallback BRONZE nếu null)
+  const tier: LoyaltyTier = (loyalty?.tier as LoyaltyTier) ?? 'BRONZE';
+  const ordersCount = loyalty?.orders_count ?? 0;
+  const lifetimeValue = loyalty?.lifetime_value ?? 0;
+
+  const tierLabel = TIER_LABELS[tier];
+  const nextTier = getNextTier(tier);
+  const currentThreshold = TIER_THRESHOLDS[tier];
+  const nextThreshold = nextTier ? TIER_THRESHOLDS[nextTier] : null;
+
+  // Progress dựa trên orders_count (tier thresholds theo orders_count)
+  const progressPercent = nextThreshold
+    ? Math.min(
+        100,
+        Math.max(
+          0,
+          ((ordersCount - currentThreshold.min) /
+            (nextThreshold.min - currentThreshold.min)) *
+            100
+        )
+      )
+    : 100;
+
   return (
     <div className="flex flex-col gap-6">
       <div className="rounded-lg border border-gold/20 bg-surface-emerald/30 p-6 shadow-card">
@@ -64,8 +86,15 @@ export function AccountInfoCards({ profile }: AccountInfoCardsProps) {
               Verified
             </span>
           </div>
+          <div className="flex items-center justify-between">
+            <span className="text-[13px] text-text-muted">Đơn hàng đã mua</span>
+            <span className="text-sm font-semibold text-text-base">
+              {ordersCount}
+            </span>
+          </div>
         </div>
       </div>
+
       <div className="relative overflow-hidden rounded-lg border border-gold/40 bg-surface p-6 shadow-gold-glow">
         <div
           className="pointer-events-none absolute inset-0 opacity-30"
@@ -81,10 +110,10 @@ export function AccountInfoCards({ profile }: AccountInfoCardsProps) {
           </div>
           <div className="flex flex-col items-center gap-1 py-4">
             <span className="font-heading text-[40px] font-bold leading-none text-gold-champagne">
-              TIER {MOCK_TIER.tier}
+              TIER {tier}
             </span>
             <span className="font-heading text-[10px] uppercase tracking-[0.2em] text-gold">
-              {MOCK_TIER.tier_name}
+              {tierLabel}
             </span>
           </div>
           <div className="flex flex-col gap-2">
@@ -96,19 +125,22 @@ export function AccountInfoCards({ profile }: AccountInfoCardsProps) {
             </div>
             <div className="flex items-center justify-between">
               <span className="text-[11px] text-text-muted">
-                {formatVNDShort(MOCK_TIER.current_spend)}đ
+                {formatVNDShort(lifetimeValue)}đ chi tiêu
               </span>
               <span className="text-[11px] text-gold">
-                {formatVNDShort(MOCK_TIER.next_tier_threshold)}đ để lên hạng
+                {nextThreshold
+                  ? `Cần ${nextThreshold.min} đơn để lên ${TIER_LABELS[nextTier!].split(' ')[0]}`
+                  : 'Hạng cao nhất!'}
               </span>
             </div>
           </div>
         </div>
       </div>
+
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col items-center gap-2 rounded-md border border-gold/10 bg-surface-emerald/20 p-4 shadow-sm">
           <ShieldCheck className="h-4 w-5 text-gold" />
-          <span className="font-heading text-[10px] text-text-muted">BẢO MậT 2 LỚP</span>
+          <span className="font-heading text-[10px] text-text-muted">BẢO MẬT 2 LỚP</span>
         </div>
         <div className="flex flex-col items-center gap-2 rounded-md border border-gold/10 bg-surface-emerald/20 p-4 shadow-sm">
           <Crown className="h-4 w-5 text-gold" />

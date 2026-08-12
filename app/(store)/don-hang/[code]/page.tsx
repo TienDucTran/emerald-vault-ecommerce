@@ -78,6 +78,10 @@ export default function OrderLookupPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const purchaseFiredRef = useRef(false);
+  // Khi redirect từ checkout với ?phone=..., auto-lookup chạy trong useEffect.
+  // Track riêng để hiện skeleton (thay vì form default) trong lúc chờ fetch.
+  // Init true khi có initialPhone → skeleton hiện ngay trong lúc fetch.
+  const [autoLookup, setAutoLookup] = useState(!!initialPhone);
 
   async function lookup(p: string) {
     if (!p.trim()) {
@@ -94,6 +98,7 @@ export default function OrderLookupPage() {
       const json = await res.json();
       if (!res.ok || !json.ok) {
         setError('Không tìm thấy đơn hàng. Vui lòng kiểm tra mã và số điện thoại.');
+        setAutoLookup(false);
         return;
       }
       const next = json.order as OrderDetail;
@@ -119,6 +124,7 @@ export default function OrderLookupPage() {
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'NETWORK_ERROR');
+      setAutoLookup(false);
     } finally {
       setLoading(false);
     }
@@ -154,7 +160,64 @@ export default function OrderLookupPage() {
         </Link>
       </div>
 
-      {!order && (
+      {!order && autoLookup && (
+        /* Skeleton khi redirect từ checkout — đang fetch order data */
+        <div className="flex flex-col gap-8 animate-pulse">
+          <header className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+            <div>
+              <div className="h-10 w-72 rounded bg-gold/10" />
+              <div className="mt-3 h-4 w-48 rounded bg-gold/5" />
+            </div>
+            <div className="flex gap-2">
+              <div className="h-7 w-32 rounded-full bg-gold/10" />
+              <div className="h-7 w-36 rounded-full bg-gold/10" />
+            </div>
+          </header>
+
+          <section className="flex flex-col gap-4">
+            <div className="flex flex-col overflow-hidden border border-gold/10 bg-surface sm:flex-row">
+              <div className="h-48 w-full shrink-0 bg-gold/5 sm:h-auto sm:w-48" />
+              <div className="flex flex-1 flex-col justify-between p-6">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1">
+                    <div className="h-6 w-48 rounded bg-gold/10" />
+                    <div className="mt-2 h-4 w-32 rounded bg-gold/5" />
+                  </div>
+                  <div className="h-6 w-24 rounded bg-gold/10" />
+                </div>
+                <div className="mt-4 flex gap-4">
+                  <div className="h-4 w-28 rounded bg-gold/5" />
+                  <div className="h-4 w-20 rounded bg-gold/5" />
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div className="h-48 border border-gold/10 bg-surface-emerald" />
+            <div className="h-48 border border-gold/10 bg-surface-emerald md:col-span-2" />
+          </section>
+
+          <section className="border-t-2 border-gold/30 bg-surface-emerald p-8">
+            <div className="ml-auto max-w-md space-y-4">
+              <div className="flex justify-between">
+                <div className="h-4 w-24 rounded bg-gold/5" />
+                <div className="h-4 w-32 rounded bg-gold/5" />
+              </div>
+              <div className="flex justify-between">
+                <div className="h-4 w-32 rounded bg-gold/5" />
+                <div className="h-4 w-28 rounded bg-gold/5" />
+              </div>
+              <div className="flex justify-between border-t border-gold/30 pt-4">
+                <div className="h-6 w-28 rounded bg-gold/10" />
+                <div className="h-8 w-36 rounded bg-gold/10" />
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {!order && !autoLookup && (
         <div className="flex flex-col gap-6">
           <header>
             <h1 className="font-heading text-4xl font-bold text-gradient-gold md:text-5xl">

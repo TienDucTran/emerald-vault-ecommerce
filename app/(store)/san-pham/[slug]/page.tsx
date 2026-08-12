@@ -190,6 +190,39 @@ export default async function ProductDetailPage({ params }: Props) {
             </Button>
           )}
 
+          {/* Gamification badge — Mua X Tặng Y (SS/S only) */}
+          {(product.quality_tier === 'SS' || product.quality_tier === 'S') && (
+            <div className="mt-4 rounded-md border border-gold/30 bg-gradient-to-r from-gold/10 to-gold-champagne/5 p-3">
+              <div className="flex items-center gap-2">
+                <span className="text-base">🎁</span>
+                <div className="flex flex-col">
+                  <span className="font-heading text-[11px] font-bold uppercase tracking-wider text-gold">
+                    Mua 4 tặng 1 — Mua 6 tặng 2
+                  </span>
+                  <span className="text-[10px] text-text-muted">
+                    Thêm vào giỏ để nhận quà FREE (áp dụng Tier SS & S)
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {product.quality_tier === 'SSS' && (
+            <div className="mt-4 rounded-md border border-gold/20 bg-surface-emerald p-3">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4 text-gold" />
+                <div className="flex flex-col">
+                  <span className="font-heading text-[11px] font-bold uppercase tracking-wider text-gold">
+                    Tuyệt phẩm nguyên seal
+                  </span>
+                  <span className="text-[10px] text-text-muted">
+                    Không áp dụng khuyến mãi — giá trị sưu tầm cao
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Trust micro-icons */}
           <div className="mt-4 grid grid-cols-3 gap-2 border-t border-gold/10 pt-4 text-center">
             <div className="flex flex-col items-center gap-1.5">
@@ -198,7 +231,7 @@ export default async function ProductDetailPage({ params }: Props) {
             </div>
             <div className="flex flex-col items-center gap-1.5">
               <Truck className="h-4 w-4 text-gold" />
-              <span className="text-xs text-text-muted">Freeship 500k+</span>
+              <span className="text-xs text-text-muted">Freeship ≥4 món</span>
             </div>
             <div className="flex flex-col items-center gap-1.5">
               <Clock className="h-4 w-4 text-gold" />

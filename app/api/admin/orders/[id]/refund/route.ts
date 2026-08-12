@@ -15,6 +15,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { authErrorResponse, requireAdmin } from '@/lib/auth/require-admin';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { reverseOrderPoints } from '@/lib/gamification/queries';
 import type { OrderRefundRow, OrderRefundState } from '@/lib/supabase/types';
 
 export const dynamic = 'force-dynamic';
@@ -314,6 +315,13 @@ export async function POST(
           { status: 500 }
         );
       }
+
+      // Reverse loyalty points — trừ điểm đã nhận từ đơn này.
+      // Fire-and-forget — không block response nếu loyalty update fail.
+      // Dùng reason='REFUND' (khác ORDER_CANCEL) để phân biệt audit trail.
+      reverseOrderPoints(orderId, 'REFUND').catch((err) => {
+        console.error('[api/admin/refund:mark_completed] reverseOrderPoints failed:', err);
+      });
 
       return NextResponse.json({ ok: true, refund: updated });
     }

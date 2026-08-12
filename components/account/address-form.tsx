@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { VietnamAddressFields } from '@/components/ui/vietnam-address-fields';
 import type { Address, AddressInsert, AddressUpdate } from '@/lib/types/account';
 
 export type AddressFormValues = {
@@ -94,8 +95,27 @@ export function AddressForm({
     });
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Handler cho VietnamAddressFields — cập nhật province/district/ward cùng lúc
+  const handleAddressFieldsChange = (addr: {
+    province: string;
+    district: string;
+    ward: string;
+  }) => {
+    setForm((prev) => {
+      const next = {
+        ...prev,
+        province: addr.province,
+        district: addr.district,
+        ward: addr.ward,
+      };
+      onChange?.(next);
+      return next;
+    });
+  };
+
+  // Dùng type="button" + onClick thay vì onSubmit để tránh nested form issue
+  // khi AddressForm được render bên trong checkout <form>.
+  const handleSubmit = async () => {
     setError(null);
     try {
       await onSubmit(form);
@@ -106,9 +126,11 @@ export function AddressForm({
     }
   };
 
+  // Dùng <div> thay vì <form> để tránh nested form issue khi AddressForm
+  // được render bên trong checkout <form> (trang thanh-toan).
+  // Submit button dùng type="button" + onClick để không trigger outer form.
   return (
-    <form
-      onSubmit={handleSubmit}
+    <div
       className="rounded-md border border-gold/20 bg-surface-emerald p-6"
       aria-busy={isLoading}
     >
@@ -176,48 +198,16 @@ export function AddressForm({
             className={inputClass}
           />
         </div>
-        <div className="flex flex-col gap-2">
-          <label htmlFor="province" className={labelClass}>
-            TỈNH / THÀNH *
-          </label>
-          <input
-            id="province"
-            type="text"
-            required
-            value={form.province}
-            onChange={(e) => handleChange('province', e.target.value)}
-            placeholder="Hà Nội"
-            maxLength={80}
-            className={inputClass}
-          />
-        </div>
-        <div className="flex flex-col gap-2">
-          <label htmlFor="district" className={labelClass}>
-            QUẬN / HUYỆN *
-          </label>
-          <input
-            id="district"
-            type="text"
-            required
-            value={form.district}
-            onChange={(e) => handleChange('district', e.target.value)}
-            placeholder="Quận 1"
-            maxLength={80}
-            className={inputClass}
-          />
-        </div>
-        <div className="flex flex-col gap-2">
-          <label htmlFor="ward" className={labelClass}>
-            PHƯỜNG / XÃ
-          </label>
-          <input
-            id="ward"
-            type="text"
-            value={form.ward}
-            onChange={(e) => handleChange('ward', e.target.value)}
-            placeholder="Phường Bến Nghé"
-            maxLength={80}
-            className={inputClass}
+        <div className="md:col-span-2">
+          <VietnamAddressFields
+            value={{
+              province: form.province,
+              district: form.district,
+              ward: form.ward,
+            }}
+            onChange={handleAddressFieldsChange}
+            labelClass={labelClass}
+            grid
           />
         </div>
       </div>
@@ -256,9 +246,10 @@ export function AddressForm({
           Huỷ
         </Button>
         <Button
-          type="submit"
+          type="button"
           variant="primary"
           size="md"
+          onClick={handleSubmit}
           disabled={isLoading}
         >
           {isLoading ? (
@@ -267,6 +258,6 @@ export function AddressForm({
           {submitLabel ?? (isEdit ? 'Lưu thay đổi' : 'Thêm địa chỉ')}
         </Button>
       </div>
-    </form>
+    </div>
   );
 }

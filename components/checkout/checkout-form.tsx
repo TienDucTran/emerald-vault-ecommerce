@@ -11,6 +11,7 @@ import {
   AddressPicker,
   type PickedAddress,
 } from '@/components/checkout/address-picker';
+import { useCheckoutAddressStore } from '@/lib/store/checkout-address';
 
 export type PaymentOption = 'MOMO' | 'COD' | 'BANK_TRANSFER';
 
@@ -125,6 +126,10 @@ export function CheckoutForm({ payment, onPaymentChange, isBankConfigured }: Che
   // hoặc gõ tay. Parent form luôn overwrite state với giá trị mới nhất từ picker
   // — nếu giữ `prev || picked` thì click chọn address khác sau khi đã auto-load
   // mặc định sẽ không cập nhật form (user bị kẹt với address cũ).
+  // Sync province/district vào zustand store để GamificationPanel + ShippingFeeDisplay
+  // tính shipping zone + freeship theo địa chỉ user chọn.
+  const setCheckoutAddress = useCheckoutAddressStore((s) => s.setAddress);
+
   const handleAddressChange = useCallback((picked: PickedAddress) => {
     setName(picked.recipient_name);
     setPhone(picked.recipient_phone);
@@ -132,7 +137,9 @@ export function CheckoutForm({ payment, onPaymentChange, isBankConfigured }: Che
     setProvince(picked.province);
     setDistrict(picked.district);
     setWard(picked.ward);
-  }, []);
+    // Sync store cho GamificationPanel/ShippingFeeDisplay
+    setCheckoutAddress(picked.province || null, picked.district || null);
+  }, [setCheckoutAddress]);
 
   useEffect(() => {
     let cancelled = false;
@@ -365,6 +372,9 @@ export function CheckoutForm({ payment, onPaymentChange, isBankConfigured }: Che
       // - MOMO: đã return ở nhánh trên
       // - COD: customer đã login (Option B) → /tai-khoan/don-hang/[code]
       // - BANK_TRANSFER: cần trang QR với phone để tra cứu bank_transfers row
+      //
+      // Giữ submitting=true cho đến khi navigation hoàn tất để spinner
+      // "ĐANG XỬ LÝ..." stays visible — không hiện form trống / error flash.
       if (paymentMethod === 'COD') {
         router.push(`/tai-khoan/don-hang/${encodeURIComponent(code)}`);
       } else {
@@ -375,9 +385,12 @@ export function CheckoutForm({ payment, onPaymentChange, isBankConfigured }: Che
           router.push(`/don-hang/${code}?phone=${encodeURIComponent(phone)}`);
         }
       }
+      // KHÔNG setSubmitting(false) ở đây — để spinner stays trên cho đến khi
+      // trang mới render xong (navigation là async, React sẽ unmount component
+      // này). Nếu có lỗi navigation, user vẫn có thể quay lại và form sẽ reset
+      // submitting qua unmount/remount.
     } catch (e) {
       setError(translateOrderError(e instanceof Error ? e.message : 'NETWORK_ERROR'));
-    } finally {
       setSubmitting(false);
     }
   };
@@ -406,7 +419,7 @@ export function CheckoutForm({ payment, onPaymentChange, isBankConfigured }: Che
         </div>
       )}
       {/* — Section 01: Customer Information — */}
-      <section className="rounded-md border border-gold/10 bg-surface-emerald/40 p-8">
+      <section className="rounded-lg border border-gold/10 bg-surface-emerald/40 p-8">
         {/* Header */}
         <div className="mb-8 flex items-center gap-4">
           <span className="font-heading text-2xl font-normal text-gold">01</span>
@@ -421,98 +434,101 @@ export function CheckoutForm({ payment, onPaymentChange, isBankConfigured }: Che
           </div>
         )}
 
-        {/* Form fields */}
-        <div className="flex flex-col gap-3">
-          {/* Họ và tên */}
-          <div>
-            <FieldLabel>HỌ VÀ TÊN *</FieldLabel>
-            <FieldWrapper>
+        {/* Basic Info Glassmorphic Card — Name + Phone grid + Email full width */}
+        <div className="mb-8 space-y-6 rounded-lg border border-gold/10 bg-surface-emerald/20 p-6 backdrop-blur-md">
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+            {/* Họ và tên */}
+            <div className="rounded-sm border border-gold/20 bg-background/40 p-1 focus-within:border-gold">
+              <label className="block px-3 pt-2 font-heading text-[10px] uppercase tracking-wider text-gold/60">
+                HỌ VÀ TÊN *
+              </label>
               <input
                 type="text"
                 name="name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Nguyễn Văn A"
-                className={inputClass}
+                className="w-full border-none bg-transparent px-3 py-2 font-sans text-base text-text-base placeholder:text-text-muted/30 focus:outline-none focus:ring-0"
                 required
               />
-            </FieldWrapper>
-          </div>
+            </div>
 
-          {/* Số điện thoại */}
-          <div>
-            <FieldLabel>SỐ ĐIỆN THOẠI *</FieldLabel>
-            <FieldWrapper>
+            {/* Số điện thoại */}
+            <div className="rounded-sm border border-gold/20 bg-background/40 p-1 focus-within:border-gold">
+              <label className="block px-3 pt-2 font-heading text-[10px] uppercase tracking-wider text-gold/60">
+                SỐ ĐIỆN THOẠI *
+              </label>
               <input
                 type="tel"
                 name="phone"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 placeholder="0901 234 567"
-                className={inputClass}
+                className="w-full border-none bg-transparent px-3 py-2 font-sans text-base text-text-base placeholder:text-text-muted/30 focus:outline-none focus:ring-0"
                 required
               />
-            </FieldWrapper>
+            </div>
           </div>
 
-          {/* Email */}
-          <div>
-            <FieldLabel>EMAIL</FieldLabel>
-            <FieldWrapper>
-              <input
-                type="email"
-                name="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="email@example.com"
-                className={inputClass}
-              />
-            </FieldWrapper>
-          </div>
-
-          {/* Địa chỉ giao hàng — AddressPicker chọn từ sổ địa chỉ đã lưu
-              hoặc inline-form nhập tay (sẽ lưu vào sổ sau khi submit). */}
-          <div>
-            <FieldLabel>ĐỊA CHỈ GIAO HÀNG *</FieldLabel>
-            <AddressPicker
-              defaultName={name}
-              defaultPhone={phone}
-              onChange={handleAddressChange}
+          {/* Email — full width */}
+          <div className="rounded-sm border border-gold/20 bg-background/40 p-1 focus-within:border-gold">
+            <label className="block px-3 pt-2 font-heading text-[10px] uppercase tracking-wider text-gold/60">
+              EMAIL
+            </label>
+            <input
+              type="email"
+              name="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="email@example.com"
+              className="w-full border-none bg-transparent px-3 py-2 font-sans text-base text-text-base placeholder:text-text-muted/30 focus:outline-none focus:ring-0"
             />
-            {/* Tóm tắt địa chỉ đã chọn (read-only) — giúp user confirm trước
-                khi submit vì province/district/ward không có input riêng. */}
-            {(address || province) && (
-              <div className="mt-2 rounded-sm border border-gold/20 bg-background/10 p-3 text-xs">
-                <div className="mb-1 flex items-center gap-2">
-                  <MapPin className="h-3.5 w-3.5 text-gold" />
-                  <span className="font-heading uppercase tracking-wider text-gold/80">
-                    Địa chỉ đã chọn
-                  </span>
-                </div>
-                <p className="text-text-base">{address || '(chưa có địa chỉ chi tiết)'}</p>
-                {(ward || district || province) && (
-                  <p className="text-text-muted">
-                    {[ward, district, province].filter(Boolean).join(', ')}
-                  </p>
-                )}
-              </div>
-            )}
           </div>
+        </div>
 
-          {/* Ghi chú riêng */}
-          <div>
-            <FieldLabel>GHI CHÚ RIÊNG</FieldLabel>
-            <FieldWrapper>
-              <textarea
-                name="notes"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                rows={4}
-                placeholder="Lời nhắn gửi cho Bà Chủ Tiệm hoặc hướng dẫn giao hàng đặc biệt..."
-                className={`${inputClass} resize-none`}
-              />
-            </FieldWrapper>
+        {/* Address Ledger Section — saved address cards via AddressPicker */}
+        <div className="space-y-4">
+          <label className="mb-2 block font-heading text-[10px] uppercase tracking-wider text-gold/60">
+            ĐỊA CHỈ GIAO HÀNG *
+          </label>
+          <AddressPicker
+            defaultName={name}
+            defaultPhone={phone}
+            onChange={handleAddressChange}
+          />
+        </div>
+
+        {/* Selected Address Summary — visual reference for user to confirm */}
+        {(address || province) && (
+          <div className="mt-8 rounded-lg border border-gold/20 bg-background/40 p-4">
+            <div className="mb-2 flex items-center gap-2">
+              <MapPin className="h-3.5 w-3.5 text-gold" />
+              <span className="font-heading text-[10px] uppercase tracking-wider text-gold">
+                ĐỊA CHỈ ĐÃ CHỌN
+              </span>
+            </div>
+            <p className="pl-6 text-xs text-text-muted">
+              {address || '(chưa có địa chỉ chi tiết)'}
+              {(ward || district || province) && <br />}
+              {(ward || district || province) &&
+                [ward, district, province].filter(Boolean).join(', ')}
+            </p>
           </div>
+        )}
+
+        {/* Notes Section */}
+        <div className="mt-8 rounded-sm border border-gold/20 bg-surface-emerald/40 p-1 focus-within:border-gold">
+          <label className="block px-3 pt-2 font-heading text-[10px] uppercase tracking-wider text-gold/60">
+            GHI CHÚ RIÊNG
+          </label>
+          <textarea
+            name="notes"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            rows={3}
+            placeholder="Lời nhắn gửi cho Bà Chủ Tiệm hoặc hướng dẫn giao hàng đặc biệt..."
+            className="w-full resize-none border-none bg-transparent px-3 py-2 font-sans text-base text-text-base placeholder:text-text-muted/30 focus:outline-none focus:ring-0"
+          />
         </div>
       </section>
 

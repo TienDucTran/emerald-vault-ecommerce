@@ -142,6 +142,7 @@ export interface OrderRow {
   customer_address: string | null;
   province: string | null;
   district: string | null;
+  ward: string | null;
   notes: string | null;
   total_amount: number;
   shipping_fee: number;
@@ -154,6 +155,12 @@ export interface OrderRow {
   customer_cancel_reason: string | null;
   refund_requested_at: string | null;
   refund_reason: string | null;
+  // Migration 0037 — shipping info + timeline
+  carrier: string | null;
+  tracking_number: string | null;
+  tracking_url: string | null;
+  shipped_at: string | null;
+  delivered_at: string | null;
 }
 
 export interface OrderItemRow {

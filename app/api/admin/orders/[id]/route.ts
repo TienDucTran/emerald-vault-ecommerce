@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { authErrorResponse, requireAdmin } from '@/lib/auth/require-admin';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { awardOrderPoints, reverseOrderPoints } from '@/lib/gamification/queries';
+import { getTrackingUrl, logTimelineEvent } from '@/lib/order/timeline';
 import type {
   OrderItemRow,
   OrderRow,
@@ -47,6 +49,10 @@ const patchSchema = z
     payment_status: z
       .enum(['PENDING', 'PAID', 'FAILED', 'REFUNDED'])
       .optional(),
+    // Shipping info — required khi status=SHIPPING
+    carrier: z.string().max(100).optional(),
+    trackingNumber: z.string().max(200).optional(),
+    trackingUrl: z.string().max(2000).optional(),
     adminNote: z.string().max(500).optional(),
   })
   .refine(
@@ -322,7 +328,7 @@ export async function PATCH(
         { status: 400 }
       );
     }
-    const { status, payment_status, action, adminNote } = parsed.data;
+    const { status, payment_status, action, adminNote, carrier, trackingNumber, trackingUrl } = parsed.data;
 
     if (action === 'confirm_bank_payment') {
       return await handleConfirmBankPayment(id, adminNote);
@@ -404,6 +410,83 @@ export async function PATCH(
     }
 
     // ============================================================
+    // SHIPPING INFO: lưu carrier + tracking khi chuyển sang SHIPPING
+    // + log timeline events (SHIPPED, DELIVERED, CANCELLED)
+    // ============================================================
+    const nowIso = new Date().toISOString();
+
+    if (status === 'SHIPPING' && current.status !== 'SHIPPING') {
+      // Validate carrier + trackingNumber required khi shipping
+      if (!carrier || !trackingNumber) {
+        return NextResponse.json(
+          {
+            error: 'BAD_REQUEST',
+            message: 'Vui lòng nhập đơn vị vận chuyển và mã vận đơn',
+          },
+          { status: 400 }
+        );
+      }
+
+      // Auto-generate tracking_url nếu admin không nhập
+      const finalTrackingUrl = getTrackingUrl(carrier, trackingNumber, trackingUrl);
+
+      await db
+        .from('orders')
+        .update({
+          carrier,
+          tracking_number: trackingNumber,
+          tracking_url: finalTrackingUrl,
+          shipped_at: nowIso,
+          updated_at: nowIso,
+        })
+        .eq('id', id);
+
+      // Log timeline
+      await logTimelineEvent(
+        db,
+        id,
+        'SHIPPED',
+        `Đơn vị: ${carrier} — Mã vận đơn: ${trackingNumber}`,
+        'admin',
+        { carrier, tracking_number: trackingNumber, tracking_url: finalTrackingUrl }
+      );
+    }
+
+    if (status === 'DONE' && current.status !== 'DONE') {
+      // Set delivered_at
+      await db
+        .from('orders')
+        .update({ delivered_at: nowIso, updated_at: nowIso })
+        .eq('id', id);
+
+      // Log timeline
+      await logTimelineEvent(db, id, 'DELIVERED', 'Đơn hàng đã giao thành công', 'admin');
+    }
+
+    if (status === 'CANCELLED' && current.status !== 'CANCELLED') {
+      // Log timeline
+      await logTimelineEvent(
+        db,
+        id,
+        'CANCELLED',
+        adminNote || 'Đơn hàng bị hủy',
+        'admin'
+      );
+    }
+
+    // ============================================================
+    // LOYALTY POINTS: award khi DONE, reverse khi CANCELLED
+    // ============================================================
+    // Chỉ award khi chuyển sang DONE (chưa award trước đó — idempotent)
+    if (status === 'DONE' && current.status !== 'DONE') {
+      try {
+        await awardOrderPoints(id);
+      } catch (err) {
+        console.error('[admin/orders/:id PATCH] awardOrderPoints failed:', err);
+      }
+    }
+
+    // ============================================================
     // CANCEL cleanup: restore products + auto-create refund
     // ============================================================
     // 4 payment_status cases:
@@ -412,13 +495,18 @@ export async function PATCH(
     //   - REFUND_REQUESTED         → products có thể RESERVED hoặc SOLD_OUT → cả 2 + skip refund (đã có)
     //   - PAID                     → products SOLD_OUT → direct UPDATE + auto refund
     if (status === 'CANCELLED' && current.status !== 'CANCELLED') {
+      // Reverse loyalty points (nếu đã award cho order này trước đó)
+      try {
+        await reverseOrderPoints(id, 'ORDER_CANCEL');
+      } catch (err) {
+        console.error('[admin/orders/:id PATCH] reverseOrderPoints failed:', err);
+      }
       console.log('[admin/orders/:id PATCH] CANCEL triggered:', {
         orderId: id,
         currentStatus: current.status,
         currentPaymentStatus: current.payment_status,
         currentPaymentMethod: current.payment_method,
       });
-      const nowIso = new Date().toISOString();
 
       // 1. Release inventory_locks (luôn)
       const { error: lockRelErr } = await admin

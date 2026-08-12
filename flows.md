@@ -112,6 +112,20 @@
 
 - **Còn deferred (Phase 3, không block launch)**: Dockerfile + docker-compose (self-host thay Vercel), Vitest/Playwright tests, Supabase backups policy, Uptime monitor trỏ vào `/api/health`.
 
+**🆕 Loyalty & Gamification + Dynamic Settings + Zalo OA** (sprint 2026-08-12): ✅ done. Tóm tắt:
+- **Loyalty & Gamification** (migration `0036_loyalty_gamification.sql`) — 6 bảng mới: `customer_loyalty` (điểm + tier BRONZE/SILVER/GOLD/PLATINUM), `point_transactions` (audit log), `gift_rules` (BOGO: BUY4GET1/BUY6GET2/BUY10GET3 + milestone + birthday), `gift_pool` (sản phẩm tặng SS/S), `order_gifts` (snapshot quà đơn). `products.is_gift` column (ẩn gift khỏi storefront). `order_items.is_gift + gift_rule_code` columns. Module `lib/gamification/` (types/rules/queries/freeship). API `POST /api/gamification/check` — check BOGO progress + freeship zone + loyalty points cho cart. Component `GamificationPanel` + `ShippingFeeDisplay` trong checkout. Freeship 3 zones (INNER_HCMC/OUTER_HCMC/OTHER_PROVINCE) config trong `site_settings`. Tier thresholds: BRONZE 0-4 → 5%, SILVER 5-9 → 7%, GOLD 10-19 → 10%, PLATINUM 20+ → 15%. 1 point = 1000 VND. Admin Settings tab "Loyalty & Rewards" (gift pool CRUD + freeship config + loyalty rate config). Xem §21.
+- **Dynamic Site Settings + Home Banners** (migration `0031_home_banners_and_settings.sql`) — 2 bảng mới: `home_banners` (4 slot: main/top/bottom_left/bottom_right, unique per slot) + `site_settings` (key-value store). Admin Settings page 5 tabs: Site Info / Banners / Announcement / Footer / Loyalty & Rewards — tất cả REAL data (không còn mock). API `GET/PUT /api/admin/settings` + `GET/PUT/DELETE /api/admin/home-banners/[id]`. Public API `GET /api/settings` + `GET /api/home-banners`. `lib/supabase/queries/site-content-defaults.ts` — fallback defaults client-safe. Migration 0035: `social_youtube` → `social_tiktok`. Xem §22.
+- **Zalo OA Integration** (migration `0034_zalo_messages.sql`) — Bảng `zalo_messages` (lưu lịch sử chat Zalo giữa khách và shop). `lib/zalo/{config,client}.ts` — Zalo OA API client (send message, get user, refresh token). API `GET/PUT/PATCH /api/admin/zalo/messages` (admin quản lý tin nhắn). Webhook `POST /api/zalo/webhook` (nhận tin từ Zalo, service_role bypass RLS). Admin page `/admin/zalo` + sidebar nav item "Zalo Messages" (icon `MessageCircle`). Env: `ZALO_OA_ID`, `ZALO_OA_ACCESS_TOKEN`, `ZALO_OA_REFRESH_TOKEN`, `ZALO_OA_SECRET_KEY`. Xem §23.
+- **Migrations 0025-0035** (chưa được document trước đó):
+  - `0025_release_locks_5min.sql` — release-expired-locks cron 1 phút → 5 phút (giảm 80% chạy, UX không ảnh hưởng vì client-side countdown).
+  - `0028_unaccent_generated_columns.sql` — generated columns `title_unaccent` + GIN trigram index (fix PostgREST không accept function call trong `.or()` filter). `immutable_unaccent()` wrapper (STABLE→IMMUTABLE). Áp cho products/chat_knowledge/chat_faqs/chat_suggested_answers/upcoming_products.
+  - `0029_orders_add_ward.sql` — thêm `ward VARCHAR(80)` cho orders (phường/xã, frontend đã gửi nhưng backend drop silently).
+  - `0030_cleanup_orphaned_bank_orders.sql` — cron hourly cleanup BANK_TRANSFER orders WAITING_PAYMENT > 24h (release RESERVED products + cancel order + audit bank_transfers).
+  - `0032_payment_bills_public_bucket.sql` — bucket `payment-bills` private→public (fix getPublicUrl access). Thêm heic/heif MIME types.
+  - `0033_restore_products_on_cancel.sql` — RPC `restore_products_on_admin_cancel` (SOLD_OUT→AVAILABLE khi admin hủy đơn đã thanh toán, optional — code có fallback direct UPDATE).
+  - `0035_social_tiktok.sql` — `social_youtube` → `social_tiktok` trong site_settings.
+- **Admin route restructuring**: Routes chuyển từ `/admin/dashboard/*` → `/admin/*` (vd `/admin/products` thay vì `/admin/dashboard/products`). Sidebar nav 12 items: Overview, Products, Collections, Media, Inventory, Orders, Payments, Newsletter, Chatbot, Zalo Messages, Analytics, Settings. Settings page ✅ REAL (5 tabs, không còn mock).
+
 **3 gap lớn nhất**:
 1. ❌ **MoMo env chưa populate** — Phase 2 (khi có MST, cần làm theo `docs/momo-sandbox-setup.md` 8 bước ~20 phút). Hiện tại VietQR đã cover MVP payment.
 2. ❌ **End-user account §18** — auth + dashboard + customer-action gần ✅ DONE. Sprint 2026-07-28 polish: `/tai-khoan/xac-nhan-email` page + resend API done. Còn Phase 2: reviews hiển thị trên PDP (table có sẵn, thiếu UI I14).
@@ -494,6 +508,182 @@ ALTER TABLE bank_transfers ENABLE ROW LEVEL SECURITY;
                                                                                products = SOLD_OUT]
 ```
 
+### 2.9. Bảng `home_banners` (migration 0031 — dynamic homepage content)
+
+> **Status**: ✅ done — 4 slot banner trên homepage, admin quản lý qua Settings page.
+
+```sql
+CREATE TABLE home_banners (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  slot_key VARCHAR(40) NOT NULL UNIQUE,    -- 'main' | 'top' | 'bottom_left' | 'bottom_right'
+  title VARCHAR(120) NOT NULL,
+  subtitle VARCHAR(200),
+  image_url TEXT NOT NULL,
+  link_url VARCHAR(500) NOT NULL,
+  display_order INT DEFAULT 0,
+  is_active BOOLEAN DEFAULT true,
+  valid_from TIMESTAMPTZ,
+  valid_until TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Unique: 1 row per slot_key
+CREATE UNIQUE INDEX idx_home_banners_slot_key ON home_banners(slot_key);
+
+-- RLS: public read, admin write (service_role)
+ALTER TABLE home_banners ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "home_banners_read_public" ON home_banners FOR SELECT USING (true);
+```
+
+### 2.10. Bảng `site_settings` (migration 0031 — key-value store)
+
+> **Status**: ✅ done — cấu hình động cho site (contact info, social links, announcement messages, freeship, loyalty rates). Admin CRUD qua `/admin/settings`.
+
+```sql
+CREATE TABLE site_settings (
+  key VARCHAR(80) PRIMARY KEY,
+  value TEXT NOT NULL DEFAULT '',
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- RLS: public read, admin write (service_role)
+ALTER TABLE site_settings ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "site_settings_read_public" ON site_settings FOR SELECT USING (true);
+
+-- Seed keys:
+-- site_name, contact_email, contact_phone, contact_zalo, address,
+-- footer_tagline, social_instagram, social_facebook, social_tiktok,
+-- announcement_messages (JSON array string),
+-- freeship_inner_hcm_count/value, freeship_outer_hcm_count/value, freeship_province_count/value,
+-- ship_fee_inner_hcm/outer_hcm/province, hcmc_inner_districts (JSON array string),
+-- loyalty_points_rate_bronze/silver/gold/platinum, loyalty_min_redemption_points, loyalty_max_redemption_percent
+```
+
+### 2.11. Bảng `zalo_messages` (migration 0034 — Zalo OA chat history)
+
+> **Status**: ✅ done — lưu lịch sử tin nhắn Zalo giữa khách và shop. Webhook INSERT 'in', admin reply INSERT 'out'.
+
+```sql
+CREATE TABLE zalo_messages (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  zalo_user_id TEXT NOT NULL,              -- SĐT hoặc user_id do Zalo assign
+  display_name TEXT,                        -- tên hiển thị từ Zalo profile
+  direction TEXT NOT NULL CHECK (direction IN ('in', 'out')),  -- 'in' = khách→OA, 'out' = OA→khách
+  message_text TEXT NOT NULL,
+  message_type TEXT NOT NULL DEFAULT 'text', -- 'text' | 'image' | 'link' | 'template'
+  zalo_msg_id TEXT,                         -- deduplicate webhook events
+  status TEXT NOT NULL DEFAULT 'received',  -- 'received' | 'replied' | 'read' | 'failed'
+  handled_by UUID REFERENCES auth.users(id), -- admin đã xử lý (nếu reply manual)
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_zalo_messages_user_time ON zalo_messages(zalo_user_id, created_at DESC);
+CREATE INDEX idx_zalo_messages_status ON zalo_messages(status) WHERE status IN ('received', 'failed');
+CREATE UNIQUE INDEX idx_zalo_messages_zalo_msg_id ON zalo_messages(zalo_msg_id) WHERE zalo_msg_id IS NOT NULL;
+
+-- RLS: admin (authenticated) read/insert/update
+ALTER TABLE zalo_messages ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Admin can read zalo_messages" ON zalo_messages FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Admin can insert zalo_messages" ON zalo_messages FOR INSERT TO authenticated WITH CHECK (true);
+CREATE POLICY "Admin can update zalo_messages" ON zalo_messages FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
+```
+
+### 2.12. Gamification schema (migration 0036 — Loyalty + BOGO + Gift Pool)
+
+> **Status**: ✅ done — 6 bảng mới + 2 cột bổ sung cho products/order_items. Áp dụng KM/tặng cho tier SS, S only (SSS = premium, không KM).
+
+```sql
+-- 1. products: thêm cột is_gift (ẩn gift products khỏi storefront)
+ALTER TABLE products ADD COLUMN IF NOT EXISTS is_gift BOOLEAN DEFAULT false;
+
+-- 2. customer_loyalty — điểm + cấp khách hàng
+CREATE TABLE customer_loyalty (
+  user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  total_points INT DEFAULT 0,              -- điểm khả dụng (dùng để giảm giá)
+  lifetime_points INT DEFAULT 0,            -- tổng điểm tích lũy (để tính tier)
+  tier VARCHAR(20) DEFAULT 'BRONZE',        -- BRONZE | SILVER | GOLD | PLATINUM
+  orders_count INT DEFAULT 0,               -- tổng số đơn DONE
+  lifetime_value NUMERIC(14,0) DEFAULT 0,   -- tổng giá trị mua
+  birthday VARCHAR(10),                      -- DD/MM (optional)
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 3. point_transactions — log điểm (audit trail)
+CREATE TABLE point_transactions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  order_id UUID REFERENCES orders(id) ON DELETE SET NULL,
+  points INT NOT NULL,                      -- dương = cộng, âm = trừ
+  reason VARCHAR(50) NOT NULL,              -- ORDER_DONE | ORDER_CANCEL | TIER_BONUS | REFUND | REDEMPTION
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 4. gift_rules — định nghĩa rule (mua X tặng Y, milestone, birthday)
+CREATE TABLE gift_rules (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  rule_code VARCHAR(50) UNIQUE NOT NULL,    -- BUY4GET1 | BUY6GET2 | BUY10GET3 | FIRST_ORDER_VOUCHER | MILESTONE_5 | MILESTONE_10 | BIRTHDAY_GIFT
+  trigger_type VARCHAR(30) NOT NULL,        -- ITEM_COUNT | ORDER_COUNT | BIRTHDAY
+  trigger_value INT DEFAULT 0,              -- số item/order cần đạt
+  gift_count INT DEFAULT 1,                 -- số sản phẩm tặng
+  gift_tier_filter VARCHAR(10)[] DEFAULT '{SS,S}',  -- chỉ tặng sản phẩm tier này
+  min_order_value NUMERIC(12,0) DEFAULT 0,
+  voucher_amount NUMERIC(12,0) DEFAULT 0,   -- voucher tiền
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 5. gift_pool — pool sản phẩm tặng (link products.is_gift=true với rule)
+CREATE TABLE gift_pool (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  rule_id UUID NOT NULL REFERENCES gift_rules(id) ON DELETE CASCADE,
+  product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  stock INT DEFAULT 0,                      -- số lượng có thể tặng (-1 = unlimited)
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 6. order_gifts — quà tặng thực tế của đơn (snapshot)
+CREATE TABLE order_gifts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  product_id UUID NOT NULL REFERENCES products(id),
+  rule_code VARCHAR(50) NOT NULL,
+  snapshot_title VARCHAR(255) NOT NULL,
+  snapshot_image TEXT NOT NULL,
+  voucher_amount NUMERIC(12,0) DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 7. order_items: thêm cột is_gift + gift_rule_code
+ALTER TABLE order_items ADD COLUMN IF NOT EXISTS is_gift BOOLEAN DEFAULT false;
+ALTER TABLE order_items ADD COLUMN IF NOT EXISTS gift_rule_code VARCHAR(50);
+
+-- RLS
+-- gift_rules: public read (khách cần biết rule), admin write
+-- gift_pool: public read, admin write
+-- customer_loyalty: self read only
+-- point_transactions: self read only
+-- order_gifts: self read (customer xem quà của đơn mình)
+```
+
+### 2.13. Migration index reference (0025-0036)
+
+| Migration | Mô tả | Trạng thái |
+|---|---|---|
+| 0025 | release-expired-locks cron 1 phút → 5 phút | ✅ |
+| 0027 | CREATE EXTENSION unaccent (diacritics search) | ✅ |
+| 0028 | Generated columns `title_unaccent` + GIN trigram index (fix PostgREST `.or()` filter) | ✅ |
+| 0029 | orders.ward VARCHAR(80) (phường/xã) | ✅ |
+| 0030 | Cron hourly cleanup BANK_TRANSFER orders WAITING_PAYMENT > 24h | ✅ |
+| 0031 | home_banners + site_settings tables + seed | ✅ |
+| 0032 | payment-bills bucket private→public + heic/heif MIME | ✅ |
+| 0033 | RPC restore_products_on_admin_cancel (optional) | ✅ |
+| 0034 | zalo_messages table + RLS + trigger | ✅ |
+| 0035 | social_youtube → social_tiktok trong site_settings | ✅ |
+| 0036 | Loyalty + Gamification + Gift Pool + Freeship rules | ✅ |
+
 ---
 
 ## 3. SƠ ĐỒ TRANG (SITEMAP / PAGES)
@@ -530,27 +720,31 @@ app/
 
 ### 3.2. Admin routes
 
-> **Status**: 🟡 → ✅ real data: dashboard, orders list/detail, collections CRUD, newsletter, analytics. ✅ AI Chatbot admin (knowledge/faqs/upcoming/promotions/leads — sprint 2026-07-21). ❌ inventory page còn mock, ❌ payments page còn mock, ❌ settings page còn mock.
+> **Status**: ✅ real data: dashboard, orders list/detail, collections CRUD, newsletter, analytics, settings. ✅ AI Chatbot admin (knowledge/faqs/upcoming/promotions/leads — sprint 2026-07-21). ✅ Zalo OA messages (sprint 2026-08-12). ✅ Settings page REAL (5 tabs — sprint 2026-08-12). ❌ inventory page còn mock, ❌ payments page còn mock.
 ```
-app/
-└── (admin)/
-    └── dashboard/
-        ├── layout.tsx            # Sidebar + auth gate
-        ├── page.tsx              # ✅ REAL — KPIs + recent orders + chart + alerts
-        ├── products/             # (đã real: list + new + edit + bulk-upload)
-        ├── collections/
-        │   ├── page.tsx          # ✅ REAL — list + reorder
-        │   ├── new/page.tsx      # ✅ NEW — create form
-        │   └── [id]/page.tsx     # ✅ REAL — edit form
-        ├── orders/
-        │   ├── page.tsx          # ✅ REAL — list + filter + export
-        │   └── [id]/page.tsx     # ✅ REAL — detail + status update
-        ├── analytics/page.tsx    # ✅ REAL
-        ├── newsletter/page.tsx   # ✅ REAL — list + export
-        ├── chatbot/page.tsx      # ✅ REAL — Knowledge + FAQ + Upcoming + Promotions + Leads (5 tabs)
-        ├── inventory/page.tsx    # ❌ MOCK (P2)
-        ├── payments/page.tsx     # ❌ MOCK (P2)
-        └── settings/page.tsx     # ❌ MOCK (P2)
+app/(admin)/admin/
+├── layout.tsx            # AdminShell: Sidebar + auth gate
+├── page.tsx              # ✅ REAL — KPIs + recent orders + chart + alerts
+├── products/             # ✅ REAL — list + new + edit + bulk-upload
+│   ├── page.tsx
+│   ├── new/page.tsx
+│   ├── [id]/page.tsx
+│   └── bulk-upload/page.tsx
+├── collections/          # ✅ REAL — list + reorder + new + edit
+│   ├── page.tsx
+│   ├── new/page.tsx
+│   └── [id]/page.tsx
+├── media/page.tsx        # ✅ REAL — MediaPicker + upload + delete
+├── inventory/page.tsx    # ❌ MOCK (P2)
+├── orders/               # ✅ REAL — list + filter + export + detail
+│   ├── page.tsx
+│   └── [id]/page.tsx
+├── payments/page.tsx     # ❌ MOCK (P2)
+├── newsletter/page.tsx   # ✅ REAL — list + export
+├── chatbot/page.tsx      # ✅ REAL — 7 tabs (Knowledge/FAQ/Upcoming/Promotions/Leads/Analytics/Suggested Answers)
+├── zalo/page.tsx         # ✅ REAL — Zalo OA message management (sprint 2026-08-12)
+├── analytics/page.tsx    # ✅ REAL — GA4 Data API + orders
+└── settings/page.tsx     # ✅ REAL — 5 tabs: Site Info / Banners / Announcement / Footer / Loyalty & Rewards (sprint 2026-08-12)
 ```
 
 ### 3.3. API routes
@@ -4435,6 +4629,331 @@ async publish(event: DomainEvent) {
 
 ---
 
+## 21. LUỒNG 12 — LOYALTY & GAMIFICATION (BOGO + FREESHIP + TIER POINTS)
+
+> **Status**: ✅ DONE (sprint 2026-08-12) — Migration 0036 + `lib/gamification/*` + API + checkout components + admin settings tab. Áp dụng KM/tặng cho tier SS, S only (SSS = premium, không KM).
+
+### 21.1. Mục tiêu & Use case
+
+Tăng retention + AOV (Average Order Value) bằng 3 cơ chế:
+
+| Cơ chế | Mục tiêu | Trigger |
+|---|---|---|
+| **BOGO** (Buy X Get Y) | Khách mua nhiều hơn để nhận quà | Item count trong cart đạt threshold |
+| **Freeship** theo khu vực | Khách thêm món hoặc tăng giá trị đơn để freeship | Item count HOẶC order value đạt threshold zone |
+| **Loyalty points** | Khách đăng ký + mua lại để tích điểm giảm giá | Order DONE → cộng điểm theo tier rate |
+
+### 21.2. Tier system (Loyalty)
+
+| Tier | Orders count | Points rate | Label |
+|---|---|---|---|
+| 🥉 BRONZE | 0–4 | 5% | New Collector |
+| 🥈 SILVER | 5–9 | 7% | Silver Curator |
+| 🥇 GOLD | 10–19 | 10% | Gold Connoisseur |
+| 💎 PLATINUM | 20+ | 15% | Vault Insider |
+
+- **1 point = 1.000 VNĐ** (dùng để giảm giá đơn sau).
+- `points = floor(orderValue * rate / 100000)` (vd: đơn 2M × 10% = 200 điểm = 200K giảm).
+- Tier tự động cập nhật khi `orders_count` thay đổi (trigger hoặc app-level update).
+- Điểm chỉ cộng khi `order.status = DONE` (giao thành công). Nếu `CANCELLED` → trừ điểm.
+
+### 21.3. BOGO rules (seed trong migration 0036)
+
+| Rule code | Trigger | Gift count | Voucher | Tier filter |
+|---|---|---|---|---|
+| BUY4GET1 | 4 items | 1 | 0 | SS, S |
+| BUY6GET2 | 6 items | 2 | 50.000đ | SS, S |
+| BUY10GET3 | 10 items | 3 | 100.000đ | SS, S |
+| FIRST_ORDER_VOUCHER | 1 order | 0 | 30.000đ | SS, S |
+| MILESTONE_5 | 5 orders | 1 | 0 | SS, S |
+| MILESTONE_10 | 10 orders | 0 | 100.000đ | SS, S |
+| BIRTHDAY_GIFT | Birthday | 1 | 0 | SS, S |
+
+> **Quan trọng**: BOGO threshold tính **TẤT CẢ items** trong cart (SSS + SS + S đều count). Gift received chỉ từ pool SS/S (admin quản lý qua gift_pool).
+
+### 21.4. Freeship zones
+
+| Zone | Label | Item count required | Hoặc value required | Ship fee |
+|---|---|---|---|---|
+| INNER_HCMC | Nội thành HCMC | 4 món | 350.000đ | 30.000đ |
+| OUTER_HCMC | Ngoại thành HCMC | 6 món | 500.000đ | 40.000đ |
+| OTHER_PROVINCE | Tỉnh khác | 8 món | 700.000đ | 50.000đ |
+
+- Freeship khi đạt **item count HOẶC order value** (OR logic).
+- Gift products (`is_gift=true`) KHÔNG tính vào freeship threshold.
+- Config lưu trong `site_settings`, admin chỉnh được qua Settings → Loyalty & Rewards.
+- `DEFAULT_INNER_DISTRICTS`: 19 quận nội thành HCMC (Quận 1-12, Bình Thạnh, Gò Vấp, Phú Nhuận, Tân Bình, Tân Phú, Bình Tân, Thủ Đức). Override qua `hcmc_inner_districts` JSON array trong site_settings.
+
+### 21.5. API: `POST /api/gamification/check`
+
+```
+Body: { items: [{ productId, price, quality_tier, is_gift? }], address: { province, district } }
+Response 200: { ok: true, data: GamificationCheck }
+```
+
+**GamificationCheck**:
+```json
+{
+  "bogo": {
+    "rules": [{ "rule_code": "BUY4GET1", "trigger_value": 4, "gift_count": 1, "eligible_count": 3, "remaining": 1, "is_eligible": false, "voucher_amount": 0 }],
+    "best_achieved": null,
+    "next_goal": { "rule_code": "BUY4GET1", "trigger_value": 4, "remaining": 1 }
+  },
+  "freeship": {
+    "zone": "INNER_HCMC",
+    "zone_label": "Nội thành HCMC",
+    "item_count_required": 4,
+    "value_required": 350000,
+    "current_item_count": 3,
+    "current_value": 2500000,
+    "is_free": false,
+    "ship_fee": 30000,
+    "remaining_items": 1,
+    "remaining_value": 100000
+  },
+  "loyalty": {
+    "tier": "GOLD",
+    "tier_label": "🥇 Gold Connoisseur",
+    "total_points": 850,
+    "points_earned": 250,
+    "points_rate": 10
+  }
+}
+```
+
+### 21.6. Checkout integration
+
+```
+[CheckoutSummary component]
+  ├── <ShippingFeeDisplay />    # Phí vận chuyển động (đọc từ /api/gamification/check)
+  └── <GamificationPanel />      # BOGO progress + freeship progress + loyalty badge
+```
+
+- `GamificationPanel`: fetch `/api/gamification/check` khi cart hoặc address thay đổi. Render 3 sub-components:
+  - `BogoProgress` — progress bar "Mua thêm X món → FREE!"
+  - `BogoAchieved` — "🎉 ĐẠT: Mua 4 tặng 1" + gift count + voucher amount
+  - `FreeshipProgress` — progress bar "Cần X món hoặc ≥ Yđ" + remaining
+  - `LoyaltyBadge` — tier label + total points + "+X điểm" earned from this order
+
+- `useCheckoutAddressStore` (Zustand) — share address state giữa `CheckoutForm` (AddressPicker) và `GamificationPanel` (CheckoutSummary) mà không prop drilling.
+
+### 21.7. Admin Settings — Loyalty & Rewards tab
+
+`/admin/settings` → tab "Loyalty & Rewards" (icon `Gift`):
+- **Gift Pool management**: Add/remove products (SS/S) vào pool quà tặng theo rule. Sản phẩm sẽ bị ẩn khỏi storefront (`is_gift=true`).
+- **Freeship settings**: 3 zones × 3 inputs (count, value, fee) = 9 fields. Save qua `PUT /api/admin/settings`.
+- **Loyalty points rate config**: 4 tier rates (%) + min redemption points + max redemption percent. Save qua `PUT /api/admin/settings`.
+
+### 21.8. Files
+
+```
+supabase/migrations/0036_loyalty_gamification.sql
+lib/gamification/
+├── types.ts              # LoyaltyTier, GiftRule, GiftPoolItem, CustomerLoyalty, GamificationCheck, ShippingZone, FreeshipConfig, LoyaltyConfig
+├── rules.ts              # evaluateBogoRules, getTierFromOrderCount, calculatePointsEarned, TIER_LABELS, TIER_THRESHOLDS, BOGO_RULE_LABELS
+├── queries.ts            # getActiveGiftRules, getGiftPoolByRule, getCustomerLoyalty, upsertCustomerLoyalty, addPointTransaction, getAllGiftRulesAdmin, getAllGiftPoolAdmin, addGiftPoolItem, removeGiftPoolItem
+└── freeship.ts            # detectShippingZone, checkFreeship, parseFreeshipConfig, parseInnerDistricts, getZoneLabel, DEFAULT_FREESHIP_CONFIG, DEFAULT_INNER_DISTRICTS
+app/api/gamification/check/route.ts           # POST — check BOGO + freeship + loyalty
+app/api/admin/gamification/products/route.ts   # GET — list SS/S products for gift pool
+components/checkout/
+├── gamification-panel.tsx                    # GamificationPanel (BOGO + freeship + loyalty display)
+└── shipping-fee-display.tsx                   # ShippingFeeDisplay (phí ship động)
+lib/store/checkout-address.ts                  # Zustand store cho address state
+components/admin/settings/loyalty-tab.tsx       # Admin LoyaltyTab (gift pool + freeship + loyalty config)
+```
+
+### 21.9. Env vars
+
+Không cần env mới — tất cả config trong `site_settings` (DB).
+
+### 21.10. Pending implementation
+
+- **Gift pool API CRUD**: `/api/admin/gamification/pool` (POST/DELETE) + `/api/admin/gamification/rules` (GET) — LoyaltyTab fetch nhưng chưa có route file (code trong `lib/gamification/queries.ts` đã sẵn, cần wrap API).
+- **Point redemption at checkout**: Cho phép user dùng điểm giảm giá đơn (chưa implement — chỉ tracking điểm).
+- **Birthday gift auto-trigger**: Cron daily check `customer_loyalty.birthday` = today → auto-insert gift (chưa implement).
+- **Order DONE → add points**: Hook vào admin order status update khi `DONE` → gọi `addPointTransaction(userId, points, 'ORDER_DONE', orderId)` (chưa wire).
+
+---
+
+## 22. LUỒNG 13 — DYNAMIC SITE SETTINGS + HOME BANNERS
+
+> **Status**: ✅ DONE (sprint 2026-08-12) — Migration 0031 + admin Settings page 5 tabs + public APIs. Thay thế hardcode trong layout/homepage bằng dynamic content từ DB.
+
+### 22.1. Mục tiêu
+
+Admin quản lý nội dung động trên site **không cần sửa code**:
+- Site info (name, contact email/phone/zalo, address)
+- Homepage banners (4 slot: main/top/bottom_left/bottom_right)
+- Announcement bar (danh sách message xoay vòng)
+- Footer (tagline, social links)
+- Loyalty & rewards config (freeship, loyalty rates — xem §21)
+
+### 22.2. Schema (xem §2.9-§2.10)
+
+- `home_banners`: 4 row, unique per `slot_key`. Admin CRUD qua `/admin/settings` → Banners tab.
+- `site_settings`: key-value store. Admin CRUD qua `/admin/settings` → Site Info / Announcement / Footer tabs.
+
+### 22.3. Admin Settings page (`/admin/settings`)
+
+5 tabs (icon lucide-react):
+
+| Tab | Icon | Content | API |
+|---|---|---|---|
+| Site Info | `Settings` | site_name, contact_email, contact_phone, contact_zalo, address | `GET/PUT /api/admin/settings` |
+| Homepage Banners | `Image` | 4 slot banner (title, subtitle, image_url, link_url, display_order, is_active) | `GET/PUT/DELETE /api/admin/home-banners` |
+| Announcement Bar | `Megaphone` | announcement_messages (JSON array string) | `GET/PUT /api/admin/settings` |
+| Footer | `PanelBottom` | footer_tagline, social_instagram, social_facebook, social_tiktok | `GET/PUT /api/admin/settings` |
+| Loyalty & Rewards | `Gift` | Gift pool + freeship + loyalty rates (xem §21.7) | `GET/PUT /api/admin/settings` + gamification APIs |
+
+### 22.4. Public APIs (không cần auth)
+
+- `GET /api/settings` → `{ ok: true, data: Record<string, string> }` — trả toàn bộ site_settings key-value.
+- `GET /api/home-banners` → `{ ok: true, data: HomeBanner[] }` — trả 4 banner active.
+
+### 22.5. Defaults fallback
+
+`lib/supabase/queries/site-content-defaults.ts` — fallback an toàn cho Client Components (không import server-only code):
+- `DEFAULT_SITE_SETTINGS`: 16 key-value (site_name, contact_*, address, footer_tagline, social_*, announcement_messages)
+- `DEFAULT_BANNERS`: 4 banner mặc định (match hardcode cũ)
+- `bannersBySlot(banners)`: map theo slot_key, fill missing với defaults
+
+### 22.6. Files
+
+```
+supabase/migrations/0031_home_banners_and_settings.sql
+supabase/migrations/0035_social_tiktok.sql            # social_youtube → social_tiktok
+lib/supabase/queries/site-content-defaults.ts         # DEFAULT_SITE_SETTINGS + DEFAULT_BANNERS + bannersBySlot
+app/api/admin/settings/route.ts                       # GET + PUT (admin only)
+app/api/admin/home-banners/route.ts                   # GET + POST (admin only)
+app/api/admin/home-banners/[id]/route.ts              # PUT + DELETE (admin only)
+app/api/settings/route.ts                             # GET (public)
+app/api/home-banners/route.ts                          # GET (public)
+app/(admin)/admin/settings/page.tsx                   # 5-tab Settings page
+components/admin/settings/
+├── site-info-tab.tsx
+├── banners-tab.tsx
+├── announcement-tab.tsx
+├── footer-tab.tsx
+└── loyalty-tab.tsx
+```
+
+### 22.7. Migration notes
+
+- Migration 0031 seed: `social_youtube` → đổi thành `social_tiktok` (migration 0035).
+- `announcement_messages` lưu JSON array string trong `site_settings` (vd: `'["msg1","msg2"]'`). Client parse JSON, fallback `[]` nếu fail.
+
+---
+
+## 23. LUỒNG 14 — ZALO OA INTEGRATION
+
+> **Status**: ✅ DONE (sprint 2026-08-12) — Migration 0034 + `lib/zalo/*` + admin message management + webhook. Admin reply tin nhắn Zalo trực tiếp từ dashboard.
+
+### 23.1. Mục tiêu
+
+Tích hợp Zalo Official Account (OA) API để:
+- Nhận tin nhắn từ khách qua Zalo OA (webhook)
+- Admin reply tin nhắn trực tiếp từ `/admin/zalo` (không cần mở Zalo app)
+- Lưu lịch sử chat để audit + future AI auto-reply
+
+### 23.2. Schema (xem §2.11)
+
+Bảng `zalo_messages` — lưu tin nhắn 2 chiều (in/out), deduplicate qua `zalo_msg_id`, filter theo status (received/replied/read/failed).
+
+### 23.3. Env vars
+
+```bash
+ZALO_OA_ID=                          # OA ID (từ Zalo OA dashboard)
+ZALO_OA_ACCESS_TOKEN=                 # Access token (hết hạn 90 ngày, cần refresh)
+ZALO_OA_REFRESH_TOKEN=                # Refresh token
+ZALO_OA_SECRET_KEY=                   # Secret key để verify webhook signature (mac)
+```
+
+### 23.4. Zalo OA API endpoints
+
+| Endpoint | Method | Mục đích |
+|---|---|---|
+| `/v3.0/oa/message` | POST | Gửi tin nhắn text đến user |
+| `/v3.0/oa/user` | POST | Lấy profile user (display_name, avatar) |
+| `/v3.0/oa/access_token` | POST | Refresh access token |
+
+- Base URL: `https://openapi.zalo.me` (Zalo không có sandbox riêng — dùng production với OA test).
+- Setup: xem `docs/zalo-oa-setup.md`.
+
+### 23.5. Webhook flow
+
+```
+[Khách gửi tin qua Zalo OA]
+   │
+   ▼
+[Zalo POST /api/zalo/webhook  với body: { event, message, sender, recipient, mac }]
+   │
+   ▼
+[Webhook Handler]
+   1. Verify mac signature (ZALO_OA_SECRET_KEY) — nếu fail return 200 (silent drop)
+   2. Check zalo_msg_id deduplicate — nếu đã có return 200
+   3. INSERT vào zalo_messages (direction='in', status='received')
+   4. Return 200 (Zalo yêu cầu 200, không phải 204)
+```
+
+> **Lưu ý**: Webhook dùng `createAdminClient()` (service_role) để bypass RLS khi INSERT. Public route, không cần auth — verify bằng `mac` signature.
+
+### 23.6. Admin reply flow
+
+```
+[Admin vào /admin/zalo]
+   → GET /api/admin/zalo/messages?status=received → list tin chưa trả lời
+   │
+   ▼
+[Admin chọn user → xem chat history]
+   → GET /api/admin/zalo/messages?user_id=xxx → list all messages of user
+   │
+   ▼
+[Admin gõ reply → click "Gửi"]
+   → PUT /api/admin/zalo/messages { userId, text }
+      1. Gọi sendZaloMessage(userId, text) qua Zalo OA API
+      2. Nếu success: INSERT zalo_messages (direction='out', status='replied')
+      3. UPDATE tất cả 'received' messages của user → 'replied'
+      4. Return { ok: true, data: { msgId } }
+```
+
+### 23.7. Admin UI (`/admin/zalo`)
+
+Sidebar nav item "Zalo Messages" (icon `MessageCircle`).
+
+**Features**:
+- List tin nhắn theo user (group by `zalo_user_id`), mới nhất trước
+- Filter theo status (received/replied/read/failed)
+- Chat view: history theo user, scroll to bottom
+- Reply box: textarea + "Gửi" button
+- Mark as read: PATCH `{ messageId }` → status='read'
+- Limit: default 50, max 200
+
+### 23.8. Files
+
+```
+supabase/migrations/0034_zalo_messages.sql
+lib/zalo/
+├── config.ts            # getZaloConfig(), ZALO_API_BASE, endpoints
+└── client.ts            # sendZaloMessage(), getUserProfile(), refreshAccessToken()
+app/api/admin/zalo/messages/route.ts   # GET + PUT + PATCH (admin only)
+app/api/zalo/webhook/route.ts          # POST (public, verify mac)
+app/(admin)/admin/zalo/page.tsx        # Admin Zalo message management
+components/layout/admin-nav-config.tsx # +1 nav item { id:'zalo', href:'/admin/zalo', icon:'MessageCircle' }
+```
+
+### 23.9. Graceful degradation
+
+- Nếu thiếu `ZALO_OA_ID` hoặc `ZALO_OA_ACCESS_TOKEN` → `getZaloConfig().isConfigured = false`.
+- Webhook vẫn INSERT tin nhắn đến (chỉ cần DB), nhưng admin reply sẽ fail với error "Zalo API not configured".
+- Admin page hiển thị warning banner nếu chưa configure.
+
+### 23.10. Future enhancements (P2)
+
+- **AI auto-reply**: Khi nhận tin mới, gọi chatbot AI để generate response → auto-send (nếu confidence cao).
+- **Zalo OA API for sending images/links/templates**: Hiện chỉ support text.
+- **Zalo user profile sync**: Lấy display_name + avatar khi first message, cache vào DB.
+- **Realtime**: Supabase Realtime subscribe `zalo_messages` INSERT → admin page auto-refresh.
+
 ---
 
 ## 19. STATUS — JOB PENDING
@@ -4578,6 +5097,8 @@ async publish(event: DomainEvent) {
 ---
 
 ## 20. CHANGELOG NHANH (sprint gần đây)
+
+> **Sprint 2026-08-12 — Loyalty & Gamification + Dynamic Settings + Zalo OA**: Migration 0036 (6 bảng gamification: customer_loyalty, point_transactions, gift_rules, gift_pool, order_gifts + products.is_gift + order_items.is_gift/gift_rule_code). Migration 0031 (home_banners + site_settings). Migration 0034 (zalo_messages). Migration 0035 (social_tiktok). Migrations 0025/0028-0033 (unaccent generated columns, orders.ward, cleanup orphaned bank orders, payment-bills public bucket, restore_products_on_admin_cancel). `lib/gamification/` module (types/rules/queries/freeship). `POST /api/gamification/check` API. `GamificationPanel` + `ShippingFeeDisplay` components trong checkout. `useCheckoutAddressStore` Zustand store. Admin Settings page 5 tabs (Site Info/Banners/Announcement/Footer/Loyalty & Rewards) — tất cả REAL data. `lib/zalo/{config,client}.ts` + webhook + admin message management. Admin route restructuring: `/admin/dashboard/*` → `/admin/*`, sidebar nav 12 items. Xem §21/§22/§23.
 
 | Ngày | Sprint | Highlights |
 |---|---|---|

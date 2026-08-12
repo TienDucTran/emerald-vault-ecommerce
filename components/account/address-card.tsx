@@ -2,8 +2,6 @@
 
 import { useState } from 'react';
 import { Loader2, MapPin, Pencil, Star, Trash2 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import type { Address } from '@/lib/types/account';
 
@@ -14,12 +12,6 @@ export interface AddressCardProps {
   onSetDefault?: (address: Address) => void;
   isLoading?: boolean;
 }
-
-const cardClass = cn(
-  'rounded-md border border-gold/20 bg-surface-emerald shadow-card',
-  'transition-all duration-300 hover:border-gold/40 hover:shadow-card-hover',
-  'flex flex-col gap-4 p-4'
-);
 
 export function AddressCard({
   address,
@@ -40,18 +32,28 @@ export function AddressCard({
     window.setTimeout(() => setConfirmingDelete(false), 3000);
   };
 
+  const isDefault = address.is_default;
+
   return (
-    <div className={cardClass} aria-busy={isLoading}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="font-heading text-lg font-bold text-text-base">
+    <div
+      className={cn(
+        'group relative rounded-lg border p-8 shadow-lg transition-transform duration-300 hover:-translate-y-1',
+        isDefault
+          ? 'border-gold/20 bg-surface-emerald'
+          : 'border-gold/20 bg-background shadow-md'
+      )}
+      aria-busy={isLoading}
+    >
+      {/* Header row: label + default badge */}
+      <div className="mb-6 flex flex-col items-start justify-between gap-4 sm:flex-row">
+        <div className="flex items-center gap-4">
+          <h3 className="font-heading text-xl font-semibold text-text-base">
             {address.label || 'Địa chỉ'}
-          </span>
-          {address.is_default ? (
-            <Badge variant="gold">
-              <Star className="mr-1 h-3 w-3 fill-current" />
-              Mặc định
-            </Badge>
+          </h3>
+          {isDefault ? (
+            <span className="rounded-sm border border-gold/30 bg-gold/10 px-2 py-1 font-heading text-[10px] tracking-[0.15em] text-gold">
+              MẶC ĐỊNH
+            </span>
           ) : null}
         </div>
         {isLoading ? (
@@ -59,86 +61,95 @@ export function AddressCard({
         ) : null}
       </div>
 
-      <div className="flex items-start gap-2 text-sm text-text-base">
-        <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-gold" />
-        <div className="flex flex-col">
-          <span>
-            <span className="font-medium">{address.recipient_name}</span>
-            <span className="mx-2 text-text-muted">·</span>
-            <span className="text-text-muted">{address.recipient_phone}</span>
-          </span>
-          <span className="mt-1 text-text-muted">
-            {address.address_line}
-            {address.ward ? `, ${address.ward}` : ''}, {address.district},{' '}
-            {address.province}
-          </span>
-        </div>
+      {/* Recipient info: name | phone */}
+      <div className="mb-6 flex flex-wrap items-center gap-4 border-b border-gold/10 pb-4 sm:border-none sm:pb-0">
+        <p className="font-sans text-base font-semibold text-text-base">
+          {address.recipient_name}
+        </p>
+        <span className="text-text-muted/40">|</span>
+        <p className="font-mono text-lg text-text-muted">
+          {address.recipient_phone}
+        </p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 border-t border-gold/10 pt-3">
-        {!address.is_default && onSetDefault ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => onSetDefault(address)}
-            disabled={isLoading}
-          >
-            <Star className="h-4 w-4" />
-            Đặt làm mặc định
-          </Button>
-        ) : null}
+      {/* Address line with icon */}
+      <div className="mb-8 flex items-start gap-3">
+        <MapPin className="mt-1 h-5 w-5 shrink-0 text-gold/60" />
+        <p className="font-sans leading-relaxed text-text-muted">
+          {address.address_line}
+          {address.ward ? <br /> : null}
+          {address.ward ? `${address.ward}, ${address.district}, ${address.province}` : `${address.district ? `${address.district}, ` : ''}${address.province}`}
+        </p>
+      </div>
+
+      {/* Actions row */}
+      <div className="flex flex-wrap items-center gap-6 border-t border-gold/10 pt-4">
         {onEdit ? (
-          <Button
+          <button
             type="button"
-            variant="ghost"
-            size="sm"
             onClick={() => onEdit(address)}
             disabled={isLoading}
+            className="flex items-center gap-2 font-heading text-[10px] tracking-[0.15em] text-text-muted transition-colors hover:text-gold disabled:opacity-50"
           >
-            <Pencil className="h-4 w-4" />
-            Sửa
-          </Button>
+            <Pencil className="h-4 w-4 transition-transform group-hover:scale-110" />
+            Sửa đổi
+          </button>
         ) : null}
+
         {onDelete ? (
           confirmingDelete ? (
             <div className="flex items-center gap-2">
-              <Button
+              <button
                 type="button"
-                variant="primary"
-                size="sm"
                 onClick={handleDeleteClick}
                 disabled={isLoading}
-                className="bg-error text-white hover:bg-error/90"
+                className="flex items-center gap-2 font-heading text-[10px] tracking-[0.15em] text-error transition-colors disabled:opacity-50"
               >
                 <Trash2 className="h-4 w-4" />
                 Xác nhận xoá?
-              </Button>
-              <Button
+              </button>
+              <button
                 type="button"
-                variant="ghost"
-                size="sm"
                 onClick={() => setConfirmingDelete(false)}
                 disabled={isLoading}
+                className="font-heading text-[10px] tracking-[0.15em] text-text-muted hover:text-text-base disabled:opacity-50"
               >
                 Huỷ
-              </Button>
+              </button>
             </div>
           ) : (
-            <Button
+            <button
               type="button"
-              variant="ghost"
-              size="sm"
               onClick={handleDeleteClick}
               disabled={isLoading}
-              className="text-error hover:bg-error/10 hover:text-error"
+              className="flex items-center gap-2 font-heading text-[10px] tracking-[0.15em] text-error/80 transition-colors hover:text-error disabled:opacity-50"
             >
-              <Trash2 className="h-4 w-4" />
+              <Trash2 className="h-4 w-4 transition-transform group-hover:scale-110" />
               Xoá
-            </Button>
+            </button>
           )
         ) : null}
+
+        {!isDefault && onSetDefault ? (
+          <button
+            type="button"
+            onClick={() => onSetDefault(address)}
+            disabled={isLoading}
+            className="ml-auto flex items-center gap-2 font-heading text-[10px] tracking-[0.15em] text-text-muted transition-colors hover:text-gold disabled:opacity-50"
+          >
+            <Star className="h-4 w-4" />
+            Thiết lập mặc định
+          </button>
+        ) : null}
       </div>
+
+      {/* Decorative corners (default only) */}
+      {isDefault ? (
+        <>
+          <div className="pointer-events-none absolute right-0 top-0 m-2 h-8 w-8 rounded-tr-lg border-r border-t border-gold/20" />
+          <div className="pointer-events-none absolute bottom-0 left-0 m-2 h-8 w-8 rounded-bl-lg border-b border-l border-gold/20" />
+        </>
+      ) : null}
     </div>
   );
 }

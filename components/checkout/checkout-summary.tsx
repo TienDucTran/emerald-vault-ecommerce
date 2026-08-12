@@ -1,9 +1,12 @@
 'use client';
 
+import { useState } from 'react';
 import { useCountdown } from '@/hooks/use-countdown';
 import { Lock, ShieldCheck, Clock } from 'lucide-react';
 import { formatVND } from '@/lib/utils';
 import { getPaymentMethodLabel } from '@/lib/order/status';
+import { GamificationPanel } from './gamification-panel';
+import { ShippingFeeDisplay } from './shipping-fee-display';
 import type { PaymentOption } from './checkout-form';
 
 export interface CheckoutItem {
@@ -79,14 +82,21 @@ export function CheckoutSummary({
   const remainingMs = minExpiresAt != null ? minExpiresAt - Date.now() : 0;
   const isWarning = hasItems && !expired && remainingMs < 60_000;
 
+  // — Shipping fee state —
+  // ShippingFeeDisplay calls onFeeChange when API returns data → lift state
+  // to add into TỔNG CỘNG. Default 0 = unknown (displays "—" in ShippingFeeDisplay).
+  const [shippingFee, setShippingFee] = useState(0);
+
   // — Render mode —
   // Multi mode: items prop provided AND length > 1.
   // The first item keeps the featured image + details; the rest render as a compact list.
   const isMulti = !!items && items.length > 1;
-  // Total always derived from `items` if available, otherwise fall back to single `item`.
-  const total = isMulti
+  // Subtotal (product value only) always derived from `items` if available,
+  // otherwise fall back to single `item`.
+  const subtotal = isMulti
     ? (items as CheckoutItem[]).reduce((sum, i) => sum + i.price, 0)
     : item.price;
+  const total = subtotal + shippingFee;
   // Items rendered in the compact list (everything after the featured one).
   const restItems = isMulti ? (items as CheckoutItem[]).slice(1) : [];
 
@@ -161,11 +171,16 @@ export function CheckoutSummary({
                 <span className="line-clamp-1 font-sans text-sm text-text-base">
                   {it.title}
                 </span>
-                {it.code && (
-                  <span className="font-heading text-[10px] uppercase tracking-wider text-text-muted">
-                    Mã {it.code}
+                <div className="flex items-center gap-2">
+                  <span className="rounded-md border border-gold/40 px-1.5 py-0.5 font-heading text-[9px] font-normal uppercase tracking-wider text-gold">
+                    TIER {it.tier}
                   </span>
-                )}
+                  {it.code && (
+                    <span className="font-heading text-[10px] uppercase tracking-wider text-text-muted">
+                      Mã {it.code}
+                    </span>
+                  )}
+                </div>
               </div>
               <span className="shrink-0 font-sans text-sm font-normal text-gold">
                 {formatVND(it.price)}
@@ -175,21 +190,21 @@ export function CheckoutSummary({
         </ul>
       )}
 
+      {/* — Gamification Panel (BOGO + Freeship + Loyalty) — */}
+      <div className="space-y-4 px-6 pb-8">
+        <GamificationPanel />
+      </div>
+
       {/* — Price calculation — */}
       <div className="flex flex-col gap-4 border-t border-gold/10 px-6 py-8">
         {/* Tạm tính */}
         <div className="flex items-center justify-between">
           <span className="text-base text-text-muted">Tạm tính</span>
-          <span className="text-base text-text-base">{formatVND(total)}</span>
+          <span className="text-base text-text-base">{formatVND(subtotal)}</span>
         </div>
 
-        {/* Phí vận chuyển */}
-        <div className="flex items-center justify-between">
-          <span className="text-base text-text-muted">
-            Phí vận chuyển bảo mật
-          </span>
-          <span className="text-base text-gold">Miễn phí</span>
-        </div>
+        {/* Phí vận chuyển — động từ gamification check */}
+        <ShippingFeeDisplay onFeeChange={setShippingFee} />
 
         {/* Tổng cộng */}
         <div className="flex items-center justify-between border-t border-gold/10 pt-4">

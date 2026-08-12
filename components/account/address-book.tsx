@@ -168,20 +168,27 @@ export function AddressBook({
   return (
     <div className="flex flex-col gap-8">
       {showHeader ? (
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-          <div className="flex flex-col gap-2">
-            <h1 className="font-heading text-[28px] font-normal leading-tight tracking-[0.1em] text-gold">
+        <div className="relative flex flex-col justify-between gap-6 md:flex-row md:items-end">
+          <div className="absolute -left-32 -top-32 pointer-events-none h-96 w-96 rounded-full bg-gold/5 blur-[100px]" />
+          <div>
+            <h1 className="mb-2 font-heading text-3xl font-bold tracking-[0.05em] text-gold drop-shadow-md md:text-4xl">
               SỔ ĐỊA CHỈ
             </h1>
-            <p className="text-base text-text-muted">
-              Lưu địa chỉ giao hàng để thanh toán nhanh hơn.
+            <p className="max-w-xl font-sans text-sm text-text-muted">
+              Lưu giữ các địa chỉ nhận hàng để trải nghiệm mua sắm những tuyệt tác trang sức thêm phần thuận tiện và riêng tư.
             </p>
           </div>
           {status !== 'loading' && !showForm && !hideAddButton ? (
-            <Button type="button" variant="gold" size="md" onClick={handleAdd}>
-              <Plus className="h-4 w-4" />
-              Thêm địa chỉ
-            </Button>
+            <button
+              type="button"
+              onClick={handleAdd}
+              className="group relative overflow-hidden rounded-sm border border-gold/30 bg-surface px-6 py-3 transition-all duration-300 hover:border-gold/50 hover:shadow-[0_0_15px_rgba(212,175,55,0.2)] focus:outline-none"
+            >
+              <span className="relative z-10 flex items-center gap-2 font-heading text-[10px] tracking-[0.15em] text-gold">
+                <Plus className="h-4 w-4" />
+                THÊM ĐỊA CHỈ MỚI
+              </span>
+            </button>
           ) : null}
         </div>
       ) : null}
@@ -205,19 +212,23 @@ export function AddressBook({
       ) : null}
 
       {status === 'loading' ? (
-        <div className="flex flex-col items-center gap-3 rounded-md border border-gold/20 bg-surface-emerald p-12 text-center">
+        <div className="flex flex-col items-center gap-3 rounded-lg border border-gold/20 bg-surface-emerald p-12 text-center">
           <Loader2 className="h-6 w-6 animate-spin text-gold" />
           <p className="text-sm text-text-muted">Đang tải sổ địa chỉ…</p>
         </div>
       ) : status === 'error' ? (
-        <div className="flex flex-col items-center gap-3 rounded-md border border-gold/20 bg-surface-emerald p-12 text-center">
+        <div className="flex flex-col items-center gap-3 rounded-lg border border-gold/20 bg-surface-emerald p-12 text-center">
           <p className="text-sm text-text-muted">{errorMsg}</p>
-          <Button variant="outline" size="sm" onClick={() => void load()}>
+          <button
+            type="button"
+            onClick={() => void load()}
+            className="rounded-sm border border-gold/30 px-4 py-2 font-heading text-[10px] tracking-[0.15em] text-gold transition-colors hover:bg-gold/5"
+          >
             Thử lại
-          </Button>
+          </button>
         </div>
       ) : status === 'empty' && !showForm ? (
-        <div className="flex flex-col items-center gap-4 rounded-md border border-gold/20 bg-surface-emerald p-12 text-center">
+        <div className="flex flex-col items-center gap-4 rounded-lg border border-gold/20 bg-surface-emerald p-12 text-center">
           <div className="grid h-16 w-16 place-items-center rounded-full border border-gold/30 bg-surface">
             <Inbox className="h-7 w-7 text-gold" />
           </div>
@@ -229,14 +240,20 @@ export function AddressBook({
             sau.
           </p>
           {!hideAddButton ? (
-            <Button type="button" variant="gold" size="md" onClick={handleAdd}>
-              <Plus className="h-4 w-4" />
-              Thêm địa chỉ
-            </Button>
+            <button
+              type="button"
+              onClick={handleAdd}
+              className="group relative overflow-hidden rounded-sm border border-gold/30 bg-surface px-6 py-3 transition-all duration-300 hover:border-gold/50 hover:shadow-[0_0_15px_rgba(212,175,55,0.2)]"
+            >
+              <span className="relative z-10 flex items-center gap-2 font-heading text-[10px] tracking-[0.15em] text-gold">
+                <Plus className="h-4 w-4" />
+                THÊM ĐỊA CHỈ MỚI
+              </span>
+            </button>
           ) : null}
         </div>
       ) : status !== 'empty' ? (
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-6">
           {addresses.map((a) => (
             <AddressCard
               key={a.id}

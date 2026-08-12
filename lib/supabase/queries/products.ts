@@ -24,6 +24,7 @@ export async function getFeaturedProducts(limit = 4): Promise<ProductBasic[]> {
     .select(PRODUCT_BASIC)
     .eq('is_featured', true)
     .eq('status', 'AVAILABLE')
+    .neq('is_gift', true)
     .order('created_at', { ascending: false })
     .limit(limit);
   if (error) throw error;
@@ -37,6 +38,7 @@ export async function getNewestProducts(limit = 8): Promise<ProductBasic[]> {
     .from('products')
     .select(PRODUCT_BASIC)
     .eq('status', 'AVAILABLE')
+    .neq('is_gift', true)
     .order('created_at', { ascending: false })
     .limit(limit);
   if (error) throw error;
@@ -51,6 +53,7 @@ export async function getProductsByCategory(category: ProductCategory, limit = 5
     .select(PRODUCT_BASIC)
     .eq('category', category)
     .eq('status', 'AVAILABLE')
+    .neq('is_gift', true)
     .order('is_featured', { ascending: false })
     .order('created_at', { ascending: false })
     .limit(limit);
@@ -66,6 +69,7 @@ export async function getProductsByMaterial(material: Material, limit = 50): Pro
     .select(PRODUCT_BASIC)
     .eq('material', material)
     .eq('status', 'AVAILABLE')
+    .neq('is_gift', true)
     .order('is_featured', { ascending: false })
     .order('created_at', { ascending: false })
     .limit(limit);
@@ -81,6 +85,7 @@ export async function getProductsByTier(tier: QualityTier, limit = 50): Promise<
     .select(PRODUCT_BASIC)
     .eq('quality_tier', tier)
     .eq('status', 'AVAILABLE')
+    .neq('is_gift', true)
     .order('created_at', { ascending: false })
     .limit(limit);
   if (error) throw error;
@@ -95,6 +100,7 @@ export async function getProductsBySeason(season: string, limit = 50): Promise<P
     .select(PRODUCT_BASIC)
     .contains('season_tags', [season])
     .eq('status', 'AVAILABLE')
+    .neq('is_gift', true)
     .order('is_featured', { ascending: false })
     .order('created_at', { ascending: false })
     .limit(limit);
@@ -136,6 +142,7 @@ export async function getRelatedProducts(productId: string, limit = 4): Promise<
     .neq('id', productId)
     .or(`collection_id.eq.${currentRow.collection_id},category.eq.${currentRow.category}`)
     .eq('status', 'AVAILABLE')
+    .neq('is_gift', true)
     .order('is_featured', { ascending: false })
     .limit(limit);
   if (error) throw error;
@@ -177,6 +184,8 @@ export async function searchProducts(params: SearchParams = {}) {
     // Include RESERVED too (but never SOLD_OUT)
     q = q.neq('status', 'SOLD_OUT');
   }
+  // Exclude gift products khỏi storefront
+  q = q.neq('is_gift', true);
 
   // Sort
   if (sort === 'newest')          q = q.order('created_at', { ascending: false });

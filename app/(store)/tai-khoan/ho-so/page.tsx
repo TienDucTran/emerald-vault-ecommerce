@@ -1,6 +1,10 @@
 import { requireCustomer } from '@/lib/auth/require-customer';
 import { ProfileForm, type ProfileFormData } from '@/components/account/profile-form';
 import { AccountInfoCards } from '@/components/account/account-info-cards';
+import { LoyaltyCard } from '@/components/account/loyalty-card';
+import { getCustomerLoyalty } from '@/lib/gamification/queries';
+
+export const dynamic = 'force-dynamic';
 
 export const metadata = {
   title: 'Hồ sơ của tôi',
@@ -9,6 +13,9 @@ export const metadata = {
 
 export default async function ProfilePage() {
   const { user, profile } = await requireCustomer();
+
+  // Fetch loyalty data server-side (non-blocking — UI falls back to BRONZE/0 if null)
+  const loyalty = await getCustomerLoyalty(user.id);
 
   const p = profile as unknown as Record<string, unknown>;
   const initialData: ProfileFormData = {
@@ -38,9 +45,22 @@ export default async function ProfilePage() {
         <div className="lg:col-span-1">
           <AccountInfoCards
             profile={{ id: profile.id, created_at: profile.created_at }}
+            loyalty={loyalty}
           />
         </div>
       </div>
+
+      {/* Loyalty & Gamification section */}
+      <div className="flex flex-col gap-6">
+        <div className="flex items-center gap-3">
+          <h2 className="font-heading text-xl font-normal tracking-[0.1em] text-gold">
+            CHƯƠNG TRÌNH KHÁCH HÀNG THÂN THIẾT
+          </h2>
+          <div className="h-px flex-1 bg-gradient-to-r from-gold/30 to-transparent" />
+        </div>
+        <LoyaltyCard loyalty={loyalty} />
+      </div>
+
       <div className="flex justify-center pt-8">
         <div className="h-px w-24 bg-gradient-to-r from-transparent via-gold/40 to-transparent" />
       </div>

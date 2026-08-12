@@ -27,7 +27,9 @@ import {
   ORDER_STATUS_TONE_BADGE,
   toneToDotBg,
 } from '@/lib/order/status';
+import { getCarrierLabel, getTrackingUrl, type OrderTimelineRow } from '@/lib/order/timeline';
 import { CustomerActionButtons } from './customer-action-buttons';
+import { OrderTimeline } from '@/components/account/order-timeline';
 import { createAdminClient } from '@/lib/supabase/admin';
 import type { OrderRefundRow } from '@/lib/supabase/types';
 
@@ -73,6 +75,19 @@ export default async function CustomerOrderDetailPage({ params }: PageProps) {
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
+
+  // Fetch order timeline events
+  const { data: timelineRaw } = await (adminDb as any)
+    .from('order_timeline')
+    .select('*')
+    .eq('order_id', order.id)
+    .order('created_at', { ascending: false });
+  const timelineEvents: OrderTimelineRow[] = (timelineRaw ?? []) as OrderTimelineRow[];
+
+  // Shipping info
+  const carrierLabel = getCarrierLabel(order.carrier);
+  const trackingUrl = getTrackingUrl(order.carrier, order.tracking_number, order.tracking_url);
+  const hasShippingInfo = Boolean(order.carrier && order.tracking_number);
 
   const statusMeta = getOrderStatusMeta(order.status);
   const paymentMeta = getPaymentStatusMeta(order.payment_status);
@@ -265,6 +280,44 @@ export default async function CustomerOrderDetailPage({ params }: PageProps) {
           </div>
         </div>
       </section>
+
+      {/* Shipping info box — chỉ hiện khi có carrier + tracking_number (status SHIPPING/DONE) */}
+      {hasShippingInfo && (
+        <div className="flex flex-col gap-4 border border-gold/20 bg-gold/5 p-6 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-4">
+            <div className="grid h-12 w-12 place-items-center rounded-full border border-gold/30 bg-surface-emerald text-gold">
+              <Truck className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="font-heading text-xs tracking-[0.15em] text-gold-champagne">
+                THÔNG TIN VẬN CHUYỂN
+              </p>
+              <p className="mt-1 text-sm text-text-base">
+                {carrierLabel}
+              </p>
+              <p className="font-mono text-sm text-gold">
+                {order.tracking_number}
+              </p>
+            </div>
+          </div>
+          {trackingUrl && (
+            <a
+              href={trackingUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 rounded border border-gold/30 bg-gold/10 px-4 py-2 font-heading text-xs tracking-[0.1em] text-gold transition-colors hover:bg-gold/20"
+            >
+              Theo dõi đơn hàng
+              <ChevronRight className="h-4 w-4" />
+            </a>
+          )}
+        </div>
+      )}
+
+      {/* Order Timeline — hiển thị tiến trình đơn hàng */}
+      {timelineEvents.length > 0 && (
+        <OrderTimeline events={timelineEvents} />
+      )}
 
       {/* Bank-transfer banner — only show for WAITING_PAYMENT */}
       {order.payment_method === 'BANK_TRANSFER' && order.status === 'WAITING_PAYMENT' && (

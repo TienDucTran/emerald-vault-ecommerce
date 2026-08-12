@@ -1,19 +1,21 @@
 'use client';
 
 import { useState } from 'react';
-import { Settings, Image as ImageIcon, Megaphone, PanelBottom } from 'lucide-react';
+import { Settings, Image as ImageIcon, Megaphone, PanelBottom, Gift } from 'lucide-react';
 import { SiteInfoTab } from '@/components/admin/settings/site-info-tab';
 import { BannersTab } from '@/components/admin/settings/banners-tab';
 import { AnnouncementTab } from '@/components/admin/settings/announcement-tab';
 import { FooterTab } from '@/components/admin/settings/footer-tab';
+import { LoyaltyTab } from '@/components/admin/settings/loyalty-tab';
 
-type TabId = 'site-info' | 'banners' | 'announcement' | 'footer';
+type TabId = 'site-info' | 'banners' | 'announcement' | 'footer' | 'loyalty';
 
 const TABS: { id: TabId; label: string; icon: typeof Settings }[] = [
   { id: 'site-info', label: 'Site Info', icon: Settings },
   { id: 'banners', label: 'Homepage Banners', icon: ImageIcon },
   { id: 'announcement', label: 'Announcement Bar', icon: Megaphone },
   { id: 'footer', label: 'Footer', icon: PanelBottom },
+  { id: 'loyalty', label: 'Loyalty & Rewards', icon: Gift },
 ];
 
 export default function SettingsPage() {
@@ -60,6 +62,7 @@ export default function SettingsPage() {
       {activeTab === 'banners' && <BannersTab />}
       {activeTab === 'announcement' && <AnnouncementTab />}
       {activeTab === 'footer' && <FooterTab />}
+      {activeTab === 'loyalty' && <LoyaltyTab />}
     </div>
   );
 }
