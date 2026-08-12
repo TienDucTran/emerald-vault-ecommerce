@@ -294,6 +294,17 @@ export function LoyaltyTab() {
         </div>
       </section>
 
+      {/* Gift Rules Editor — bật/tắt + chỉnh trigger/gift_count/voucher */}
+      <section className="rounded-lg border border-[#4D4635]/30 bg-[#1A1813]/50 p-6">
+        <div className="mb-4 flex items-center gap-2">
+          <Trophy className="h-5 w-5 text-gold" />
+          <h3 className="font-heading text-sm font-bold uppercase tracking-wider text-gold">
+            Gift Rules — Cấu hình chương trình tặng
+          </h3>
+        </div>
+        <GiftRulesEditor rules={rules} onSaved={loadData} />
+      </section>
+
       {/* Freeship Settings */}
       <section className="rounded-lg border border-[#4D4635]/30 bg-[#1A1813]/50 p-6">
         <div className="mb-4 flex items-center gap-2">
@@ -315,6 +326,180 @@ export function LoyaltyTab() {
         </div>
         <LoyaltySettings />
       </section>
+    </div>
+  );
+}
+
+/**
+ * GiftRulesEditor — quản lý gift_rules (BOGO).
+ *  - Toggle is_active (tất cả rule)
+ *  - Chỉnh trigger_value, gift_count, voucher_amount (chỉ ITEM_COUNT rules)
+ *  - ORDER_COUNT/BIRTHDAY: chỉ toggle is_active (cấu hình qua milestone/birthday flow khác)
+ */
+function GiftRulesEditor({
+  rules,
+  onSaved,
+}: {
+  rules: GiftRule[];
+  onSaved: () => void;
+}) {
+  const [editMap, setEditMap] = useState<Record<string, { trigger_value: number; gift_count: number; voucher_amount: number; is_active: boolean }>>({});
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [message, setMessage] = useState<string>('');
+
+  useEffect(() => {
+    const map: Record<string, { trigger_value: number; gift_count: number; voucher_amount: number; is_active: boolean }> = {};
+    for (const r of rules) {
+      if (!map[r.id]) {
+        map[r.id] = {
+          trigger_value: r.trigger_value,
+          gift_count: r.gift_count,
+          voucher_amount: r.voucher_amount,
+          is_active: r.is_active,
+        };
+      }
+    }
+    setEditMap(map);
+  }, [rules]);
+
+  function patch(id: string, field: string, value: number | boolean) {
+    setEditMap((prev) => ({
+      ...prev,
+      [id]: { ...prev[id], [field]: value },
+    }));
+  }
+
+  async function save(rule: GiftRule) {
+    const ed = editMap[rule.id];
+    if (!ed) return;
+    setSavingId(rule.id);
+    setMessage('');
+    try {
+      const res = await fetch('/api/admin/gamification/rules', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ruleId: rule.id,
+          is_active: ed.is_active,
+          trigger_value: rule.trigger_type === 'ITEM_COUNT' ? ed.trigger_value : undefined,
+          gift_count: rule.trigger_type === 'ITEM_COUNT' ? ed.gift_count : undefined,
+          voucher_amount: rule.trigger_type === 'ITEM_COUNT' ? ed.voucher_amount : undefined,
+        }),
+      });
+      const json = await res.json();
+      if (json.ok) {
+        setMessage(`✅ Đã lưu "${BOGO_RULE_LABELS[rule.rule_code] ?? rule.rule_code}"`);
+        onSaved();
+      } else {
+        setMessage(`❌ Lỗi: ${json.error ?? 'UNKNOWN'}`);
+      }
+    } catch {
+      setMessage('❌ Lỗi mạng khi lưu rule');
+    } finally {
+      setSavingId(null);
+    }
+  }
+  if (rules.length === 0) {
+    return <p className="text-xs text-[#D0C5AF]/40">Chưa có rule nào (seed trong migration 0036).</p>;
+  }
+
+  return (
+    <div className="space-y-3">
+      {message && <p className="text-[11px] text-gold">{message}</p>}
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-xs">
+          <thead>
+            <tr className="text-[10px] uppercase tracking-wider text-[#D0C5AF]/50">
+              <th className="pb-2">Rule</th>
+              <th className="pb-2">Loại</th>
+              <th className="pb-2 text-right">Trigger</th>
+              <th className="pb-2 text-right">Số quà</th>
+              <th className="pb-2 text-right">Voucher (đ)</th>
+              <th className="pb-2 text-center">Bật</th>
+              <th className="pb-2"></th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[#4D4635]/20">
+            {rules.map((rule) => {
+              const ed = editMap[rule.id];
+              if (!ed) return null;
+              const isItemCount = rule.trigger_type === 'ITEM_COUNT';
+              return (
+                <tr key={rule.id} className={!ed.is_active ? 'opacity-50' : ''}>
+                  <td className="py-2 pr-2 font-medium text-[#EAE1D4]">
+                    {BOGO_RULE_LABELS[rule.rule_code] ?? rule.rule_code}
+                  </td>
+                  <td className="py-2 pr-2 text-[#D0C5AF]/60">{rule.trigger_type}</td>
+                  <td className="py-2 pr-2 text-right">
+                    {isItemCount ? (
+                      <input
+                        type="number"
+                        min={0}
+                        value={ed.trigger_value}
+                        onChange={(e) => patch(rule.id, 'trigger_value', parseInt(e.target.value || '0', 10))}
+                        className="w-16 rounded border border-[#4D4635]/50 bg-[#0F0E0B] px-1.5 py-1 text-right text-xs text-[#EAE1D4]"
+                      />
+                    ) : (
+                      <span className="text-[#D0C5AF]/40">—</span>
+                    )}
+                  </td>
+                  <td className="py-2 pr-2 text-right">
+                    {isItemCount ? (
+                      <input
+                        type="number"
+                        min={0}
+                        value={ed.gift_count}
+                        onChange={(e) => patch(rule.id, 'gift_count', parseInt(e.target.value || '0', 10))}
+                        className="w-16 rounded border border-[#4D4635]/50 bg-[#0F0E0B] px-1.5 py-1 text-right text-xs text-[#EAE1D4]"
+                      />
+                    ) : (
+                      <span className="text-[#D0C5AF]/40">—</span>
+                    )}
+                  </td>
+                  <td className="py-2 pr-2 text-right">
+                    {isItemCount ? (
+                      <input
+                        type="number"
+                        min={0}
+                        step={1000}
+                        value={ed.voucher_amount}
+                        onChange={(e) => patch(rule.id, 'voucher_amount', parseInt(e.target.value || '0', 10))}
+                        className="w-24 rounded border border-[#4D4635]/50 bg-[#0F0E0B] px-1.5 py-1 text-right text-xs text-[#EAE1D4]"
+                      />
+                    ) : (
+                      <span className="text-[#D0C5AF]/40">—</span>
+                    )}
+                  </td>
+                  <td className="py-2 text-center">
+                    <button
+                      type="button"
+                      onClick={() => patch(rule.id, 'is_active', !ed.is_active)}
+                      className={`relative h-5 w-9 rounded-full transition-colors ${ed.is_active ? 'bg-gold/70' : 'bg-[#4D4635]/50'}`}
+                      aria-label={ed.is_active ? 'Đang bật' : 'Đang tắt'}
+                    >
+                      <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all ${ed.is_active ? 'left-4' : 'left-0.5'}`} />
+                    </button>
+                  </td>
+                  <td className="py-2 pl-2 text-right">
+                    <button
+                      type="button"
+                      onClick={() => save(rule)}
+                      disabled={savingId === rule.id}
+                      className="flex items-center gap-1 rounded bg-gold/20 px-3 py-1 text-[10px] font-heading uppercase tracking-wider text-gold hover:bg-gold/30 disabled:opacity-50"
+                    >
+                      {savingId === rule.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+                      Lưu
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-[10px] text-[#D0C5AF]/40">
+        ITEM_COUNT = BOGO (mua X tặng Y). ORDER_COUNT/BIRTHDAY: chỉ bật/tắt — cấu hình chi tiết qua flow riêng.
+      </p>
     </div>
   );
 }

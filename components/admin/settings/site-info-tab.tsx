@@ -18,6 +18,9 @@ interface FormData {
   contact_phone: string;
   contact_zalo: string;
   address: string;
+  live_stream_url: string;
+  map_embed_url: string;
+  map_link_url: string;
 }
 
 export function SiteInfoTab() {
@@ -27,6 +30,9 @@ export function SiteInfoTab() {
     contact_phone: '',
     contact_zalo: '',
     address: '',
+    live_stream_url: '',
+    map_embed_url: '',
+    map_link_url: '',
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -44,6 +50,9 @@ export function SiteInfoTab() {
           contact_phone: map['contact_phone'] ?? '',
           contact_zalo: map['contact_zalo'] ?? '',
           address: map['address'] ?? '',
+          live_stream_url: map['live_stream_url'] ?? '',
+          map_embed_url: map['map_embed_url'] ?? '',
+          map_link_url: map['map_link_url'] ?? '',
         });
       }
     } catch {
@@ -152,30 +161,56 @@ export function SiteInfoTab() {
               SĐT Zalo hoặc Zalo OA ID — dùng cho nút &ldquo;Chat Zalo&rdquo; và tích hợp OA API.
             </p>
           </div>
+          <div className="md:col-span-2">
+            <label className="block text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50 mb-1.5">
+              Live Stream URL
+            </label>
+            <input
+              type="text"
+              value={data.live_stream_url}
+              onChange={(e) => setData({ ...data, live_stream_url: e.target.value })}
+              placeholder="https://www.tiktok.com/@your-channel/live hoặc https://www.facebook.com/..."
+              className={inputCls}
+            />
+            <p className="mt-1 text-[10px] text-[#D0C5AF]/30">
+              Đường dẫn đến kênh live stream (TikTok Live, Facebook Live, YouTube...). Hiển thị trên trang Liên hệ.
+            </p>
+          </div>
+          <div className="md:col-span-2">
+            <label className="block text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50 mb-1.5">
+              Google Maps Embed URL
+            </label>
+            <input
+              type="text"
+              value={data.map_embed_url}
+              onChange={(e) => setData({ ...data, map_embed_url: e.target.value })}
+              placeholder="https://www.google.com/maps/embed?pb=..."
+              className={inputCls}
+            />
+            <p className="mt-1 text-[10px] text-[#D0C5AF]/30">
+              Mở Google Maps → tìm showroom → <span className="text-gold/60">Share</span> → <span className="text-gold/60">Embed a map</span> → copy phần <code className="text-gold/60">src=&quot;...&quot;</code> dán vào đây. Nếu để trống, bản đồ sẽ tự query theo địa chỉ (có thể không chính xác).
+            </p>
+            <MapUrlStatusHint value={data.map_embed_url} />
+          </div>
+          <div className="md:col-span-2">
+            <label className="block text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50 mb-1.5">
+              Google Maps Share Link (cho nút click)
+            </label>
+            <input
+              type="text"
+              value={data.map_link_url}
+              onChange={(e) => setData({ ...data, map_link_url: e.target.value })}
+              placeholder="https://maps.app.goo.gl/... hoặc https://www.google.com/maps/place/..."
+              className={inputCls}
+            />
+            <p className="mt-1 text-[10px] text-[#D0C5AF]/30">
+              Mở Google Maps → tìm showroom → <span className="text-gold/60">Share</span> → <span className="text-gold/60">Copy link</span> (link chia sẻ dạng <code className="text-gold/60">maps.app.goo.gl/...</code> hoặc place URL). Dùng cho nút &quot;xem trên bản đồ&quot; mở Maps app đúng vị trí. Embed URL (field trên) <u>không click được</u> — phải dùng link này.
+            </p>
+            <MapLinkUrlStatusHint value={data.map_link_url} />
+          </div>
         </div>
       </div>
 
-      {/* Shipping (placeholder — future: move to site_settings) */}
-      <div className="p-4 sm:p-6 rounded-sm space-y-5" style={glassStyle}>
-        <h2 className="font-heading text-sm font-bold text-[#EAE1D4] tracking-[0.05em] uppercase">
-          Shipping
-        </h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5">
-          <div>
-            <label className="block text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50 mb-1.5">
-              Default Shipping Fee
-            </label>
-            <input type="text" defaultValue="₫30,000" className={inputCls} disabled />
-          </div>
-          <div>
-            <label className="block text-[10px] font-heading tracking-[0.1em] uppercase text-[#D0C5AF]/50 mb-1.5">
-              Free Shipping Threshold
-            </label>
-            <input type="text" defaultValue="₫500,000" className={inputCls} disabled />
-          </div>
-        </div>
-        <p className="text-[10px] text-[#D0C5AF]/30">Cấu hình vận chuyển sẽ được thêm sau.</p>
-      </div>
 
       <div className="flex justify-end pt-2">
         <button
@@ -188,5 +223,92 @@ export function SiteInfoTab() {
         </button>
       </div>
     </div>
+  );
+}
+
+/**
+ * MapUrlStatusHint — kiểm tra real-time URL admin dán vào field Google Maps,
+ * báo cho admin biết URL có nhúng iframe được không (tránh dán link chia sẻ/place URL
+ * rồi map không hiện).
+ */
+function MapUrlStatusHint({ value }: { value: string }) {
+  const raw = (value ?? '').trim();
+  if (!raw) return null;
+
+  // Trích src nếu dán cả <iframe src="...">
+  const iframeMatch = raw.match(/src=["']([^"']+)["']/i);
+  const url = (iframeMatch ? iframeMatch[1] : raw).trim();
+
+  if (/\/maps\/embed(\?|$|&)/i.test(url) || /output=embed/i.test(url)) {
+    return (
+      <p className="mt-1 text-[10px] text-emerald-400/80">
+        ✓ URL embed hợp lệ — bản đồ sẽ nhúng trực tiếp chính xác vị trí.
+      </p>
+    );
+  }
+
+  if (iframeMatch) {
+    return (
+      <p className="mt-1 text-[10px] text-emerald-400/80">
+        ✓ Đã trích URL từ mã iframe — sẽ nhúng trực tiếp.
+      </p>
+    );
+  }
+
+  if (/maps\.app\.goo\.gl/i.test(url) || /\/maps\/place\//i.test(url) || /\/maps\/search\//i.test(url) || /\/maps\/?\?/i.test(url)) {
+    return (
+      <p className="mt-1 text-[10px] text-amber-400/80">
+        ⚠ Đây là link chia sẻ/place — mở Maps app được nhưng <u>không nhúng iframe</u> được.
+        Bản đồ nhúng sẽ fallback theo địa chỉ. Để nhúng đúng vị trí: dùng <span className="text-gold/60">Embed a map</span> → copy <code>src</code>.
+      </p>
+    );
+  }
+
+  return (
+    <p className="mt-1 text-[10px] text-amber-400/80">
+      ⚠ URL không nhận dạng được là Google Maps embed. Vui lòng kiểm tra lại.
+    </p>
+  );
+}
+
+/**
+ * MapLinkUrlStatusHint — kiểm tra link chia sẻ admin dán vào field "Share Link"
+ * (dùng cho nút click). Báo có mở Maps app được không.
+ */
+function MapLinkUrlStatusHint({ value }: { value: string }) {
+  const raw = (value ?? '').trim();
+  if (!raw) return null;
+
+  const url = raw;
+
+  // Embed URL dán nhầm field link → cảnh báo
+  if (/\/maps\/embed(\?|$|&)/i.test(url)) {
+    return (
+      <p className="mt-1 text-[10px] text-rose-400/80">
+        ✗ Đây là embed URL — không click mở Maps app được (sẽ báo &quot;must be used in an iframe&quot;). Dán embed URL vào field phía trên, còn field này dùng link Share → Copy link.
+      </p>
+    );
+  }
+
+  if (/maps\.app\.goo\.gl/i.test(url) || /\/maps\/place\//i.test(url) || /\/maps\/search\//i.test(url)) {
+    return (
+      <p className="mt-1 text-[10px] text-emerald-400/80">
+        ✓ Link chia sẻ hợp lệ — nút click sẽ mở Maps app đúng vị trí.
+      </p>
+    );
+  }
+
+  if (/^https?:\/\/(www\.)?(google\.com\/maps|maps\.google\.com)/i.test(url)) {
+    return (
+      <p className="mt-1 text-[10px] text-emerald-400/80">
+        ✓ URL Google Maps hợp lệ — sẽ dùng làm link click.
+      </p>
+    );
+  }
+
+  return (
+    <p className="mt-1 text-[10px] text-amber-400/80">
+      ⚠ URL không nhận dạng được là link Google Maps. Vui lòng kiểm tra lại.
+    </p>
   );
 }

@@ -84,6 +84,17 @@ export interface LoyaltyConfig {
   max_redemption_percent: number;
 }
 
+/** Sản phẩm quà tặng từ gift_pool — trả về cho client chọn */
+export interface GiftProductChoice {
+  pool_id: string;
+  product_id: string;
+  product_title: string;
+  product_image: string;
+  product_price: number;
+  product_tier: string;
+  stock: number; // -1 = unlimited
+}
+
 /** Kết quả check gamification cho checkout */
 export interface GamificationCheck {
   /** Mua X tặng Y — progress + eligible */
@@ -102,6 +113,8 @@ export interface GamificationCheck {
       rule_code: GiftRuleCode;
       gift_count: number;
       voucher_amount: number;
+      /** Sản phẩm quà tặng khả dụng từ pool (cho user chọn) */
+      gift_products: GiftProductChoice[];
     } | null;
     /** Rule gần nhất user sắp đạt */
     next_goal: {

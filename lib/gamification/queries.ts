@@ -471,3 +471,256 @@ export async function removeGiftPoolItem(giftPoolId: string): Promise<boolean> {
   }
   return true;
 }
+
+/**
+ * Update gift rule (admin) — edit trigger_value, gift_count, voucher_amount, is_active.
+ * Chỉ cho phép với ITEM_COUNT rules (BOGO). ORDER_COUNT/BIRTHDAY không chỉnh trigger qua UI này.
+ */
+export async function updateGiftRule(
+  ruleId: string,
+  updates: {
+    trigger_value?: number;
+    gift_count?: number;
+    voucher_amount?: number;
+    is_active?: boolean;
+  }
+): Promise<boolean> {
+  const supabase = createAdminClient();
+  const patch: Record<string, unknown> = {};
+  if (updates.trigger_value !== undefined) patch.trigger_value = updates.trigger_value;
+  if (updates.gift_count !== undefined) patch.gift_count = updates.gift_count;
+  if (updates.voucher_amount !== undefined) patch.voucher_amount = updates.voucher_amount;
+  if (updates.is_active !== undefined) patch.is_active = updates.is_active;
+
+  if (Object.keys(patch).length === 0) return true;
+
+  const { error } = await supabase
+    .from('gift_rules')
+    .update(patch)
+    .eq('id', ruleId);
+
+  if (error) {
+    console.error('[updateGiftRule] error:', error.message);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Validate gift items submitted khi tạo order — bảo vệ chống fraud.
+ *
+ * Logic (must match /api/gamification/check để admin + client + server đồng nhất):
+ *  - Tất cả gift items phải cùng 1 gift_rule_code.
+ *  - Rule phải tồn tại, is_active=true, trigger_type=ITEM_COUNT.
+ *  - paidItemCount >= rule.trigger_value (đủ điều kiện nhận quà).
+ *  - Số gift items <= rule.gift_count.
+ *  - Mỗi gift productId phải nằm trong gift_pool của rule đó (is_active=true).
+ *  - Stock pool phải đủ cho mỗi gift (trừ khi stock=-1 = unlimited).
+ */
+export async function validateGiftItemsForOrder(
+  giftItems: Array<{ productId: string; gift_rule_code?: string | null }>,
+  paidItemCount: number
+): Promise<{
+  ok: boolean;
+  error?: string;
+  productId?: string;
+  rule?: GiftRule;
+  validGiftItems?: Array<{ productId: string; gift_rule_code: string }>;
+}> {
+  if (giftItems.length === 0) {
+    return { ok: true, validGiftItems: [] };
+  }
+
+  // 1. Tất cả gift items phải có rule_code, và cùng 1 rule_code
+  const ruleCodes = Array.from(
+    new Set(
+      giftItems
+        .map((g) => g.gift_rule_code)
+        .filter((c): c is string => typeof c === 'string' && c.length > 0)
+    )
+  );
+  if (ruleCodes.length === 0) {
+    return { ok: false, error: 'GIFT_NO_RULE_CODE' };
+  }
+  if (ruleCodes.length > 1) {
+    return { ok: false, error: 'GIFT_MULTIPLE_RULES' };
+  }
+  const ruleCode = ruleCodes[0];
+
+  // 2. Fetch rule
+  const supabase = createAdminClient();
+  const { data: ruleRow, error: ruleErr } = await supabase
+    .from('gift_rules')
+    .select('*')
+    .eq('rule_code', ruleCode)
+    .maybeSingle();
+
+  if (ruleErr || !ruleRow) {
+    return { ok: false, error: 'GIFT_RULE_NOT_FOUND' };
+  }
+  const rule = ruleRow as unknown as GiftRule;
+
+  if (!rule.is_active) {
+    return { ok: false, error: 'GIFT_RULE_INACTIVE' };
+  }
+  if (rule.trigger_type !== 'ITEM_COUNT') {
+    return { ok: false, error: 'GIFT_RULE_TYPE_UNSUPPORTED' };
+  }
+
+  // 3. Đủ điều kiện: paidItemCount >= trigger_value
+  if (paidItemCount < rule.trigger_value) {
+    return { ok: false, error: 'GIFT_NOT_ELIGIBLE' };
+  }
+
+  // 4. Số gift items <= gift_count
+  if (giftItems.length > rule.gift_count) {
+    return { ok: false, error: 'GIFT_EXCEEDS_COUNT' };
+  }
+
+  // 5. Mỗi gift productId phải thuộc gift_pool của rule (is_active=true)
+  const productIds = Array.from(new Set(giftItems.map((g) => g.productId)));
+  const { data: poolRows, error: poolErr } = await supabase
+    .from('gift_pool')
+    .select('id, product_id, stock, is_active')
+    .eq('rule_id', rule.id)
+    .eq('is_active', true)
+    .in('product_id', productIds);
+
+  if (poolErr) {
+    return { ok: false, error: 'GIFT_POOL_QUERY_FAILED' };
+  }
+
+  const poolMap = new Map<string, { id: string; stock: number }>();
+  for (const row of poolRows ?? []) {
+    if (!poolMap.has(row.product_id)) {
+      poolMap.set(row.product_id, { id: row.id, stock: row.stock });
+    }
+  }
+
+  // 6. Check tồn tại + stock (user có thể chọn cùng product nhiều lần)
+  const productCounts = new Map<string, number>();
+  for (const g of giftItems) {
+    productCounts.set(g.productId, (productCounts.get(g.productId) ?? 0) + 1);
+  }
+
+  for (const [pid, qty] of productCounts.entries()) {
+    const pool = poolMap.get(pid);
+    if (!pool) {
+      return { ok: false, error: 'GIFT_PRODUCT_NOT_IN_POOL', productId: pid };
+    }
+    if (pool.stock !== -1 && pool.stock < qty) {
+      return { ok: false, error: 'GIFT_OUT_OF_STOCK', productId: pid };
+    }
+  }
+
+  return {
+    ok: true,
+    rule,
+    validGiftItems: giftItems.map((g) => ({
+      productId: g.productId,
+      gift_rule_code: ruleCode,
+    })),
+  };
+}
+
+/**
+ * Decrement gift_pool.stock cho mỗi gift item khi tạo order thành công.
+ * stock = -1 (unlimited) thì bỏ qua.
+ *
+ * @param giftItems - mảng { productId, gift_rule_code }
+ * @returns true nếu tất cả update thành công (non-fatal nếu fail — order đã tạo)
+ */
+export async function decrementGiftPoolStock(
+  giftItems: Array<{ productId: string; gift_rule_code?: string | null }>
+): Promise<boolean> {
+  if (giftItems.length === 0) return true;
+  const supabase = createAdminClient();
+
+  // Đếm qty mỗi product
+  const productCounts = new Map<string, number>();
+  for (const g of giftItems) {
+    productCounts.set(g.productId, (productCounts.get(g.productId) ?? 0) + 1);
+  }
+
+  let allOk = true;
+  for (const [productId, qty] of productCounts.entries()) {
+    // Lấy pool row hiện tại (stock != -1 mới cần decrement)
+    const { data: poolRow, error: poolErr } = await supabase
+      .from('gift_pool')
+      .select('id, stock')
+      .eq('product_id', productId)
+      .neq('stock', -1)
+      .maybeSingle();
+
+    if (poolErr || !poolRow) {
+      // stock=-1 (unlimited) hoặc không tìm thấy — bỏ qua
+      continue;
+    }
+
+    const newStock = Math.max(0, (poolRow.stock ?? 0) - qty);
+    const { error: updErr } = await supabase
+      .from('gift_pool')
+      .update({ stock: newStock })
+      .eq('id', poolRow.id);
+
+    if (updErr) {
+      console.error('[decrementGiftPoolStock] update failed:', productId, updErr.message);
+      allOk = false;
+    }
+  }
+  return allOk;
+}
+
+/**
+ * Restore gift_pool.stock khi đơn bị huỷ (admin cancel hoặc cleanup bank order).
+ * Đọc order_items.is_gift=true của order, cộng lại stock cho pool product.
+ * stock=-1 (unlimited) thì bỏ qua.
+ */
+export async function restoreGiftPoolStockOnCancel(orderId: string): Promise<boolean> {
+  const supabase = createAdminClient();
+
+  // Lấy gift items của order
+  const { data: giftItems, error: itemsErr } = await supabase
+    .from('order_items')
+    .select('product_id')
+    .eq('order_id', orderId)
+    .eq('is_gift', true);
+
+  if (itemsErr) {
+    console.error('[restoreGiftPoolStockOnCancel] query gift items failed:', itemsErr.message);
+    return false;
+  }
+  if (!giftItems || giftItems.length === 0) return true;
+
+  // Đếm qty mỗi product
+  const productCounts = new Map<string, number>();
+  for (const it of giftItems) {
+    productCounts.set(it.product_id, (productCounts.get(it.product_id) ?? 0) + 1);
+  }
+
+  let allOk = true;
+  for (const [productId, qty] of productCounts.entries()) {
+    const { data: poolRow, error: poolErr } = await supabase
+      .from('gift_pool')
+      .select('id, stock')
+      .eq('product_id', productId)
+      .neq('stock', -1)
+      .maybeSingle();
+
+    if (poolErr || !poolRow) {
+      continue;
+    }
+
+    const newStock = (poolRow.stock ?? 0) + qty;
+    const { error: updErr } = await supabase
+      .from('gift_pool')
+      .update({ stock: newStock })
+      .eq('id', poolRow.id);
+
+    if (updErr) {
+      console.error('[restoreGiftPoolStockOnCancel] update failed:', productId, updErr.message);
+      allOk = false;
+    }
+  }
+  return allOk;
+}

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { authErrorResponse, requireAdmin } from '@/lib/auth/require-admin';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { awardOrderPoints, reverseOrderPoints } from '@/lib/gamification/queries';
+import { awardOrderPoints, reverseOrderPoints, restoreGiftPoolStockOnCancel } from '@/lib/gamification/queries';
 import { getTrackingUrl, logTimelineEvent } from '@/lib/order/timeline';
 import type {
   OrderItemRow,
@@ -97,7 +97,7 @@ export async function GET(
 
     const { data: itemsRaw, error: itemsErr } = await admin
       .from('order_items')
-      .select('id, order_id, product_id, price, snapshot_title, snapshot_image, snapshot_material, product:products!order_items_product_id_fkey(id, slug)')
+      .select('id, order_id, product_id, price, snapshot_title, snapshot_image, snapshot_material, is_gift, gift_rule_code, product:products!order_items_product_id_fkey(id, slug)')
       .eq('order_id', id);
 
     if (itemsErr) {
@@ -118,6 +118,8 @@ export async function GET(
         snapshot_title: r.snapshot_title,
         snapshot_image: r.snapshot_image,
         snapshot_material: r.snapshot_material,
+        is_gift: r.is_gift ?? false,
+        gift_rule_code: r.gift_rule_code ?? null,
         product: r.product ?? null,
       };
     });
@@ -654,6 +656,10 @@ export async function PATCH(
           }
         }
       }
+
+      // Restore gift_pool.stock cho gift items của đơn bị huỷ (chỉ stock != -1).
+      // Helper tự query order_items.is_gift=true nên không phụ thuộc payment_status.
+      await restoreGiftPoolStockOnCancel(id);
     }
 
     return NextResponse.json({ order });

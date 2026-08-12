@@ -2,9 +2,11 @@
 
 import { useState } from 'react';
 import { useCountdown } from '@/hooks/use-countdown';
-import { Lock, ShieldCheck, Clock } from 'lucide-react';
+import { Lock, ShieldCheck, Clock, Gift } from 'lucide-react';
 import { formatVND } from '@/lib/utils';
 import { getPaymentMethodLabel } from '@/lib/order/status';
+import { useGiftSelectionStore } from '@/lib/store/gift-selection';
+import { GiftBadge } from '@/components/order/gift-badge';
 import { GamificationPanel } from './gamification-panel';
 import { ShippingFeeDisplay } from './shipping-fee-display';
 import type { PaymentOption } from './checkout-form';
@@ -195,6 +197,9 @@ export function CheckoutSummary({
         <GamificationPanel />
       </div>
 
+      {/* — Selected gifts recap (highlight quà miễn phí user đã chọn) — */}
+      <SelectedGiftsRecap />
+
       {/* — Price calculation — */}
       <div className="flex flex-col gap-4 border-t border-gold/10 px-6 py-8">
         {/* Tạm tính */}
@@ -303,6 +308,60 @@ export function CheckoutSummary({
           </span>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * SelectedGiftsRecap — hiển thị danh sách quà miễn phí user đã chọn trong checkout.
+ * Đọc từ useGiftSelectionStore (được GamificationPanel.GiftProductPicker điền).
+ * Quà có giá 0đ nên KHÔNG cộng vào subtotal/total — chỉ hiển thị để user xác nhận.
+ */
+function SelectedGiftsRecap() {
+  const selectedGifts = useGiftSelectionStore((s) => s.selectedGifts);
+  const ruleCode = useGiftSelectionStore((s) => s.ruleCode);
+
+  if (selectedGifts.length === 0) return null;
+
+  return (
+    <div className="mx-6 mb-6 rounded-sm border border-gold/30 bg-gradient-to-b from-gold/10 to-transparent p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Gift className="h-4 w-4 shrink-0 text-gold" />
+          <span className="font-heading text-[10px] font-bold uppercase tracking-wider text-gold">
+            Quà miễn phí ({selectedGifts.length})
+          </span>
+        </div>
+        <GiftBadge ruleCode={ruleCode} size="sm" />
+      </div>
+      <ul className="space-y-2">
+        {selectedGifts.map((g) => (
+          <li key={g.product_id} className="flex items-center gap-3 rounded-sm border border-gold/15 bg-background/30 p-2">
+            <div className="h-12 w-10 shrink-0 overflow-hidden rounded-sm border border-gold/20 bg-background">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={g.product_image}
+                alt={g.product_title}
+                className="h-full w-full object-cover"
+              />
+            </div>
+            <div className="flex flex-1 flex-col gap-0.5 overflow-hidden">
+              <span className="line-clamp-1 font-sans text-sm text-text-base">
+                {g.product_title}
+              </span>
+              <span className="font-heading text-[9px] uppercase tracking-wider text-gold/60">
+                Tier {g.product_tier}
+              </span>
+            </div>
+            <span className="shrink-0 font-sans text-sm font-semibold text-gold">
+              Miễn phí
+            </span>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-[10px] text-text-muted">
+        Quà tặng sẽ được đóng gói cùng đơn hàng. Giá 0đ, không ảnh hưởng tổng tiền.
+      </p>
     </div>
   );
 }

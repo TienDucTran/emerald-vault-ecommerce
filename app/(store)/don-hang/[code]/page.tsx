@@ -19,6 +19,7 @@ import {
   Clock,
 } from 'lucide-react';
 import { formatVND } from '@/lib/utils';
+import { GiftBadge } from '@/components/order/gift-badge';
 import { useJewelryAnalytics } from '@/hooks/use-jewelry-analytics';
 import {
   getOrderStatusMeta,
@@ -43,6 +44,8 @@ interface OrderItem {
   snapshot_title: string;
   snapshot_image: string;
   snapshot_material?: string | null;
+  is_gift?: boolean;
+  gift_rule_code?: string | null;
   product?: { id: string; slug: string; title: string; image_url: string } | null;
 }
 
@@ -323,6 +326,11 @@ export default function OrderLookupPage() {
                 <div className="flex flex-1 flex-col justify-between p-6">
                   <div className="flex items-start justify-between gap-4">
                     <div>
+                      {it.is_gift && (
+                        <div className="mb-2">
+                          <GiftBadge ruleCode={it.gift_rule_code ?? null} />
+                        </div>
+                      )}
                       <h3 className="font-heading text-lg text-gold-champagne">
                         {it.snapshot_title}
                       </h3>
@@ -333,7 +341,7 @@ export default function OrderLookupPage() {
                       )}
                     </div>
                     <p className="whitespace-nowrap font-sans text-[22px] font-semibold tracking-[0.05em] text-gold">
-                      {formatVND(it.price)}
+                      {it.is_gift ? 'Miễn phí' : formatVND(it.price)}
                     </p>
                   </div>
                   <div className="mt-4 flex flex-wrap items-center gap-4 text-xs">

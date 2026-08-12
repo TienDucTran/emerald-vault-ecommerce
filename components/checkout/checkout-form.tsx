@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Loader2, AlertTriangle, AlertCircle, MapPin } from 'lucide-react';
 import { useCartStore } from '@/lib/store/cart';
+import { useGiftSelectionStore } from '@/lib/store/gift-selection';
 import { useAnonymousId } from '@/hooks/use-anonymous-id';
 import { createClient } from '@/lib/supabase/client';
 import {
@@ -80,6 +81,18 @@ const ORDER_ERROR_MAP: Record<string, string> = {
   BANK_NOT_CONFIGURED: 'Ngân hàng chưa được cấu hình. Vui lòng chọn phương thức khác.',
   ORDER_FAILED: 'Đặt hàng thất bại. Vui lòng thử lại.',
   NETWORK_ERROR: 'Mất kết nối mạng. Vui lòng thử lại.',
+  // Gift validation errors (server-side anti-fraud)
+  GIFT_NO_RULE_CODE: 'Quà tặng không hợp lệ (thiếu rule). Vui lòng chọn lại quà.',
+  GIFT_MULTIPLE_RULES: 'Quà tặng không hợp lệ (nhiều rule). Vui lòng chọn lại quà.',
+  GIFT_RULE_NOT_FOUND: 'Chương trình quà tặng không tồn tại hoặc đã kết thúc.',
+  GIFT_RULE_INACTIVE: 'Chương trình quà tặng này đã tạm ngưng.',
+  GIFT_RULE_TYPE_UNSUPPORTED: 'Loại quà tặng này không áp dụng tại giỏ hàng.',
+  GIFT_NOT_ELIGIBLE: 'Đơn hàng chưa đủ điều kiện nhận quà. Vui lòng mua thêm món để đạt mốc.',
+  GIFT_EXCEEDS_COUNT: 'Số lượng quà chọn vượt quá mức cho phép. Vui lòng chọn lại.',
+  GIFT_PRODUCT_NOT_IN_POOL: 'Sản phẩm quà tặng không hợp lệ. Vui lòng chọn lại.',
+  GIFT_OUT_OF_STOCK: 'Quà tặng này đã hết. Vui lòng chọn món quà khác.',
+  GIFT_INVALID: 'Quà tặng không hợp lệ. Vui lòng chọn lại.',
+  GIFT_POOL_QUERY_FAILED: 'Không kiểm tra được quà tặng. Vui lòng thử lại.',
 };
 
 function translateOrderError(code: string): string {
@@ -93,6 +106,8 @@ export function CheckoutForm({ payment, onPaymentChange, isBankConfigured }: Che
     s.items.filter((i) => Date.now() < i.expiresAt)
   );
   const activeItem = activeItems[0] ?? null; // backward-compat cho UI cũ
+  const selectedGifts = useGiftSelectionStore((s) => s.selectedGifts);
+  const clearGifts = useGiftSelectionStore((s) => s.clear);
 
   // FIX: B-3.4, C2 — controlled form state
   const [name, setName] = useState('');
@@ -268,7 +283,7 @@ export function CheckoutForm({ payment, onPaymentChange, isBankConfigured }: Che
         .getState()
         .markCheckoutStarted(activeItems.map((i) => i.product.id));
 
-      // 1. Tạo order (multi-item)
+      // 1. Tạo order (multi-item) + gift items (nếu user đã chọn quà)
       const orderItems = activeItems.map((i) => ({
         productId: i.product.id,
         price: i.product.price,
@@ -278,11 +293,26 @@ export function CheckoutForm({ payment, onPaymentChange, isBankConfigured }: Che
         lockId: i.lockId,
         checkoutStartedAt: i.checkoutStartedAt ?? null,
       }));
+
+      // Gift items: price=0, is_gift=true, gift_rule_code từ store
+      const giftRuleCode = useGiftSelectionStore.getState().ruleCode;
+      const giftItems = selectedGifts.map((g) => ({
+        productId: g.product_id,
+        price: 0,
+        title: g.product_title,
+        image: g.product_image,
+        material: undefined,
+        lockId: null,
+        checkoutStartedAt: null,
+        is_gift: true,
+        gift_rule_code: giftRuleCode ?? undefined,
+      }));
+
       const orderRes = await fetch('/api/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          items: orderItems,
+          items: [...orderItems, ...giftItems],
           customer: { name, phone, email, address, province, district, ward, notes },
           payment,
           clientId: clientId ?? undefined,
@@ -365,8 +395,9 @@ export function CheckoutForm({ payment, onPaymentChange, isBankConfigured }: Che
         window.location.href = momoJson.payUrl;
         return;
       }
-      // Clear cart local
+      // Clear cart local + gift selection
       useCartStore.getState().clear();
+      clearGifts();
 
       // Sau khi submit:
       // - MOMO: đã return ở nhánh trên

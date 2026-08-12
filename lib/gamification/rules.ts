@@ -9,6 +9,7 @@ import type {
   LoyaltyTier,
   LoyaltyConfig,
   GamificationCheck,
+  GiftProductChoice,
 } from './types';
 
 /** Default loyalty config (match seed trong migration 0036) */
@@ -68,6 +69,8 @@ export function getPointsRate(tier: LoyaltyTier, config: LoyaltyConfig = DEFAULT
       return config.points_rate_gold;
     case 'PLATINUM':
       return config.points_rate_platinum;
+    default:
+      return config.points_rate_bronze;
   }
 }
 
@@ -88,11 +91,13 @@ export function calculatePointsEarned(
  *
  * @param rules - danh sách gift rules (ITEM_COUNT type)
  * @param eligibleItemCount - số item SS/S trong cart
- * @returns progress + best achieved + next goal
+ * @param giftPoolMap - map rule_id → gift products available (optional, for client selection)
+ * @returns progress + best achieved (with gift_products) + next goal
  */
 export function evaluateBogoRules(
   rules: GiftRule[],
-  eligibleItemCount: number
+  eligibleItemCount: number,
+  giftPoolMap?: Map<string, GiftProductChoice[]>
 ): GamificationCheck['bogo'] {
   // Filter chỉ ITEM_COUNT rules, active, sort by trigger_value asc
   const bogoRules = rules
@@ -111,11 +116,17 @@ export function evaluateBogoRules(
 
   // Best achieved = rule có trigger_value cao nhất mà user đã đạt
   const achieved = ruleProgress.filter((r) => r.is_eligible);
-  const bestAchieved = achieved.length > 0
+  const bestAchievedRule = achieved.length > 0 ? achieved[achieved.length - 1] : null;
+  const bestAchievedRuleId = bestAchievedRule
+    ? bogoRules.find((r) => r.rule_code === bestAchievedRule.rule_code)?.id
+    : null;
+
+  const bestAchieved = bestAchievedRule && bestAchievedRuleId
     ? {
-        rule_code: achieved[achieved.length - 1].rule_code,
-        gift_count: achieved[achieved.length - 1].gift_count,
-        voucher_amount: achieved[achieved.length - 1].voucher_amount,
+        rule_code: bestAchievedRule.rule_code as GiftRuleCode,
+        gift_count: bestAchievedRule.gift_count,
+        voucher_amount: bestAchievedRule.voucher_amount,
+        gift_products: giftPoolMap?.get(bestAchievedRuleId) ?? [],
       }
     : null;
 
@@ -123,7 +134,7 @@ export function evaluateBogoRules(
   const notAchieved = ruleProgress.filter((r) => !r.is_eligible);
   const nextGoal = notAchieved.length > 0
     ? {
-        rule_code: notAchieved[0].rule_code,
+        rule_code: notAchieved[0].rule_code as GiftRuleCode,
         trigger_value: notAchieved[0].trigger_value,
         remaining: notAchieved[0].remaining,
       }

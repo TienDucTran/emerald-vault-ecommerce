@@ -171,6 +171,10 @@ export interface OrderItemRow {
   snapshot_title: string;
   snapshot_image: string;
   snapshot_material: Material | null;
+  /** true = sản phẩm được tặng (BOGO reward), price=0 */
+  is_gift?: boolean;
+  /** rule_code snapshot (vd: BUY4GET1) — null nếu không phải gift */
+  gift_rule_code?: string | null;
 }
 
 export interface OrderRefundRow {

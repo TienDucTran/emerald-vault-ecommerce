@@ -62,6 +62,11 @@ export interface SiteSettings {
   social_facebook?: string;
   social_tiktok?: string;
   announcement_messages?: string[];
+  live_stream_url?: string;
+  /** Google Maps embed URL (từ Maps → Share → Embed a map → copy src). Fallback: query theo address. */
+  map_embed_url?: string;
+  /** Google Maps share/place link (từ Maps → Share → Copy link) dùng cho nút click mở Maps app. Fallback: query theo address. */
+  map_link_url?: string;
 }
 
 export interface ProductSpec {

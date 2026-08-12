@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { StatusUpdateDialog } from '@/components/admin/orders/status-update-dialog';
 import { BankPaymentActions } from '@/components/admin/orders/bank-payment-actions';
 import { RefundPanel } from '@/components/admin/orders/refund-panel';
+import { GiftBadge } from '@/components/order/gift-badge';
 import { requireAdmin } from '@/lib/auth/require-admin';
 import { formatVND, MATERIAL_LABELS } from '@/lib/utils';
 import { getBankByCode } from '@/lib/bank/types';
@@ -36,6 +37,8 @@ interface OrderItemWithProduct {
   snapshot_title: string;
   snapshot_image: string;
   snapshot_material: Material | null;
+  is_gift?: boolean;
+  gift_rule_code?: string | null;
   product: { id: string; slug: string } | null;
 }
 
@@ -125,7 +128,7 @@ export default async function OrderDetailPage({
   const { data: itemsRaw, error: itemsErr } = await adminClient
     .from('order_items')
     .select(
-      'id, order_id, product_id, price, snapshot_title, snapshot_image, snapshot_material, product:products!order_items_product_id_fkey(id, slug)'
+      'id, order_id, product_id, price, snapshot_title, snapshot_image, snapshot_material, is_gift, gift_rule_code, product:products!order_items_product_id_fkey(id, slug)'
     )
     .eq('order_id', params.id);
 
@@ -143,6 +146,8 @@ export default async function OrderDetailPage({
       snapshot_title: r.snapshot_title,
       snapshot_image: r.snapshot_image,
       snapshot_material: r.snapshot_material,
+      is_gift: r.is_gift ?? false,
+      gift_rule_code: r.gift_rule_code ?? null,
       product: r.product ?? null,
     };
   });
@@ -406,6 +411,11 @@ export default async function OrderDetailPage({
                       {it.snapshot_title}
                     </p>
                   )}
+                  {it.is_gift && (
+                    <div className="mt-1.5">
+                      <GiftBadge ruleCode={it.gift_rule_code ?? null} size="sm" />
+                    </div>
+                  )}
                   {it.snapshot_material && (
                     <div className="mt-1">
                       <span className="inline-block text-[10px] uppercase tracking-wider text-gold/70 border border-gold/30 rounded px-1.5 py-0.5">
@@ -414,7 +424,11 @@ export default async function OrderDetailPage({
                     </div>
                   )}
                   <p className="text-sm text-gold font-medium mt-auto pt-1">
-                    {formatVND(it.price)}
+                    {it.is_gift ? (
+                      <span className="text-gold">Miễn phí</span>
+                    ) : (
+                      formatVND(it.price)
+                    )}
                   </p>
                 </div>
               </article>

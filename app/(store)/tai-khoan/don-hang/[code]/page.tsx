@@ -30,6 +30,7 @@ import {
 import { getCarrierLabel, getTrackingUrl, type OrderTimelineRow } from '@/lib/order/timeline';
 import { CustomerActionButtons } from './customer-action-buttons';
 import { OrderTimeline } from '@/components/account/order-timeline';
+import { GiftBadge } from '@/components/order/gift-badge';
 import { createAdminClient } from '@/lib/supabase/admin';
 import type { OrderRefundRow } from '@/lib/supabase/types';
 
@@ -178,6 +179,11 @@ export default async function CustomerOrderDetailPage({ params }: PageProps) {
             <div className="flex flex-1 flex-col justify-between p-6">
               <div className="flex items-start justify-between gap-4">
                 <div>
+                  {it.is_gift && (
+                    <div className="mb-2">
+                      <GiftBadge ruleCode={it.gift_rule_code ?? null} />
+                    </div>
+                  )}
                   <h3 className="font-heading text-lg text-gold-champagne">
                     {it.snapshot_title}
                   </h3>
@@ -188,7 +194,7 @@ export default async function CustomerOrderDetailPage({ params }: PageProps) {
                   )}
                 </div>
                 <p className="whitespace-nowrap font-sans text-[22px] tracking-[0.05em] font-semibold text-gold">
-                  {formatVND(it.price)}
+                  {it.is_gift ? 'Miễn phí' : formatVND(it.price)}
                 </p>
               </div>
               <div className="mt-4 flex flex-wrap items-center gap-4 text-xs">

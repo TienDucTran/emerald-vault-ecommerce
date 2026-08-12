@@ -104,5 +104,8 @@ export function toSiteSettings(map: Record<string, string>): SiteSettings {
     social_facebook: map['social_facebook'],
     social_tiktok: map['social_tiktok'],
     announcement_messages: announcementMessages,
+    live_stream_url: map['live_stream_url'],
+    map_embed_url: map['map_embed_url'],
+    map_link_url: map['map_link_url'],
   };
 }

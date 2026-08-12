@@ -19,7 +19,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getOptionalCustomer } from '@/lib/auth/require-customer';
 import { getSiteSettings } from '@/lib/supabase/queries/site-content';
-import { getActiveGiftRules, getCustomerLoyalty } from '@/lib/gamification/queries';
+import { getActiveGiftRules, getGiftPoolByRule, getCustomerLoyalty } from '@/lib/gamification/queries';
 import {
   detectShippingZone,
   checkFreeship,
@@ -34,7 +34,7 @@ import {
   calculatePointsEarned,
   TIER_LABELS,
 } from '@/lib/gamification/rules';
-import type { GamificationCheck, LoyaltyTier } from '@/lib/gamification/types';
+import type { GamificationCheck, LoyaltyTier, GiftProductChoice } from '@/lib/gamification/types';
 
 const ItemSchema = z.object({
   productId: z.string().uuid(),
@@ -100,8 +100,29 @@ export async function POST(req: Request) {
   const totalValue = paidItems.reduce((sum, i) => sum + i.price, 0); // Chỉ paid value
   const paidItemCount = paidItems.length; // Chỉ paid count cho freeship
 
-  // Evaluate BOGO — threshold tính ALL items
-  const bogo = evaluateBogoRules(rules, totalItemCount);
+  // Fetch gift pool items cho each active ITEM_COUNT rule (build map rule_id → gift_products)
+  const giftPoolMap = new Map<string, GiftProductChoice[]>();
+  const itemCountRules = rules.filter((r) => r.trigger_type === 'ITEM_COUNT' && r.is_active);
+  await Promise.all(
+    itemCountRules.map(async (rule) => {
+      const poolItems = await getGiftPoolByRule(rule.id);
+      giftPoolMap.set(
+        rule.id,
+        poolItems.map((p) => ({
+          pool_id: p.id,
+          product_id: p.product_id,
+          product_title: p.product_title,
+          product_image: p.product_image,
+          product_price: p.product_price,
+          product_tier: p.product_tier,
+          stock: p.stock,
+        }))
+      );
+    })
+  );
+
+  // Evaluate BOGO — threshold tính ALL items, pass gift pool map for client selection
+  const bogo = evaluateBogoRules(rules, totalItemCount, giftPoolMap);
 
   // Detect shipping zone + check freeship (chỉ paid items)
   const zone = detectShippingZone(
