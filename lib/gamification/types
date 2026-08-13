@@ -1,0 +1,145 @@
+/**
+ * Gamification types — Loyalty, Gift Rules, Freeship
+ * Match schema in 0036_loyalty_gamification.sql
+ */
+
+export type LoyaltyTier = 'BRONZE' | 'SILVER' | 'GOLD' | 'PLATINUM';
+
+export type GiftTriggerType = 'ITEM_COUNT' | 'ORDER_COUNT' | 'BIRTHDAY';
+
+/** Rule codes — match seed trong migration 0036 */
+export type GiftRuleCode =
+  | 'BUY4GET1'
+  | 'BUY6GET2'
+  | 'BUY10GET3'
+  | 'FIRST_ORDER_VOUCHER'
+  | 'MILESTONE_5'
+  | 'MILESTONE_10'
+  | 'BIRTHDAY_GIFT';
+
+export interface GiftRule {
+  id: string;
+  rule_code: GiftRuleCode;
+  trigger_type: GiftTriggerType;
+  trigger_value: number;
+  gift_count: number;
+  gift_tier_filter: string[];
+  min_order_value: number;
+  voucher_amount: number;
+  is_active: boolean;
+}
+
+export interface GiftPoolItem {
+  id: string;
+  rule_id: string;
+  product_id: string;
+  product_title: string;
+  product_image: string;
+  product_price: number;
+  product_tier: string;
+  stock: number;
+  is_active: boolean;
+}
+
+export interface CustomerLoyalty {
+  user_id: string;
+  total_points: number;
+  lifetime_points: number;
+  tier: LoyaltyTier;
+  orders_count: number;
+  lifetime_value: number;
+  birthday?: string;
+}
+
+export interface PointTransaction {
+  id: string;
+  user_id: string;
+  order_id: string | null;
+  points: number;
+  reason: string;
+  created_at: string;
+}
+
+/** Khu vực giao hàng — quyết định freeship threshold */
+export type ShippingZone = 'INNER_HCMC' | 'OUTER_HCMC' | 'OTHER_PROVINCE';
+
+export interface FreeshipConfig {
+  inner_hcm_count: number;
+  inner_hcm_value: number;
+  outer_hcm_count: number;
+  outer_hcm_value: number;
+  province_count: number;
+  province_value: number;
+  ship_fee_inner_hcm: number;
+  ship_fee_outer_hcm: number;
+  ship_fee_province: number;
+}
+
+export interface LoyaltyConfig {
+  points_rate_bronze: number;
+  points_rate_silver: number;
+  points_rate_gold: number;
+  points_rate_platinum: number;
+  min_redemption_points: number;
+  max_redemption_percent: number;
+}
+
+/** Preview sản phẩm tặng (cho UI hiển thị) */
+export interface GiftPreview {
+  product_id: string;
+  product_title: string;
+  product_image: string;
+  product_tier: string;
+  rule_code: GiftRuleCode;
+}
+
+/** Kết quả check gamification cho checkout */
+export interface GamificationCheck {
+  /** Mua X tặng Y — progress + eligible */
+  bogo: {
+    rules: Array<{
+      rule_code: GiftRuleCode;
+      trigger_value: number;
+      gift_count: number;
+      eligible_count: number;   // tổng item trong cart (ALL tiers)
+      remaining: number;         // còn thiếu bao nhiêu
+      is_eligible: boolean;
+      voucher_amount: number;
+    }>;
+    /** Rule tốt nhất user đang đạt (nhiều quà nhất) */
+    best_achieved: {
+      rule_code: GiftRuleCode;
+      gift_count: number;
+      voucher_amount: number;
+    } | null;
+    /** Rule gần nhất user sắp đạt */
+    next_goal: {
+      rule_code: GiftRuleCode;
+      trigger_value: number;
+      remaining: number;
+    } | null;
+    /** Preview sản phẩm tặng nếu đạt best_achieved (random từ pool) */
+    gift_preview: GiftPreview[] | null;
+  };
+  /** Freeship check */
+  freeship: {
+    zone: ShippingZone;
+    zone_label: string;
+    item_count_required: number;
+    value_required: number;
+    current_item_count: number;
+    current_value: number;
+    is_free: boolean;
+    ship_fee: number;
+    remaining_items: number;
+    remaining_value: number;
+  };
+  /** Loyalty check */
+  loyalty: {
+    tier: LoyaltyTier;
+    tier_label: string;
+    total_points: number;
+    points_earned: number;     // điểm sẽ nhận từ đơn này
+    points_rate: number;       // % rate theo tier
+  } | null;
+}

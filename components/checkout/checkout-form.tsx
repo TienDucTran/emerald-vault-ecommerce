@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Loader2, AlertTriangle, AlertCircle, MapPin } from 'lucide-react';
+import { Loader2, AlertTriangle, AlertCircle, MapPin, CheckCircle2, ChevronRight } from 'lucide-react';
 import { useCartStore } from '@/lib/store/cart';
 import { useGiftSelectionStore } from '@/lib/store/gift-selection';
 import { useAnonymousId } from '@/hooks/use-anonymous-id';
@@ -129,6 +129,37 @@ export function CheckoutForm({ payment, onPaymentChange, isBankConfigured }: Che
   const errorRef = useRef<HTMLDivElement | null>(null);
   const submitStartRef = useRef<number>(0);
 
+  // Idempotency key — generate 1 lần khi mount, persist trong sessionStorage.
+  // Chống double checkout: nếu user bấm submit 2 lần hoặc refresh + resubmit,
+  // server nhận cùng key → return order cũ thay vì tạo mới.
+  // Clear sau khi order tạo thành công (redirect xong).
+  const idempotencyKeyRef = useRef<string>('');
+  if (typeof window !== 'undefined' && !idempotencyKeyRef.current) {
+    try {
+      const existing = sessionStorage.getItem('checkout_idempotency_key');
+      if (existing) {
+        idempotencyKeyRef.current = existing;
+      } else {
+        const newKey = crypto.randomUUID();
+        sessionStorage.setItem('checkout_idempotency_key', newKey);
+        idempotencyKeyRef.current = newKey;
+      }
+    } catch {
+      // sessionStorage có thể không khả dụng (private mode) — generate in-memory
+      idempotencyKeyRef.current =
+        typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `ck-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    }
+  }
+  // Success overlay state — khi order tạo xong, hiện confirmation screen
+  // thay vì clear cart → re-render form rỗng → flash broken state.
+  const [orderSuccess, setOrderSuccess] = useState<{
+    code: string;
+    redirectUrl: string;
+    paymentMethod: string;
+  } | null>(null);
+
   // Auto-scroll error vào viewport khi error thay đổi — đảm bảo user
   // thấy banner đỏ ngay cả khi submit button ở dưới màn hình.
   useEffect(() => {
@@ -136,6 +167,17 @@ export function CheckoutForm({ payment, onPaymentChange, isBankConfigured }: Che
       errorRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   }, [error]);
+
+  // Auto-redirect khi order thành công — dùng window.location.href (full page
+  // load) thay vì router.push (async) để tránh flash broken state khi cart
+  // đã clear. Delay 1.5s cho user kịp thấy confirmation + order code.
+  useEffect(() => {
+    if (!orderSuccess) return;
+    const timer = setTimeout(() => {
+      window.location.href = orderSuccess.redirectUrl;
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [orderSuccess]);
 
   // Nhận diện: AddressPicker propagate live value mỗi khi user chọn saved address
   // hoặc gõ tay. Parent form luôn overwrite state với giá trị mới nhất từ picker
@@ -310,7 +352,10 @@ export function CheckoutForm({ payment, onPaymentChange, isBankConfigured }: Che
 
       const orderRes = await fetch('/api/orders', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Idempotency-Key': idempotencyKeyRef.current,
+        },
         body: JSON.stringify({
           items: [...orderItems, ...giftItems],
           customer: { name, phone, email, address, province, district, ward, notes },
@@ -392,39 +437,79 @@ export function CheckoutForm({ payment, onPaymentChange, isBankConfigured }: Che
           return;
         }
         // Redirect sang MoMo
+        // Clear idempotency key — order đã tạo thành công
+        try { sessionStorage.removeItem('checkout_idempotency_key'); } catch {}
         window.location.href = momoJson.payUrl;
         return;
       }
-      // Clear cart local + gift selection
+      // Clear cart local + gift selection — làm ngay để cart icon update,
+      // success overlay sẽ thay thế form nên không sợ flash rỗng.
       useCartStore.getState().clear();
       clearGifts();
+      // Clear idempotency key — order đã tạo thành công
+      try { sessionStorage.removeItem('checkout_idempotency_key'); } catch {}
 
-      // Sau khi submit:
-      // - MOMO: đã return ở nhánh trên
-      // - COD: customer đã login (Option B) → /tai-khoan/don-hang/[code]
-      // - BANK_TRANSFER: cần trang QR với phone để tra cứu bank_transfers row
+      // Phân luồng redirect:
+      // - MOMO: đã return ở nhánh trên (window.location.href)
+      // - COD: → /tai-khoan/don-hang/[code]
+      // - BANK_TRANSFER: → /don-hang/[code]/thanh-toan?phone=xxx (trang QR)
       //
-      // Giữ submitting=true cho đến khi navigation hoàn tất để spinner
-      // "ĐANG XỬ LÝ..." stays visible — không hiện form trống / error flash.
+      // Dùng success overlay + window.location.href thay vì router.push:
+      //   router.push là async → trong lúc navigation, React re-render form
+      //   với activeItems=[] (cart đã clear) → flash "giỏ hàng trống" + button
+      //   disabled. Success overlay giữ UI ổn định cho đến khi full redirect.
+      let finalRedirectUrl: string;
       if (paymentMethod === 'COD') {
-        router.push(`/tai-khoan/don-hang/${encodeURIComponent(code)}`);
+        finalRedirectUrl = `/tai-khoan/don-hang/${encodeURIComponent(code)}`;
       } else {
         // BANK_TRANSFER
         if (redirectUrl) {
-          router.push(`${redirectUrl}?phone=${encodeURIComponent(phone)}`);
+          finalRedirectUrl = `${redirectUrl}?phone=${encodeURIComponent(phone)}`;
         } else {
-          router.push(`/don-hang/${code}?phone=${encodeURIComponent(phone)}`);
+          finalRedirectUrl = `/don-hang/${code}?phone=${encodeURIComponent(phone)}`;
         }
       }
-      // KHÔNG setSubmitting(false) ở đây — để spinner stays trên cho đến khi
-      // trang mới render xong (navigation là async, React sẽ unmount component
-      // này). Nếu có lỗi navigation, user vẫn có thể quay lại và form sẽ reset
-      // submitting qua unmount/remount.
+      setOrderSuccess({ code, redirectUrl: finalRedirectUrl, paymentMethod });
     } catch (e) {
       setError(translateOrderError(e instanceof Error ? e.message : 'NETWORK_ERROR'));
       setSubmitting(false);
     }
   };
+
+  // Success overlay — thay thế toàn bộ form khi order tạo xong.
+  // Tránh flash broken state khi cart clear + router.push async.
+  if (orderSuccess) {
+    const isBank = orderSuccess.paymentMethod === 'BANK_TRANSFER';
+    return (
+      <div className="flex flex-col items-center gap-6 py-16 text-center">
+        <div className="grid h-16 w-16 place-items-center rounded-full border border-success/40 bg-success/10 text-success">
+          <CheckCircle2 className="h-8 w-8" />
+        </div>
+        <div className="space-y-2">
+          <h2 className="font-heading text-2xl font-bold text-gold">
+            Đặt hàng thành công
+          </h2>
+          <p className="text-sm text-text-muted">
+            Mã đơn: <span className="font-mono text-text-base">{orderSuccess.code}</span>
+          </p>
+        </div>
+        <div className="flex items-center gap-2 text-sm text-text-muted">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          {isBank ? 'Đang chuyển đến trang thanh toán...' : 'Đang chuyển đến đơn hàng...'}
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            window.location.href = orderSuccess.redirectUrl;
+          }}
+          className="inline-flex items-center gap-2 rounded bg-gradient-gold px-6 py-3 font-heading text-xs font-bold uppercase tracking-[0.1em] text-background transition-all hover:shadow-gold-glow"
+        >
+          {isBank ? 'Đi đến thanh toán' : 'Xem đơn hàng'}
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      </div>
+    );
+  }
 
   return (
     <form className="flex flex-col gap-10" onSubmit={handleSubmit} noValidate>

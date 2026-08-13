@@ -115,7 +115,10 @@ export async function POST(req: Request) {
   }
   const { items, customer, payment, clientId } = parsed.data;
 
-  // 0a. Auth check
+  // 0a. Idempotency check — nếu client gửi X-Idempotency-Key và key đã tồn tại
+  //     cho user này → return order cũ thay vì tạo mới. Chống double checkout.
+  const idempotencyKey = req.headers.get('x-idempotency-key');
+  // 0a-1. Auth check (cần currentUserId để lookup idempotency key)
   let currentUserId: string | null = null;
   try {
     const cookieStore = await cookies();
@@ -195,6 +198,45 @@ export async function POST(req: Request) {
   const locksDb = db.from('inventory_locks');
   const bankDb = db.from('bank_transfers');
   const giftsDb = db.from('order_gifts');
+  const idempotencyDb = db.from('order_idempotency_keys');
+
+  // 0b. Idempotency lookup — nếu key đã tồn tại cho user này + có order_id
+  //     → return order cũ (chống double checkout khi user bấm 2 lần hoặc refresh).
+  if (idempotencyKey && currentUserId) {
+    try {
+      const { data: existingKey } = await idempotencyDb
+        .select('order_id, orders!inner(id, code, status, payment_status, payment_method, total_amount)')
+        .eq('key', idempotencyKey)
+        .eq('user_id', currentUserId)
+        .maybeSingle();
+      if (existingKey?.order_id && existingKey.orders) {
+        const existingOrder = existingKey.orders;
+        const existingRedirectUrl =
+          existingOrder.payment_method === 'MOMO'
+            ? `/momo/return?orderCode=${existingOrder.code}`
+            : existingOrder.payment_method === 'BANK_TRANSFER'
+              ? `/don-hang/${existingOrder.code}/thanh-toan`
+              : `/don-hang/${existingOrder.code}`;
+        return NextResponse.json({
+          ok: true,
+          order: {
+            id: existingOrder.id,
+            code: existingOrder.code,
+            status: existingOrder.status,
+            paymentMethod: existingOrder.payment_method,
+            paymentStatus: existingOrder.payment_status,
+            totalAmount: existingOrder.total_amount,
+          },
+          redirectUrl: existingRedirectUrl,
+          idempotent: true,
+        });
+      }
+    } catch (idempotencyErr) {
+      // Non-fatal — nếu bảng chưa exist (migration chưa apply) thì skip,
+      // order vẫn tạo bình thường.
+      console.error('[orders] idempotency lookup failed (non-fatal):', idempotencyErr);
+    }
+  }
 
   // Separate paid items and gift items
   const paidItems = items.filter((i: any) => !i.is_gift);
@@ -593,7 +635,24 @@ export async function POST(req: Request) {
     }
   }
 
-  // 8. Compute redirectUrl
+  // 8. Save idempotency key — link key → order_id để request tiếp theo
+  //    với cùng key return order này thay vì tạo mới. Non-fatal nếu fail.
+  if (idempotencyKey && currentUserId) {
+    try {
+      await idempotencyDb.insert({
+        key: idempotencyKey,
+        user_id: currentUserId,
+        order_id: order.id,
+      });
+    } catch (idempotencySaveErr) {
+      // Non-fatal — order đã tạo thành công, chỉ không save key.
+      // Trường hợp hiếm: 2 request chạy song song cùng key → unique constraint
+      // reject request thứ 2 (đúng behavior — request thứ 1 đã tạo order).
+      console.error('[orders] idempotency key save failed (non-fatal):', idempotencySaveErr);
+    }
+  }
+
+  // 9. Compute redirectUrl
   const redirectUrl =
     payment === 'MOMO'
       ? `/momo/return?orderCode=${order.code}`
