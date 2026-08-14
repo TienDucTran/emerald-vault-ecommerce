@@ -239,17 +239,37 @@ export const STATIC_KNOWLEDGE: StaticPolicy[] = [
   },
 ];
 
+/**
+ * Strip Vietnamese diacritics — "bao lâu" → "bao lau", "vận chuyển" → "van chuyen"
+ */
+function stripDiacritics(str: string): string {
+  return str
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D');
+}
+
 export function findStaticFaqByKeyword(text: string): StaticFaq | null {
   const t = text.toLowerCase();
+  const tNoAccent = stripDiacritics(t);
   let best: { faq: StaticFaq; score: number } | null = null;
   for (const faq of STATIC_FAQS) {
     let score = 0;
     for (const kw of faq.keywords) {
-      if (t.includes(kw.toLowerCase())) score += kw.length;
+      const kwLower = kw.toLowerCase();
+      const kwNoAccent = stripDiacritics(kwLower);
+      // Match có dấu (score cao hơn) + match không dấu (score thấp hơn)
+      if (t.includes(kwLower)) {
+        score += kw.length;
+      } else if (tNoAccent.includes(kwNoAccent)) {
+        score += kw.length * 0.7; // match không dấu = 70% score
+      }
     }
     if (score > 0 && (!best || score > best.score)) {
       best = { faq, score };
     }
   }
-  return best ? best.faq : null;
+  // Chỉ trả FAQ nếu score đủ cao (threshold = 3, tránh match sai)
+  return best && best.score >= 3 ? best.faq : null;
 }

@@ -453,6 +453,30 @@ export function getChatModelName(): string {
 }
 
 /**
+ * Stream options cho streamText — VIP upgrade Phase 1.
+ * Temperature: 0.7 (sáng tạo vừa phải, giữ tone "Bà Chủ Tiệm" nhất quán)
+ * MaxTokens: 512 (đủ cho 2-4 câu + product links, tránh waste quota)
+ * StopSequences: chặn model generate quá dài hoặc leak tool artifacts
+ */
+export interface StreamOptions {
+  temperature: number;
+  maxTokens: number;
+  stopSequences?: string[];
+}
+
+export function getStreamOptions(): StreamOptions {
+  return {
+    temperature: 0.7,
+    maxTokens: 512,
+    stopSequences: [
+      '<function>',
+      '</function>',
+      'function=',
+    ],
+  };
+}
+
+/**
  * Đánh dấu provider nào đã dùng (gọi từ route handler sau khi loop chain thành công).
  */
 export function setActiveProvider(provider: string, modelName: string) {
